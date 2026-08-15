@@ -46,6 +46,12 @@ export default function TaskWorkspace() {
   }
 
   async function loadTask(id: string) {
+    const cached = getCachedTaskSnapshot(id);
+    if (cached) {
+      setTask(cached);
+      setObjective(cached.objective);
+      setError("");
+    }
     try {
       const data = await readApiResponse<{ task: TaskRecord }>(await fetch(`/api/tasks/${encodeURIComponent(id)}`, { cache: "no-store" }));
       setTask(data.task);
@@ -53,13 +59,7 @@ export default function TaskWorkspace() {
       setObjective(data.task.objective);
       setError("");
     } catch (caught) {
-      const cached = getCachedTaskSnapshot(id);
-      if (cached) {
-        setTask(cached);
-        setObjective(cached.objective);
-        setError("Showing the cached task snapshot because the serverless task store is not available for this request.");
-        return;
-      }
+      if (cached) return;
       setError(caught instanceof Error ? caught.message : "Task could not be loaded.");
     }
   }
