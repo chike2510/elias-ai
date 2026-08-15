@@ -7,6 +7,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import AppShell from "@/components/AppShell";
 import MarkdownMessage from "@/components/MarkdownMessage";
 import { readApiResponse } from "@/lib/clientApi";
+import { cacheTaskSnapshot } from "@/lib/clientTask";
+import type { TaskRecord } from "@/lib/task";
 import {
   getConversation,
   makeId,
@@ -109,7 +111,8 @@ export default function ChatScreen() {
           }),
           signal: controller.signal,
         });
-        const taskData = await readApiResponse<{ task: { id: string; status: string; title: string; error?: string } }>(taskResponse);
+        const taskData = await readApiResponse<{ task: TaskRecord }>(taskResponse);
+        cacheTaskSnapshot(taskData.task);
         const taskMessage: ConversationMessage = {
           id: makeId("msg"),
           role: "assistant",
