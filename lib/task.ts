@@ -12,7 +12,7 @@ export type TaskStatus =
 
 export type TaskKind = "chat" | "code" | "research" | "study" | "document" | "media";
 
-export type PermissionLevel = "read" | "write" | "network" | "execute" | "external_side_effect";
+export type PermissionLevel = "read" | "write" | "artifact" | "network" | "execute" | "external_side_effect";
 
 export type TaskPermission = {
   level: PermissionLevel;
@@ -69,6 +69,7 @@ export type TaskArtifactRef = {
   taskId: string;
   name: string;
   type: string;
+  encoding?: "utf8" | "base64";
   size?: number;
   createdAt: number;
   downloadUrl?: string;
@@ -147,15 +148,16 @@ export function inferTaskType(kind: TaskKind): TaskType {
 export function defaultPermissions(input: CreateTaskInput): TaskPermission[] {
   const values: Array<[PermissionLevel, string]> = [
     ["read", "Read the task workspace and supplied context."],
-    ["write", "Create or modify files and generated artifacts."],
+    ["write", "Create or modify files in the task workspace."],
+    ["artifact", "Create downloadable artifacts from verified task output."],
     ["network", "Search and open public web sources."],
     ["execute", "Run commands inside an isolated execution worker."],
     ["external_side_effect", "Perform an irreversible action outside the workspace."],
   ];
   return values.map(([level, reason]) => ({
     level,
-    granted: input.permissions?.[level] ?? (level === "read" || (level === "network" && input.kind === "research")),
-    ...(input.permissions?.[level] || level === "read" || (level === "network" && input.kind === "research") ? { grantedAt: Date.now(), grantedBy: "policy" as const } : {}),
+    granted: input.permissions?.[level] ?? (level === "read" || level === "artifact" || (level === "network" && input.kind === "research")),
+    ...(input.permissions?.[level] || level === "read" || level === "artifact" || (level === "network" && input.kind === "research") ? { grantedAt: Date.now(), grantedBy: "policy" as const } : {}),
     reason,
   }));
 }

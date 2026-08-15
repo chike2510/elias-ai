@@ -24,7 +24,7 @@ export type AgentRequest =
   | { id?: string; type: "run_validation"; check: "build" | "typecheck" | "lint" | "test" }
   | { id?: string; type: "search_web"; query: string }
   | { id?: string; type: "fetch_url"; url: string }
-  | { id?: string; type: "create_artifact"; name: string; content: string; mimeType?: string };
+  | { id?: string; type: "create_artifact"; name: string; content: string; mimeType?: string; encoding?: "utf8" | "base64" };
 
 export type AgentAction =
   | { id?: string; type: "write_file"; path: string; content: string }
@@ -40,6 +40,7 @@ export type ToolResult = {
   query?: string;
   url?: string;
   content?: string;
+  encoding?: "utf8" | "base64";
   result?: unknown;
   error?: string;
   startedAt?: number;

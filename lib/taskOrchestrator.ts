@@ -21,6 +21,7 @@ import {
   updateStoredTask,
 } from "@/lib/taskStore";
 import { runAgentStep } from "@/lib/agent";
+import { textToPdf } from "@/lib/artifacts";
 
 const MAX_STEPS = 12;
 const MAX_FILE_CHARS = 1_000_000;
@@ -38,7 +39,7 @@ function hasPermission(task: TaskRecord, permission: PermissionLevel) {
 function permissionForRequest(request: AgentRequest): PermissionLevel {
   if (request.type === "search_web" || request.type === "fetch_url") return "network";
   if (request.type === "run_validation") return "execute";
-  if (request.type === "create_artifact") return "write";
+  if (request.type === "create_artifact") return "artifact";
   return "read";
 }
 
@@ -116,7 +117,7 @@ async function executeRequest(task: TaskRecord, request: AgentRequest): Promise<
   const startedAt = Date.now();
   const permission = permissionForRequest(request);
   if (!hasPermission(task, permission)) {
-    const approval = requestTaskApproval(task.id, permission, `ELIAS wants permission to ${permission === "network" ? "access public web sources" : permission === "execute" ? "run validation commands" : "modify the workspace"}.`);
+    const approval = requestTaskApproval(task.id, permission, `ELIAS wants permission to ${permission === "network" ? "access public web sources" : permission === "execute" ? "run validation commands" : permission === "artifact" ? "create a downloadable artifact" : "modify the workspace"}.`);
     return { id: request.id, type: request.type, error: `Waiting for approval: ${approval.id}`, startedAt, completedAt: Date.now() };
   }
 
@@ -140,10 +141,35 @@ async function executeRequest(task: TaskRecord, request: AgentRequest): Promise<
   if (request.type === "fetch_url") return { id: request.id, type: request.type, url: request.url, content: await fetchUrl(request.url), startedAt, completedAt: Date.now() };
 
   const artifactId = `artifact_${crypto.randomUUID()}`;
+  const pdf = request.mimeType === "application/pdf" || /\.pdf$/i.test(request.name);
+  const encoding = request.encoding || (pdf ? "base64" : "utf8");
+  const content = encoding === "base64" ? (pdf ? textToPdf(request.content) : request.content) : request.content;
   updateStoredTask(task.id, (current) => {
-    current.artifacts.push({ id: artifactId, taskId: task.id, name: request.name, type: request.mimeType || "text/plain", size: request.content.length, createdAt: Date.now(), preview: request.content.slice(0, 2_000), content: request.content });
+    current.artifacts.push({ id: artifactId, taskId: task.id, name: request.name, type: request.mimeType || "text/plain; charset=utf-8", encoding, size: content.length, createdAt: Date.now(), preview: request.content.slice(0, 2_000), content });
   });
-  return { id: request.id, type: request.type, result: { artifactId, name: request.name }, startedAt, completedAt: Date.now() };
+  return { id: request.id, type: request.type, result: { artifactId, name: request.name, type: request.mimeType || "text/plain; charset=utf-8", encoding }, startedAt, completedAt: Date.now() };
+}
+
+function wantsDeliverable(objective: string) {
+  return /pdf|download|report|document|memo|artifact|deliverable|file/i.test(objective);
+}
+
+function providerRefusedArtifact(message: string) {
+  return /do not have access|don't have access|cannot (create|generate|provide)|can't (create|generate|provide)|unable to (create|generate|provide)|text-based ai|only generate text/i.test(message);
+}
+
+function createFallbackArtifact(task: TaskRecord, message: string) {
+  if (!wantsDeliverable(task.objective) || !message.trim() || providerRefusedArtifact(message)) return null;
+  const isPdf = /pdf/i.test(task.objective);
+  const artifactId = `artifact_${crypto.randomUUID()}`;
+  const content = isPdf ? textToPdf(message) : message;
+  const encoding = isPdf ? "base64" as const : "utf8" as const;
+  const name = isPdf ? "elias-deliverable.pdf" : "elias-deliverable.md";
+  updateStoredTask(task.id, (current) => {
+    current.artifacts.push({ id: artifactId, taskId: task.id, name, type: isPdf ? "application/pdf" : "text/markdown; charset=utf-8", encoding, size: content.length, createdAt: Date.now(), preview: message.slice(0, 2_000), content });
+  });
+  recordTaskEvent(task.id, { kind: "action", label: "Deliverable created", status: "completed", detail: `Created ${name} from the verified agent response.`, evidence: { type: "artifact", value: { artifactId, name } } });
+  return artifactId;
 }
 
 export async function runTaskStep(id: string): Promise<TaskRecord> {
@@ -200,6 +226,13 @@ export async function runTaskStep(id: string): Promise<TaskRecord> {
     }
 
     task = getStoredTask(id)!;
+    if (!output.requests.length && !output.actions.length && output.done && output.message) {
+      if (wantsDeliverable(task.objective) && providerRefusedArtifact(output.message)) {
+        recordTaskEvent(id, { kind: "error", label: "Provider returned no artifact", status: "failed", detail: "The selected provider returned a limitation message instead of a deliverable." });
+        return setTaskStatus(id, "failed", "The selected provider did not return a deliverable. Configure a provider that supports structured agent output and retry.");
+      }
+      createFallbackArtifact(task, output.message);
+    }
     if (task.approvals.some((approval) => approval.status === "pending")) return setTaskStatus(id, "waiting_approval");
     if (currentStep) updateStoredTask(id, (current) => { const step = current.plan.find((item) => item.id === currentStep.id); if (step) { step.status = output.done ? "completed" : "active"; step.updatedAt = Date.now(); } });
     if (output.done) {

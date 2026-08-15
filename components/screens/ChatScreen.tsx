@@ -23,6 +23,10 @@ function inferTask(value: string): "code" | "research" | "study" | "general" {
   return "general";
 }
 
+function shouldHandoffToTask(value: string, attachments: Array<{ name: string; context?: string }>) {
+  return attachments.length > 0 || /create|generate|build|make|write|produce|download|pdf|report|document|file|artifact|deliverable|research|latest|current|source|code|debug|refactor|repository|project|implement|study|exam|notes/i.test(value);
+}
+
 export default function ChatScreen() {
   const router = useRouter();
   const params = useSearchParams();
@@ -93,6 +97,33 @@ export default function ChatScreen() {
     abortRef.current = controller;
 
     try {
+      if (shouldHandoffToTask(text, attachments)) {
+        const taskResponse = await fetch("/api/tasks", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            objective: `${text}${attachmentContext}`,
+            kind: inferTask(text),
+            conversationId: optimistic.id,
+            autoStart: true,
+          }),
+          signal: controller.signal,
+        });
+        const taskData = await readApiResponse<{ task: { id: string; status: string; title: string; error?: string } }>(taskResponse);
+        const taskMessage: ConversationMessage = {
+          id: makeId("msg"),
+          role: "assistant",
+          content: `I turned this into a live task and started the workbench.\n\n[Open the task workspace](/tasks?id=${encodeURIComponent(taskData.task.id)})\n\nStatus: **${taskData.task.status}**${taskData.task.error ? `\n\n${taskData.task.error}` : ""}`,
+          provider: "task orchestrator",
+          model: "task runtime",
+          status: "complete",
+          createdAt: Date.now(),
+        };
+        await persist({ ...optimistic, updatedAt: Date.now(), messages: [...optimistic.messages, taskMessage] });
+        router.push(`/tasks?id=${encodeURIComponent(taskData.task.id)}`);
+        return;
+      }
+
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

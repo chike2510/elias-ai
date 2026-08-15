@@ -41,7 +41,7 @@ Available requests:
 - run_validation with check: build, typecheck, lint, or test
 - search_web with query
 - fetch_url with URL
-- create_artifact with name, content, and optional mimeType
+- create_artifact with name, content, optional mimeType, and encoding (use mimeType application/pdf for PDF deliverables; provide readable source text and let the host encode it)
 
 Available actions:
 - write_file with exact path and complete content
@@ -109,7 +109,7 @@ function isRequest(value: unknown): value is AgentRequest {
     if (item.type === "run_validation" && !["build", "typecheck", "lint", "test"].includes(String(item.check))) return false;
     if (item.type === "search_web" && typeof item.query !== "string") return false;
     if (item.type === "fetch_url" && typeof item.url !== "string") return false;
-    if (item.type === "create_artifact" && (typeof item.name !== "string" || typeof item.content !== "string")) return false;
+    if (item.type === "create_artifact" && (typeof item.name !== "string" || typeof item.content !== "string" || (item.encoding !== undefined && !["utf8", "base64"].includes(String(item.encoding))))) return false;
     return true;
   }
   return false;
