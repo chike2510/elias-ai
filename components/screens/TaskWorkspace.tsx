@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { Check, ChevronRight, CircleAlert, ClipboardCheck, FileArchive, LoaderCircle, LockKeyhole, Pause, Play, RotateCcw, Send, ShieldCheck, Sparkles, Square, Undo2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import AppShell from "@/components/AppShell";
 import { readApiResponse } from "@/lib/clientApi";
 import { cacheTaskSnapshot, getCachedTaskSnapshot, listCachedTaskSnapshots } from "@/lib/clientTask";
@@ -25,7 +26,7 @@ function artifactHref(taskId: string, artifact: TaskArtifactRef) {
 }
 
 export default function TaskWorkspace() {
-  const params = useMemo(() => new URLSearchParams(typeof window === "undefined" ? "" : window.location.search), []);
+  const params = useSearchParams();
   const requestedId = params.get("id");
   const requestedPrompt = params.get("prompt");
   const [task, setTask] = useState<TaskRecord | null>(null);
