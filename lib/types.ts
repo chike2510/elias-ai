@@ -21,6 +21,7 @@ export type AgentRequest =
   | { id?: string; type: "read_file"; path: string }
   | { id?: string; type: "search_files"; query: string }
   | { id?: string; type: "inspect_dependencies" }
+  | { id?: string; type: "run_validation"; check: "build" | "typecheck" | "lint" | "test" }
   | { id?: string; type: "search_web"; query: string }
   | { id?: string; type: "fetch_url"; url: string }
   | { id?: string; type: "create_artifact"; name: string; content: string; mimeType?: string };

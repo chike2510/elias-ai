@@ -38,6 +38,7 @@ Available requests:
 - read_file with exact path
 - search_files with query
 - inspect_dependencies
+- run_validation with check: build, typecheck, lint, or test
 - search_web with query
 - fetch_url with URL
 - create_artifact with name, content, and optional mimeType
@@ -102,9 +103,10 @@ function isRequest(value: unknown): value is AgentRequest {
   if (!value || typeof value !== "object") return false;
   const item = value as Record<string, unknown>;
   if (typeof item.type !== "string") return false;
-  if (["inspect_project", "list_files", "read_file", "search_files", "inspect_dependencies", "search_web", "fetch_url", "create_artifact"].includes(item.type)) {
+  if (["inspect_project", "list_files", "read_file", "search_files", "inspect_dependencies", "run_validation", "search_web", "fetch_url", "create_artifact"].includes(item.type)) {
     if (item.type === "read_file" && typeof item.path !== "string") return false;
     if (item.type === "search_files" && typeof item.query !== "string") return false;
+    if (item.type === "run_validation" && !["build", "typecheck", "lint", "test"].includes(String(item.check))) return false;
     if (item.type === "search_web" && typeof item.query !== "string") return false;
     if (item.type === "fetch_url" && typeof item.url !== "string") return false;
     if (item.type === "create_artifact" && (typeof item.name !== "string" || typeof item.content !== "string")) return false;

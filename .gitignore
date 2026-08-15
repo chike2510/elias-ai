@@ -5,3 +5,5 @@ out
 .env
 .env.local
 *.log
+.elias
+node_modules

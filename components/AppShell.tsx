@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FileText, Folder, Home, Menu, MessageSquare, Mic, Sparkles } from "lucide-react";
+import { ClipboardCheck, FileText, Folder, Home, Menu, MessageSquare, Mic, Sparkles } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import HistoryDrawer from "@/components/HistoryDrawer";
@@ -54,9 +54,15 @@ export default function AppShell({
           icon={Folder}
           active={pathname.startsWith("/projects")}
         />
-        <Link className="assistant-fab" href="/chat" aria-label="Open ELIAS chat">
-          <Sparkles size={23} />
-        </Link>
+          <Link className="assistant-fab" href="/tasks" aria-label="Open Elias task workspace">
+            <ClipboardCheck size={22} />
+          </Link>
+        <Nav
+          href="/tasks"
+          label="Tasks"
+          icon={ClipboardCheck}
+          active={pathname.startsWith("/tasks")}
+        />
         <Nav
           href="/files"
           label="Files"

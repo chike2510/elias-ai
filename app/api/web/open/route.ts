@@ -11,6 +11,6 @@ export async function POST(request: NextRequest) {
     if (!url) return jsonError("url is required", 400, "INVALID_REQUEST");
     return jsonOk({ url, content: await fetchUrl(url) });
   } catch (error) {
-    return jsonError(error instanceof Error ? error.message : "URL fetch failed.");
+    return jsonError(error instanceof Error ? error.message : "URL fetch failed.", 400, "INVALID_REQUEST");
   }
 }

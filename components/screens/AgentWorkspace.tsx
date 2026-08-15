@@ -38,6 +38,7 @@ export default function AgentWorkspace({ initialProjectId }: { initialProjectId?
     const params = new URLSearchParams(window.location.search);
     return initialProjectId || params.get("project") || "project_current";
   });
+  const [sourceTaskId] = useState(() => typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("task") || "");
   const [projectName, setProjectName] = useState("New coding workspace");
   const [files, setFiles] = useState<FileItem[]>([]);
   const [active, setActive] = useState("");
@@ -52,7 +53,9 @@ export default function AgentWorkspace({ initialProjectId }: { initialProjectId?
   const cameraInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => { workspaceRef.current = files; }, [files]);
-  useEffect(() => { void hydrate(); }, [projectId]);
+    useEffect(() => {
+    void hydrate();
+  }, [projectId, sourceTaskId]);
   useEffect(() => {
     if (!projectId) return;
     const timer = window.setTimeout(() => { void syncProjectFiles(projectId, files); }, 500);
@@ -61,6 +64,18 @@ export default function AgentWorkspace({ initialProjectId }: { initialProjectId?
 
   async function hydrate() {
     try {
+      if (sourceTaskId) {
+        const data = await readApiResponse<{ task: { title: string; workspace: FileItem[]; objective: string } }>(await fetch(`/api/tasks/${encodeURIComponent(sourceTaskId)}`, { cache: "no-store" }));
+        const imported = data.task.workspace.map((file) => ({ ...file, key: `${projectId}:${file.path}`, projectId, updatedAt: Date.now() }));
+        if (imported.length) {
+          setProjectName(data.task.title);
+          setFiles(imported);
+          setActive(imported[0].path);
+          setTask(data.task.objective);
+          setStatus("task workspace loaded");
+          return;
+        }
+      }
       const existing = await getProject(projectId);
       if (existing) setProjectName(existing.name);
       else await saveProject({ id: projectId, name: projectName, createdAt: Date.now(), updatedAt: Date.now() });
@@ -172,6 +187,9 @@ export default function AgentWorkspace({ initialProjectId }: { initialProjectId?
       const result = await readApiResponse<{ url?: string; content?: string }>(await fetch("/api/web/open", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: request.url }) }));
       return { type: request.type, url: request.url, result, startedAt, completedAt: Date.now() };
     }
+    if (request.type !== "create_artifact") {
+      return { type: request.type, error: "Unsupported tool request.", startedAt, completedAt: Date.now() };
+    }
     const artifactId = makeId("artifact");
     await saveArtifact({ id: artifactId, projectId, name: request.name, type: request.mimeType || "text/plain", createdAt: Date.now(), text: request.content });
     return { type: request.type, result: { artifactId, name: request.name }, startedAt, completedAt: Date.now() };
@@ -204,6 +222,21 @@ export default function AgentWorkspace({ initialProjectId }: { initialProjectId?
     } finally { setBusy(false); }
   }
 
+  async function openTaskWorkspace() {
+    const prompt = task.trim() || "Inspect this project, identify the highest-value engineering improvements, and implement the safest changes with validation evidence.";
+    try {
+      setStatus("creating task");
+      const data = await readApiResponse<{ task: { id: string } }>(await fetch("/api/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ objective: prompt, kind: "code", taskType: "code", projectId, workspace: workspaceRef.current.map(({ path, content }) => ({ path, content })) }),
+      }));
+      window.location.href = `/tasks?id=${encodeURIComponent(data.task.id)}`;
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not create task");
+    }
+  }
+
   async function downloadZip() {
     const zip = new JSZip();
     workspaceRef.current.forEach((file) => zip.file(file.path, file.content));
@@ -219,7 +252,7 @@ export default function AgentWorkspace({ initialProjectId }: { initialProjectId?
     <AppShell title={projectName}>
       <main className="screen agent-workspace">
         <div className="agent-head"><div><p className="eyebrow">ELIAS / autonomous workspace</p><h1>{projectName}</h1><span className="agent-subtitle">inspect, research, modify and package.</span></div><span className={`agent-state ${status}`}><Sparkles size={13} />{status}</span></div>
-        <div className="workspace-toolbar"><button type="button" onClick={() => zipInput.current?.click()}><Archive size={14} /> import ZIP</button><button type="button" onClick={() => filesInput.current?.click()}><Upload size={14} /> add files</button><button type="button" onClick={() => cameraInput.current?.click()}><Camera size={14} /> photo</button><button type="button" onClick={() => void downloadZip()}><Archive size={14} /> export ZIP</button><Link href="/chat"><Mic size={14} /> chat</Link><input ref={zipInput} hidden type="file" accept=".zip" onChange={(event) => { const file = event.target.files?.[0]; if (file) void addZip(file); event.currentTarget.value = ""; }} /><input ref={filesInput} hidden type="file" multiple onChange={(event) => { void addLoose(event.target.files); event.currentTarget.value = ""; }} /><input ref={cameraInput} hidden type="file" accept="image/*" capture="environment" onChange={(event) => { const file = event.target.files?.[0]; if (file) setMessages((current) => [...current, { role: "tool", text: `received ${file.name}; image analysis is not configured in this deployment` }]); event.currentTarget.value = ""; }} /></div>
+        <div className="workspace-toolbar"><button type="button" onClick={() => zipInput.current?.click()}><Archive size={14} /> import ZIP</button><button type="button" onClick={() => filesInput.current?.click()}><Upload size={14} /> add files</button><button type="button" onClick={() => cameraInput.current?.click()}><Camera size={14} /> photo</button><button type="button" onClick={() => void downloadZip()}><Archive size={14} /> export ZIP</button><button type="button" onClick={() => void openTaskWorkspace()}><Sparkles size={14} /> task view</button><Link href="/chat"><Mic size={14} /> chat</Link><input ref={zipInput} hidden type="file" accept=".zip" onChange={(event) => { const file = event.target.files?.[0]; if (file) void addZip(file); event.currentTarget.value = ""; }} /><input ref={filesInput} hidden type="file" multiple onChange={(event) => { void addLoose(event.target.files); event.currentTarget.value = ""; }} /><input ref={cameraInput} hidden type="file" accept="image/*" capture="environment" onChange={(event) => { const file = event.target.files?.[0]; if (file) setMessages((current) => [...current, { role: "tool", text: `received ${file.name}; image analysis is not configured in this deployment` }]); event.currentTarget.value = ""; }} /></div>
         <div className="workspace">
           <aside className="workspace-files"><div className="workspace-pane-title"><span>files · {files.length}</span><button type="button" onClick={() => filesInput.current?.click()}><FilePlus2 size={14} /></button></div><div className="file-search"><Search size={13} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="find file" /></div><div className="file-tree">{visible.map((file) => <button type="button" key={file.key} className={file.path === active ? "selected" : ""} onClick={() => setActive(file.path)}><FileCode2 size={13} /><span>{file.path}</span></button>)}</div></aside>
           <section className="workspace-editor"><div className="editor-top"><span>{current?.path || "no file selected"}</span><span>{current?.content.length || 0} chars</span></div><textarea spellCheck={false} value={current?.content || ""} onChange={(event) => { if (!current) return; setFiles((old) => old.map((file) => file.path === current.path ? { ...file, content: event.target.value, updatedAt: Date.now() } : file)); }} /></section>
