@@ -26,13 +26,14 @@ function systemPrompt(task: TaskType) {
   return parts.join(" ");
 }
 
-export async function runChat({ messages, task }: { messages: ChatInputMessage[]; task: TaskType }) {
+export async function runChat({ messages, task, provider: requestedProvider, model: requestedModel }: { messages: ChatInputMessage[]; task: TaskType; provider?: import("@/lib/types").ProviderName; model?: string }) {
   const complexity = scoreComplexity(messages, task);
   const errors: string[] = [];
+  const providers = requestedProvider ? [requestedProvider] : [...new Set(providerOrder(task, complexity))];
 
-  for (const provider of [...new Set(providerOrder(task, complexity))]) {
+  for (const provider of providers) {
     try {
-      const model = await pickModel(provider, task);
+      const model = requestedModel && provider === requestedProvider ? requestedModel : await pickModel(provider, task);
       if (!model) continue;
       const response = await completeWithProvider({
         provider,

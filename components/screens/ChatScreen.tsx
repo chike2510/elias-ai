@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowUp, Camera, Check, ChevronRight, Copy, FolderPlus, Link2, LoaderCircle, MessageSquare, Mic, Paperclip, Plus, Sparkles, WandSparkles, X } from "lucide-react";
+import { ArrowUp, Camera, Check, ChevronDown, ChevronRight, Copy, FolderPlus, Link2, LoaderCircle, MessageSquare, Mic, Paperclip, Plus, Sparkles, WandSparkles, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import AppShell from "@/components/AppShell";
 import MarkdownMessage from "@/components/MarkdownMessage";
@@ -25,6 +25,15 @@ function inferTask(value: string): "code" | "research" | "study" | "general" {
   return "general";
 }
 
+const MODEL_OPTIONS = [
+  { id: "auto", label: "Auto", detail: "Best model for the task" },
+  { id: "qwen:qwen3.7-plus", label: "Qwen 3.7 Plus", detail: "Qwen · general / code" },
+  { id: "agentrouter:kimi-k2.6", label: "Kimi K2.6", detail: "AgentRouter · reasoning" },
+  { id: "agentrouter:glm-5.1", label: "GLM 5.1", detail: "AgentRouter · general" },
+  { id: "mistral:mistral-large-latest", label: "Mistral Large", detail: "Mistral · writing / study" },
+  { id: "groq:openai/gpt-oss-120b", label: "GPT OSS 120B", detail: "Groq · fast responses" },
+];
+
 function shouldHandoffToTask(value: string, attachments: Array<{ name: string; context?: string }>) {
   return attachments.length > 0 || /create|generate|build|make|write|produce|download|pdf|report|document|file|artifact|deliverable|research|latest|current|source|code|debug|refactor|repository|project|implement|study|exam|notes/i.test(value);
 }
@@ -40,7 +49,9 @@ export default function ChatScreen() {
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const [attachments, setAttachments] = useState<Array<{ name: string; context?: string }>>([]);
-  const [contextOpen, setContextOpen] = useState(false);
+  const [plusOpen, setPlusOpen] = useState(false);
+  const [modelOpen, setModelOpen] = useState(false);
+  const [selectedModel, setSelectedModel] = useState("auto");
   const bottomRef = useRef<HTMLDivElement>(null);
   const uploadRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -133,7 +144,11 @@ export default function ChatScreen() {
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ task: inferTask(text), messages: optimistic.messages.map(({ role, content }) => ({ role, content })) }),
+        body: JSON.stringify({
+          task: inferTask(text),
+          messages: optimistic.messages.map(({ role, content }) => ({ role, content })),
+          ...(selectedModel !== "auto" ? { provider: selectedModel.split(":")[0], model: selectedModel.split(":").slice(1).join(":") } : {}),
+        }),
         signal: controller.signal,
       });
       const data = await readApiResponse<{ content: string; provider?: string; model?: string }>(response);
@@ -210,7 +225,7 @@ export default function ChatScreen() {
         </aside>
         <div className="chat-head">
           <div><p className="eyebrow">ELIAS / conversation</p><h1>{conversation?.title || "New conversation"}</h1></div>
-          <div className="chat-head-actions"><div className="chat-add-wrap"><button type="button" className="chat-add" aria-expanded={contextOpen} onClick={() => setContextOpen((open) => !open)}><Plus size={15} /> add</button>{contextOpen ? <div className="chat-add-menu"><strong>Add to this conversation</strong><a href="/api/connect/github"><Link2 size={14} /> Connect GitHub</a><a href="/api/connect/vercel"><FolderPlus size={14} /> Connect Vercel</a><Link href="/tasks"><Sparkles size={14} /> Link a task</Link><button type="button" onClick={() => setContextOpen(false)}><X size={14} /> Close</button></div> : null}</div><Link href="/chat" className="chat-new"><Plus size={15} /> new</Link></div>
+          <div className="chat-head-actions"><div className="model-picker"><button type="button" className="model-picker-trigger" aria-expanded={modelOpen} onClick={() => setModelOpen((open) => !open)}><span><small>MODEL</small><strong>{MODEL_OPTIONS.find((option) => option.id === selectedModel)?.label}</strong></span><ChevronDown size={15} /></button>{modelOpen ? <div className="model-picker-menu">{MODEL_OPTIONS.map((option) => <button key={option.id} type="button" className={option.id === selectedModel ? "selected" : ""} onClick={() => { setSelectedModel(option.id); setModelOpen(false); }}><span><strong>{option.label}</strong><small>{option.detail}</small></span>{option.id === selectedModel ? <Check size={14} /> : null}</button>)}</div> : null}</div><Link href="/chat" className="chat-new"><Plus size={15} /> new</Link></div>
         </div>
 
         <div className="chat-body">
@@ -265,7 +280,7 @@ export default function ChatScreen() {
           <textarea value={input} onChange={(event) => setInput(event.target.value)} rows={3} placeholder="Message ELIAS…" onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendMessage(input); } }} />
           <input ref={uploadRef} hidden type="file" multiple accept=".zip,.ts,.tsx,.js,.jsx,.html,.css,.md,.txt,.pdf,.docx,.png,.jpg,.jpeg,.webp" onChange={(event) => { void addFiles(event.target.files); event.currentTarget.value = ""; }} />
           <div className="chat-composer-bar">
-            <div className="composer-left"><button type="button" onClick={() => uploadRef.current?.click()} title="Attach files" aria-label="Attach files"><Paperclip size={17} /><span>attach</span></button><Link href="/studio?mode=voice" title="Voice"><Mic size={17} /></Link><Link href="/studio?mode=camera" title="Camera"><Camera size={17} /></Link></div>
+            <div className="composer-left"><div className="composer-plus-wrap"><button type="button" className="composer-plus" aria-label="Add attachment or connection" aria-expanded={plusOpen} onClick={() => setPlusOpen((open) => !open)}><Plus size={19} /></button>{plusOpen ? <div className="composer-plus-menu"><strong>Add to this conversation</strong><button type="button" onClick={() => { uploadRef.current?.click(); setPlusOpen(false); }}><Paperclip size={15} /> Attach file</button><a href="/api/connect/github"><Link2 size={15} /> Connect GitHub</a><a href="/api/connect/vercel"><FolderPlus size={15} /> Connect Vercel</a><Link href="/projects"><FolderPlus size={15} /> Add project context</Link><Link href="/tasks"><Sparkles size={15} /> Link a task</Link></div> : null}</div><Link href="/studio?mode=voice" className="composer-utility" title="Voice" aria-label="Voice"><Mic size={17} /></Link><Link href="/studio?mode=camera" className="composer-utility" title="Camera" aria-label="Camera"><Camera size={17} /></Link></div>
             {busy ? <button className="chat-send stop-button" type="button" onClick={stop} title="Stop generation"><X size={18} /></button> : <button className="chat-send" type="button" disabled={!input.trim()} onClick={() => void sendMessage(input)}><ArrowUp size={18} /></button>}
           </div>
         </div>
