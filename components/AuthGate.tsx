@@ -9,11 +9,12 @@ type User = { userId: string; login: string; name?: string; email?: string; avat
 export default function AuthGate({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
+  const publicPaths = pathname === "/login" || pathname === "/privacy" || pathname === "/terms";
   const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(pathname !== "/login");
+  const [loading, setLoading] = useState(!publicPaths);
 
   useEffect(() => {
-    if (pathname === "/login") { setLoading(false); return; }
+    if (publicPaths) { setLoading(false); return; }
     let active = true;
     fetch("/api/auth/me", { cache: "no-store" }).then((response) => response.json()).then((data: { user?: User | null }) => {
       if (!active) return;
@@ -21,9 +22,9 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
       else { setUser(data.user); window.localStorage.setItem("elias.user", JSON.stringify(data.user)); }
     }).catch(() => { if (active) router.replace("/login"); }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [pathname, router]);
+  }, [pathname, router, publicPaths]);
 
-  if (pathname === "/login") return <>{children}</>;
+  if (publicPaths) return <>{children}</>;
   if (loading || !user) return <main className="auth-loading"><LoaderCircle size={20} className="spin" /><span>Preparing your workspace…</span></main>;
   return <>{children}</>;
 }
