@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowUp, Camera, Check, ChevronRight, Copy, LoaderCircle, MessageSquare, Mic, Paperclip, Plus, Sparkles, WandSparkles, X } from "lucide-react";
+import { ArrowUp, Camera, Check, ChevronRight, Copy, FolderPlus, Link2, LoaderCircle, MessageSquare, Mic, Paperclip, Plus, Sparkles, WandSparkles, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import AppShell from "@/components/AppShell";
 import MarkdownMessage from "@/components/MarkdownMessage";
@@ -40,6 +40,7 @@ export default function ChatScreen() {
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const [attachments, setAttachments] = useState<Array<{ name: string; context?: string }>>([]);
+  const [contextOpen, setContextOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const uploadRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -209,7 +210,7 @@ export default function ChatScreen() {
         </aside>
         <div className="chat-head">
           <div><p className="eyebrow">ELIAS / conversation</p><h1>{conversation?.title || "New conversation"}</h1></div>
-          <Link href="/chat" className="chat-new"><Plus size={15} /> new</Link>
+          <div className="chat-head-actions"><div className="chat-add-wrap"><button type="button" className="chat-add" aria-expanded={contextOpen} onClick={() => setContextOpen((open) => !open)}><Plus size={15} /> add</button>{contextOpen ? <div className="chat-add-menu"><strong>Add to this conversation</strong><Link href="/projects"><Link2 size={14} /> Connect project</Link><Link href="/projects"><FolderPlus size={14} /> Add connector</Link><Link href="/tasks"><Sparkles size={14} /> Link a task</Link><button type="button" onClick={() => setContextOpen(false)}><X size={14} /> Close</button></div> : null}</div><Link href="/chat" className="chat-new"><Plus size={15} /> new</Link></div>
         </div>
 
         <div className="chat-body">
@@ -264,7 +265,7 @@ export default function ChatScreen() {
           <textarea value={input} onChange={(event) => setInput(event.target.value)} rows={3} placeholder="Message ELIAS…" onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendMessage(input); } }} />
           <input ref={uploadRef} hidden type="file" multiple accept=".zip,.ts,.tsx,.js,.jsx,.html,.css,.md,.txt,.pdf,.docx,.png,.jpg,.jpeg,.webp" onChange={(event) => { void addFiles(event.target.files); event.currentTarget.value = ""; }} />
           <div className="chat-composer-bar">
-            <div className="composer-left"><button type="button" onClick={() => uploadRef.current?.click()} title="Attach files"><Paperclip size={17} /></button><Link href="/studio?mode=voice" title="Voice"><Mic size={17} /></Link><Link href="/studio?mode=camera" title="Camera"><Camera size={17} /></Link></div>
+            <div className="composer-left"><button type="button" onClick={() => uploadRef.current?.click()} title="Attach files" aria-label="Attach files"><Paperclip size={17} /><span>attach</span></button><Link href="/studio?mode=voice" title="Voice"><Mic size={17} /></Link><Link href="/studio?mode=camera" title="Camera"><Camera size={17} /></Link></div>
             {busy ? <button className="chat-send stop-button" type="button" onClick={stop} title="Stop generation"><X size={18} /></button> : <button className="chat-send" type="button" disabled={!input.trim()} onClick={() => void sendMessage(input)}><ArrowUp size={18} /></button>}
           </div>
         </div>
