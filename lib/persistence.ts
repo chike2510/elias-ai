@@ -46,8 +46,17 @@ export type ArtifactRecord = {
   text?: string;
 };
 
-const DB_NAME = "elias";
 const DB_VERSION = 2;
+
+function dbName() {
+  if (typeof window === "undefined") return "elias_anonymous";
+  try {
+    const user = JSON.parse(window.localStorage.getItem("elias.user") || "null") as { userId?: string } | null;
+    return user?.userId ? `elias_${user.userId}` : "elias_anonymous";
+  } catch {
+    return "elias_anonymous";
+  }
+}
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -55,7 +64,7 @@ function openDb(): Promise<IDBDatabase> {
       reject(new Error("IndexedDB is not available in this browser."));
       return;
     }
-    const request = window.indexedDB.open(DB_NAME, DB_VERSION);
+    const request = window.indexedDB.open(dbName(), DB_VERSION);
     request.onupgradeneeded = () => {
       const db = request.result;
       if (!db.objectStoreNames.contains("conversations")) db.createObjectStore("conversations", { keyPath: "id" });

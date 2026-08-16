@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { ClipboardCheck, FileText, Folder, Home, LibraryBig, Menu, MessageSquare, Sparkles } from "lucide-react";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import HistoryDrawer from "@/components/HistoryDrawer";
 
 const navigation = [
@@ -17,6 +17,9 @@ const navigation = [
 export default function AppShell({ children, title }: { children: React.ReactNode; title?: string }) {
   const pathname = usePathname();
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [user, setUser] = useState<{ login?: string; name?: string; avatarUrl?: string } | null>(null);
+  useEffect(() => { void fetch("/api/auth/me", { cache: "no-store" }).then((response) => response.json()).then((data: { user?: { login?: string; name?: string; avatarUrl?: string } | null }) => setUser(data.user || null)).catch(() => setUser(null)); }, []);
+  async function logout() { await fetch("/api/auth/logout", { method: "POST" }); window.location.href = "/login"; }
 
   return (
     <div className="app-shell">
@@ -30,9 +33,9 @@ export default function AppShell({ children, title }: { children: React.ReactNod
           {navigation.map((item) => <Nav key={item.href} {...item} active={item.href === "/" ? pathname === "/" : pathname.startsWith(item.href)} />)}
         </nav>
         <div className="sidebar-footer">
-          <span className="profile-avatar">T</span>
-          <div><strong>Product Team</strong><small>Workspace</small></div>
-          <span className="profile-menu">•••</span>
+          <span className="profile-avatar">{user?.login?.slice(0, 1).toUpperCase() || "?"}</span>
+          <div><strong>{user?.name || user?.login || "Your account"}</strong><small>@{user?.login || "not signed in"}</small></div>
+          <button type="button" className="profile-menu" onClick={() => void logout()} aria-label="Sign out">↗</button>
         </div>
       </aside>
 
@@ -47,7 +50,7 @@ export default function AppShell({ children, title }: { children: React.ReactNod
           <div className="top-actions">
             <button className="icon-btn desktop-history" onClick={() => setHistoryOpen(true)} aria-label="Open conversation history"><MessageSquare size={18} /></button>
             <Link className="top-start" href="/chat">New conversation <span>⌘K</span></Link>
-            <span className="avatar">T</span>
+            <span className="avatar">{user?.login?.slice(0, 1).toUpperCase() || "?"}</span>
           </div>
         </header>
 
