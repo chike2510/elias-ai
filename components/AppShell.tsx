@@ -1,105 +1,72 @@
 "use client";
 
 import Link from "next/link";
-import { ClipboardCheck, FileText, Folder, Home, Menu, MessageSquare, Mic, Sparkles } from "lucide-react";
+import { ClipboardCheck, FileText, Folder, Home, LibraryBig, Menu, MessageSquare, Sparkles } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import HistoryDrawer from "@/components/HistoryDrawer";
 
-export default function AppShell({
-  children,
-  title,
-}: {
-  children: React.ReactNode;
-  title?: string;
-}) {
+const navigation = [
+  { href: "/", label: "Home", icon: Home },
+  { href: "/chat", label: "Chat", icon: MessageSquare },
+  { href: "/tasks", label: "Tasks", icon: ClipboardCheck },
+  { href: "/projects", label: "Projects", icon: Folder },
+  { href: "/files", label: "Library", icon: LibraryBig },
+];
+
+export default function AppShell({ children, title }: { children: React.ReactNode; title?: string }) {
   const pathname = usePathname();
   const [historyOpen, setHistoryOpen] = useState(false);
 
   return (
     <div className="app-shell">
-      <header className="topbar">
-        <button
-          className="icon-btn"
-          onClick={() => setHistoryOpen(true)}
-          aria-label="Open conversation history"
-        >
-          <Menu size={20} />
-        </button>
-
-        <Link href="/" className="brand">
-          <span className="brand-mark">
-            <Sparkles size={18} />
-          </span>
-          <span>ELIAS</span>
+      <aside className="desktop-sidebar">
+        <Link href="/" className="brand sidebar-brand">
+          <span className="brand-mark"><Sparkles size={17} /></span>
+          <span className="brand-wordmark">ELIAS</span>
           <i />
         </Link>
-
-        <div className="top-actions">
-          {title ? <span className="top-title">{title}</span> : null}
-          <Link className="icon-btn" href="/chat" aria-label="Open chat">
-            <MessageSquare size={19} />
-          </Link>
-          <span className="avatar">E</span>
+        <nav className="sidebar-nav" aria-label="Primary navigation">
+          {navigation.map((item) => <Nav key={item.href} {...item} active={item.href === "/" ? pathname === "/" : pathname.startsWith(item.href)} />)}
+        </nav>
+        <div className="sidebar-footer">
+          <span className="profile-avatar">T</span>
+          <div><strong>Product Team</strong><small>Workspace</small></div>
+          <span className="profile-menu">•••</span>
         </div>
-      </header>
+      </aside>
 
-      <div className="app-content">{children}</div>
-
-      <nav className="bottom-nav">
-        <Nav href="/" label="Home" icon={Home} active={pathname === "/"} />
-        <Nav
-          href="/projects"
-          label="Projects"
-          icon={Folder}
-          active={pathname.startsWith("/projects")}
-        />
-          <Link className="assistant-fab" href="/tasks" aria-label="Open Elias task workspace">
-            <ClipboardCheck size={22} />
+      <div className="app-main">
+        <header className="topbar">
+          <button className="icon-btn mobile-only" onClick={() => setHistoryOpen(true)} aria-label="Open conversation history"><Menu size={20} /></button>
+          <Link href="/" className="brand mobile-brand">
+            <span className="brand-mark"><Sparkles size={16} /></span>
+            <span className="brand-wordmark">ELIAS</span><i />
           </Link>
-        <Nav
-          href="/tasks"
-          label="Tasks"
-          icon={ClipboardCheck}
-          active={pathname.startsWith("/tasks")}
-        />
-        <Nav
-          href="/files"
-          label="Files"
-          icon={FileText}
-          active={pathname.startsWith("/files")}
-        />
-        <Nav
-          href="/studio"
-          label="Studio"
-          icon={Mic}
-          active={pathname.startsWith("/studio")}
-        />
-      </nav>
+          <div className="topbar-context">{title || "AI workbench"}</div>
+          <div className="top-actions">
+            <button className="icon-btn desktop-history" onClick={() => setHistoryOpen(true)} aria-label="Open conversation history"><MessageSquare size={18} /></button>
+            <Link className="top-start" href="/chat">New conversation <span>⌘K</span></Link>
+            <span className="avatar">T</span>
+          </div>
+        </header>
 
-      <HistoryDrawer
-        open={historyOpen}
-        onClose={() => setHistoryOpen(false)}
-      />
+        <div className="app-content">{children}</div>
+
+        <nav className="bottom-nav" aria-label="Mobile navigation">
+          <Nav href="/" label="Home" icon={Home} active={pathname === "/"} />
+          <Nav href="/tasks" label="Tasks" icon={ClipboardCheck} active={pathname.startsWith("/tasks")} />
+          <Link className="assistant-fab" href="/chat" aria-label="Open chat"><Sparkles size={22} /></Link>
+          <Nav href="/projects" label="Projects" icon={Folder} active={pathname.startsWith("/projects")} />
+          <Nav href="/files" label="Library" icon={LibraryBig} active={pathname.startsWith("/files")} />
+        </nav>
+      </div>
+
+      <HistoryDrawer open={historyOpen} onClose={() => setHistoryOpen(false)} />
     </div>
   );
 }
 
-function Nav({
-  href,
-  label,
-  icon: Icon,
-  active,
-}: {
-  href: string;
-  label: string;
-  icon: React.ComponentType<{ size?: number }>;
-  active: boolean;
-}) {
-  return (
-    <Link href={href} className={`nav-item ${active ? "active" : ""}`}>
-      <Icon size={18} />
-      <span>{label}</span>
-    </Link>
-  );
+function Nav({ href, label, icon: Icon, active }: { href: string; label: string; icon: React.ComponentType<{ size?: number }>; active: boolean }) {
+  return <Link href={href} className={`nav-item ${active ? "active" : ""}`}><Icon size={18} /><span>{label}</span></Link>;
 }

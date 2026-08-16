@@ -2,15 +2,15 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowUp, Camera, Check, ChevronRight, Copy, LoaderCircle, Mic, Paperclip, Plus, Sparkles, WandSparkles, X } from "lucide-react";
+import { ArrowUp, Camera, Check, ChevronRight, Copy, LoaderCircle, MessageSquare, Mic, Paperclip, Plus, Sparkles, WandSparkles, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import AppShell from "@/components/AppShell";
 import MarkdownMessage from "@/components/MarkdownMessage";
 import { readApiResponse } from "@/lib/clientApi";
 import { cacheTaskSnapshot } from "@/lib/clientTask";
 import type { TaskRecord } from "@/lib/task";
-import {
-  getConversation,
+import { getConversation,
+  getConversations,
   makeId,
   saveConversation,
   type ConversationMessage,
@@ -35,6 +35,7 @@ export default function ChatScreen() {
   const requestedId = params.get("id");
   const requestedPrompt = params.get("prompt");
   const [conversation, setConversation] = useState<ConversationRecord | null>(null);
+  const [history, setHistory] = useState<ConversationRecord[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
@@ -44,6 +45,7 @@ export default function ChatScreen() {
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
+    void getConversations().then(setHistory).catch(() => setHistory([]));
     let active = true;
     async function load() {
       if (requestedId) {
@@ -197,6 +199,14 @@ export default function ChatScreen() {
   return (
     <AppShell title="Chat">
       <main className="screen chat-screen">
+        <aside className="chat-history-panel">
+          <div className="chat-history-heading"><strong>Conversations</strong><Link href="/chat" aria-label="New conversation"><Plus size={16} /></Link></div>
+          <div className="history-search"><span>⌕</span><input aria-label="Search conversations" placeholder="Search conversations" /></div>
+          <span className="history-group-label">Recent</span>
+          {(history.length ? history.slice(0, 7) : [{ id: "sample-1", title: "Launch brief research", updatedAt: Date.now(), createdAt: Date.now(), messages: [] }, { id: "sample-2", title: "PDF overview for Elias", updatedAt: Date.now(), createdAt: Date.now(), messages: [] }, { id: "sample-3", title: "Repository audit", updatedAt: Date.now(), createdAt: Date.now(), messages: [] }]).map((item) => <Link key={item.id} href={item.id.startsWith("sample-") ? "/chat" : `/chat?id=${encodeURIComponent(item.id)}`} className={`history-row ${item.id === conversation?.id ? "active" : ""}`}><span className="history-bullet"><MessageSquare size={14} /></span><span><strong>{item.title}</strong><small>{item.messages?.[0]?.content?.slice(0, 28) || "Conversation context"}</small></span></Link>)}
+          <span className="history-group-label">Workspace</span>
+          <Link href="/tasks" className="history-row history-task-link"><span className="history-bullet"><Check size={14} /></span><span><strong>Active tasks</strong><small>View execution history</small></span></Link>
+        </aside>
         <div className="chat-head">
           <div><p className="eyebrow">ELIAS / conversation</p><h1>{conversation?.title || "New conversation"}</h1></div>
           <Link href="/chat" className="chat-new"><Plus size={15} /> new</Link>
@@ -243,6 +253,13 @@ export default function ChatScreen() {
 
         {attachments.length ? <div className="attachment-strip">{attachments.map((file, index) => <span key={`${file.name}-${index}`}>{file.name}<button type="button" onClick={() => setAttachments((current) => current.filter((_, itemIndex) => itemIndex !== index))}><X size={12} /></button></span>)}</div> : null}
 
+        <aside className="chat-context-panel">
+          <div className="context-heading"><strong>Active context</strong><span>•••</span></div>
+          <div className="context-block"><span className="context-label">Project</span><Link href="/projects" className="context-item"><span className="context-icon"><FolderIcon /></span><span><strong>Orion Platform</strong><small>Platform redesign</small></span><ChevronRight size={14} /></Link></div>
+          <div className="context-block"><span className="context-label">Linked task</span><Link href="/tasks" className="context-item"><span className="context-icon violet"><ListIcon /></span><span><strong>Launch brief research</strong><small><i className="live-dot" /> Ready to start</small></span><ChevronRight size={14} /></Link></div>
+          <div className="context-summary"><span className="context-label">Context summary</span><p>Elias will use the active project and linked task to ground responses and deliverables.</p></div>
+          <Link href="/projects" className="secondary context-manage">Manage context</Link>
+        </aside>
         <div className="chat-composer">
           <textarea value={input} onChange={(event) => setInput(event.target.value)} rows={3} placeholder="Message ELIAS…" onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendMessage(input); } }} />
           <input ref={uploadRef} hidden type="file" multiple accept=".zip,.ts,.tsx,.js,.jsx,.html,.css,.md,.txt,.pdf,.docx,.png,.jpg,.jpeg,.webp" onChange={(event) => { void addFiles(event.target.files); event.currentTarget.value = ""; }} />
@@ -255,3 +272,6 @@ export default function ChatScreen() {
     </AppShell>
   );
 }
+
+function FolderIcon() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" /></svg>; }
+function ListIcon() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" /></svg>; }
