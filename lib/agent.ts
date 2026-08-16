@@ -3,6 +3,8 @@ import { chooseProvider, completeWithProvider, pickModel, providerOrder } from "
 
 export type AgentInput = {
   task: string;
+  preferredProvider?: Parameters<typeof completeWithProvider>[0]["provider"];
+  preferredModel?: string;
   taskType: TaskType;
   files: WorkspaceFile[];
   messages: { role: string; content: string }[];
@@ -167,14 +169,14 @@ async function call(provider: Parameters<typeof completeWithProvider>[0]["provid
 
 export async function runAgentStep(input: AgentInput): Promise<AgentOutput> {
   const score = complexity(input.task, input.files);
-  const preferred = await chooseProvider(input.taskType, score);
+  const preferred = input.preferredProvider || await chooseProvider(input.taskType, score);
   if (!preferred) throw new Error("No configured AI provider is available. Add at least one provider key in Vercel.");
 
   const candidates = [preferred, ...providerOrder(input.taskType, score)].filter((item, index, array) => array.indexOf(item) === index);
   const errors: string[] = [];
   for (const provider of candidates) {
     try {
-      const model = await pickModel(provider, input.taskType);
+      const model = input.preferredModel && provider === input.preferredProvider ? input.preferredModel : await pickModel(provider, input.taskType);
       if (!model) continue;
       return await call(provider, model, input);
     } catch (error) {

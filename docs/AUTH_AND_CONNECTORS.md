@@ -11,6 +11,7 @@ GITHUB_CLIENT_ID=...
 GITHUB_CLIENT_SECRET=...
 VERCEL_CLIENT_ID=...
 VERCEL_CLIENT_SECRET=...
+ELIAS_PUBLIC_URL=https://elias-ai-chi.vercel.app
 ELIAS_SESSION_SECRET=use-a-long-random-value-at-least-32-characters
 ```
 
@@ -32,13 +33,21 @@ https://YOUR-ELIAS-DOMAIN/api/connect/github/callback
 
 The initial sign-in requests only `read:user user:email`. The separate repository connection requests `repo read:org`. This separation means account identity is not automatically treated as permission to read or modify repositories.
 
+## Model providers
+
+Elias supports provider-backed model routing through the configured OpenAI-compatible providers. Add the relevant provider API keys to Vercel to make their live models available through `/api/models` and the Chat model picker. Auto mode preserves task-based routing; an explicit provider/model selection is carried into both Chat and autonomous task execution.
+
+Supported provider environment variables include `QWEN_API_KEY`, `AGENTROUTER_API_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `CEREBRAS_API_KEY`, `MISTRAL_API_KEY`, and `GITHUB_TOKEN` where applicable.
+
 ## Vercel OAuth integration
 
 Create a Vercel OAuth integration in the Vercel Integration Console. Register this redirect URL:
 
 ```text
-https://YOUR-ELIAS-DOMAIN/api/connect/vercel/callback
+https://elias-ai-chi.vercel.app/api/connect/vercel/callback
 ```
+
+Set `ELIAS_PUBLIC_URL=https://elias-ai-chi.vercel.app` so both authorization and token exchange use the stable registered domain instead of a Vercel preview origin.
 
 Set the integration scopes to the minimum required for the first release: `user`, `project`, `deployment`, and `team`. Vercel exchanges the short-lived authorization code through `POST https://api.vercel.com/v2/oauth/access_token`. The access token is used only on the server side.
 

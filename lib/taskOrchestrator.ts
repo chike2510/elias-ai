@@ -193,7 +193,7 @@ export async function runTaskStep(id: string): Promise<TaskRecord> {
   setTaskStatus(id, "running");
   task = getStoredTask(id)!;
   try {
-    const output = await runAgentStep({ task: task.objective, taskType: task.taskType, files: task.workspace, messages: task.events.filter((event) => event.kind === "message").map((event) => ({ role: "assistant", content: event.detail || event.label })), toolResults: task.toolResults });
+    const output = await runAgentStep({ task: task.objective, taskType: task.taskType, preferredProvider: task.preferredProvider, preferredModel: task.preferredModel, files: task.workspace, messages: task.events.filter((event) => event.kind === "message").map((event) => ({ role: "assistant", content: event.detail || event.label })), toolResults: task.toolResults });
     if (output.message) recordTaskEvent(id, { kind: "message", label: "Agent response", status: "completed", detail: output.message, stepId: currentStep?.id, evidence: { type: "text", value: output.message } });
 
     const results: ToolResult[] = [];

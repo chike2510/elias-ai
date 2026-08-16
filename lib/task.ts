@@ -83,6 +83,8 @@ export type TaskRecord = {
   objective: string;
   kind: TaskKind;
   taskType: TaskType;
+  preferredProvider?: import("@/lib/types").ProviderName;
+  preferredModel?: string;
   status: TaskStatus;
   projectId?: string;
   conversationId?: string;
@@ -107,6 +109,8 @@ export type CreateTaskInput = {
   title?: string;
   kind?: TaskKind;
   taskType?: TaskType;
+  preferredProvider?: import("@/lib/types").ProviderName;
+  preferredModel?: string;
   projectId?: string;
   conversationId?: string;
   workspace?: WorkspaceFile[];
@@ -209,6 +213,8 @@ export function createTask(input: CreateTaskInput): TaskRecord {
     objective: input.objective.trim(),
     kind,
     taskType,
+    preferredProvider: input.preferredProvider,
+    preferredModel: input.preferredModel,
     status: "queued",
     projectId: input.projectId,
     conversationId: input.conversationId,

@@ -75,6 +75,14 @@ export function githubConfigured() {
   return Boolean(process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET);
 }
 
+export function publicOrigin(request: Request) {
+  return (process.env.ELIAS_PUBLIC_URL || new URL(request.url).origin).replace(/\/$/, "");
+}
+
+export function vercelClientId() {
+  return process.env.VERCEL_CLIENT_ID?.trim() || "";
+}
+
 export function vercelConfigured() {
-  return Boolean(process.env.VERCEL_CLIENT_ID && process.env.VERCEL_CLIENT_SECRET);
+  return Boolean(vercelClientId() && process.env.VERCEL_CLIENT_SECRET?.trim());
 }

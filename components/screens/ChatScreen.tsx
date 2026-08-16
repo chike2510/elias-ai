@@ -25,13 +25,19 @@ function inferTask(value: string): "code" | "research" | "study" | "general" {
   return "general";
 }
 
-const MODEL_OPTIONS = [
-  { id: "auto", label: "Auto", detail: "Best model for the task" },
-  { id: "qwen:qwen3.7-plus", label: "Qwen 3.7 Plus", detail: "Qwen · general / code" },
-  { id: "agentrouter:kimi-k2.6", label: "Kimi K2.6", detail: "AgentRouter · reasoning" },
-  { id: "agentrouter:glm-5.1", label: "GLM 5.1", detail: "AgentRouter · general" },
-  { id: "mistral:mistral-large-latest", label: "Mistral Large", detail: "Mistral · writing / study" },
-  { id: "groq:openai/gpt-oss-120b", label: "GPT OSS 120B", detail: "Groq · fast responses" },
+type ModelOption = { id: string; provider: string; label: string; detail: string; configured?: boolean };
+
+const FALLBACK_MODEL_OPTIONS: ModelOption[] = [
+  { id: "auto", provider: "auto", label: "Auto", detail: "Best model for the task", configured: true },
+  { id: "qwen:qwen3.7-plus", provider: "qwen", label: "Qwen 3.7 Plus", detail: "Qwen · general / code" },
+  { id: "qwen:qwen3.7-flash", provider: "qwen", label: "Qwen 3.7 Flash", detail: "Qwen · fast reasoning" },
+  { id: "agentrouter:kimi-k2.6", provider: "agentrouter", label: "Kimi K2.6", detail: "AgentRouter · reasoning" },
+  { id: "agentrouter:glm-5.1", provider: "agentrouter", label: "GLM 5.1", detail: "AgentRouter · general" },
+  { id: "agentrouter:step3p5-code-alpha", provider: "agentrouter", label: "Step 3.5 Code", detail: "AgentRouter · coding" },
+  { id: "cerebras:zai-glm-4.7", provider: "cerebras", label: "GLM 4.7", detail: "Cerebras · fast reasoning" },
+  { id: "mistral:mistral-large-latest", provider: "mistral", label: "Mistral Large", detail: "Mistral · writing / study" },
+  { id: "groq:openai/gpt-oss-120b", provider: "groq", label: "GPT OSS 120B", detail: "Groq · fast responses" },
+  { id: "openrouter:openrouter/free", provider: "openrouter", label: "OpenRouter Free", detail: "OpenRouter · automatic free route" },
 ];
 
 function shouldHandoffToTask(value: string, attachments: Array<{ name: string; context?: string }>) {
@@ -52,12 +58,16 @@ export default function ChatScreen() {
   const [plusOpen, setPlusOpen] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
   const [selectedModel, setSelectedModel] = useState("auto");
+  const [modelOptions, setModelOptions] = useState<ModelOption[]>(FALLBACK_MODEL_OPTIONS);
   const bottomRef = useRef<HTMLDivElement>(null);
   const uploadRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     void getConversations().then(setHistory).catch(() => setHistory([]));
+    void fetch("/api/models").then((response) => response.ok ? response.json() as Promise<{ models?: ModelOption[] }> : Promise.reject(new Error("models unavailable"))).then((data) => {
+      if (Array.isArray(data.models) && data.models.length) setModelOptions(data.models);
+    }).catch(() => undefined);
     let active = true;
     async function load() {
       if (requestedId) {
@@ -121,6 +131,7 @@ export default function ChatScreen() {
             objective: `${text}${attachmentContext}`,
             kind: inferTask(text),
             conversationId: optimistic.id,
+            ...(selectedModel !== "auto" ? { preferredProvider: selectedModel.split(":")[0], preferredModel: selectedModel.split(":").slice(1).join(":") } : {}),
             autoStart: true,
           }),
           signal: controller.signal,
@@ -225,7 +236,7 @@ export default function ChatScreen() {
         </aside>
         <div className="chat-head">
           <div><p className="eyebrow">ELIAS / conversation</p><h1>{conversation?.title || "New conversation"}</h1></div>
-          <div className="chat-head-actions"><div className="model-picker"><button type="button" className="model-picker-trigger" aria-expanded={modelOpen} onClick={() => setModelOpen((open) => !open)}><span><small>MODEL</small><strong>{MODEL_OPTIONS.find((option) => option.id === selectedModel)?.label}</strong></span><ChevronDown size={15} /></button>{modelOpen ? <div className="model-picker-menu">{MODEL_OPTIONS.map((option) => <button key={option.id} type="button" className={option.id === selectedModel ? "selected" : ""} onClick={() => { setSelectedModel(option.id); setModelOpen(false); }}><span><strong>{option.label}</strong><small>{option.detail}</small></span>{option.id === selectedModel ? <Check size={14} /> : null}</button>)}</div> : null}</div><Link href="/chat" className="chat-new"><Plus size={15} /> new</Link></div>
+          <div className="chat-head-actions"><div className="model-picker"><button type="button" className="model-picker-trigger" aria-expanded={modelOpen} onClick={() => setModelOpen((open) => !open)}><span><small>MODEL</small><strong>{modelOptions.find((option) => option.id === selectedModel)?.label || "Auto"}</strong></span><ChevronDown size={15} /></button>{modelOpen ? <div className="model-picker-menu">{modelOptions.map((option) => <button key={option.id} type="button" className={option.id === selectedModel ? "selected" : ""} onClick={() => { setSelectedModel(option.id); setModelOpen(false); }}><span><strong>{option.label}</strong><small>{option.detail}{option.id !== "auto" && option.configured === false ? " · not configured" : ""}</small></span>{option.id === selectedModel ? <Check size={14} /> : null}</button>)}</div> : null}</div><Link href="/chat" className="chat-new"><Plus size={15} /> new</Link></div>
         </div>
 
         <div className="chat-body">

@@ -247,3 +247,42 @@ export async function completeWithProvider({
 
   return readProviderResponse(response);
 }
+
+export type ModelCatalogItem = {
+  id: string;
+  provider: ProviderName;
+  label: string;
+  detail: string;
+  configured: boolean;
+};
+
+const MODEL_LABELS: Record<string, { label: string; detail: string }> = {
+  "qwen3.7-plus": { label: "Qwen 3.7 Plus", detail: "Qwen · general / code" },
+  "qwen3.7-flash": { label: "Qwen 3.7 Flash", detail: "Qwen · fast reasoning" },
+  "kimi-k2.6": { label: "Kimi K2.6", detail: "AgentRouter · reasoning" },
+  "glm-5.1": { label: "GLM 5.1", detail: "AgentRouter · general" },
+  "step3p5-code-alpha": { label: "Step 3.5 Code", detail: "AgentRouter · coding" },
+  "openai/gpt-oss-120b": { label: "GPT OSS 120B", detail: "Groq · fast responses" },
+  "openrouter/free": { label: "OpenRouter Free", detail: "OpenRouter · automatic free route" },
+  "zai-glm-4.7": { label: "GLM 4.7", detail: "Cerebras · fast reasoning" },
+  "mistral-large-latest": { label: "Mistral Large", detail: "Mistral · writing / study" },
+};
+
+function modelLabel(provider: ProviderName, id: string) {
+  return MODEL_LABELS[id] || { label: id, detail: `${provider} · provider model` };
+}
+
+export async function modelCatalog(): Promise<ModelCatalogItem[]> {
+  const items: ModelCatalogItem[] = [];
+  for (const provider of Object.keys(CONFIG) as ProviderName[]) {
+    const config = CONFIG[provider];
+    const configured = Boolean(config.key);
+    const live = configured ? await listModels(provider) : [];
+    const ids = [...new Set([...live.map((model) => model.id), ...config.fallbackModels])];
+    for (const id of ids) {
+      const metadata = modelLabel(provider, id);
+      items.push({ id: `${provider}:${id}`, provider, label: metadata.label, detail: metadata.detail, configured });
+    }
+  }
+  return items;
+}
