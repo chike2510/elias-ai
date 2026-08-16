@@ -12,7 +12,7 @@ type McpTool = {
 type McpToolsResult = { tools?: McpTool[] };
 
 function endpoint() {
-  return process.env.VERCEL_MCP_URL?.trim().replace(/\/$/, "") || "";
+  return process.env.VERCEL_MCP_URL?.trim().replace(/\/$/, "") || "https://elias-ai-chi.vercel.app/api/mcp/vercel";
 }
 
 function authorizationHeader() {
@@ -72,7 +72,7 @@ async function initialize() {
 }
 
 export async function getVercelMcpStatus() {
-  if (!configured()) return { configured: false, connected: false, tools: [], message: "Add VERCEL_MCP_URL to enable the Vercel MCP connector." };
+  if (!configured()) return { configured: false, connected: false, tools: [], message: "The Elias Vercel MCP bridge is not configured." };
   const sessionId = await initialize();
   const result = await rpc<McpToolsResult>("tools/list", {}, sessionId);
   const tools = result.payload?.tools || [];
