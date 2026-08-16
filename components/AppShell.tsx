@@ -25,7 +25,7 @@ export default function AppShell({ children, title }: { children: React.ReactNod
     <div className="app-shell">
       <aside className="desktop-sidebar">
         <Link href="/" className="brand sidebar-brand">
-          <span className="brand-mark"><Sparkles size={17} /></span>
+          <span className="brand-mark"><img src="/branding/elias-logo.png" alt="" /></span>
           <span className="brand-wordmark">ELIAS</span>
           <i />
         </Link>
@@ -43,7 +43,7 @@ export default function AppShell({ children, title }: { children: React.ReactNod
         <header className="topbar">
           <button className="icon-btn mobile-only" onClick={() => setHistoryOpen(true)} aria-label="Open conversation history"><Menu size={20} /></button>
           <Link href="/" className="brand mobile-brand">
-            <span className="brand-mark"><Sparkles size={16} /></span>
+            <span className="brand-mark"><img src="/branding/elias-logo.png" alt="" /></span>
             <span className="brand-wordmark">ELIAS</span><i />
           </Link>
           <div className="topbar-context">{title || "AI workbench"}</div>

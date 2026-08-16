@@ -4,7 +4,8 @@ import AuthGate from "@/components/AuthGate";
 
 export const metadata: Metadata = {
   title: "ELIAS — your intelligence layer",
-  description: "A mobile-first AI workspace for coding, research, study, files and agents."
+  description: "A mobile-first AI workspace for coding, research, study, files and agents.",
+  icons: { icon: "/branding/elias-logo-192.png", apple: "/branding/elias-logo-192.png" }
 };
 
 export const viewport: Viewport = {
