@@ -11,8 +11,9 @@ GITHUB_CLIENT_ID=...
 GITHUB_CLIENT_SECRET=...
 ELIAS_SESSION_SECRET=use-a-long-random-value-at-least-32-characters
 VERCEL_MCP_URL=https://elias-ai-chi.vercel.app/api/mcp/vercel
-VERCEL_MCP_TOKEN=<random-bridge-secret>
-VERCEL_API_TOKEN=<vercel-personal-token>
+# Optional service configuration; user credentials are collected per Elias account.
+VERCEL_MCP_TOKEN=<bridge-secret-if-using-an-external-MCP-client>
+VERCEL_API_TOKEN=<not-used-as-a-shared-production-secret>
 ```
 
 `ELIAS_SESSION_SECRET` encrypts the HttpOnly Elias session cookie. The current prototype stores the authorized provider tokens inside that encrypted cookie so the connector flow works without introducing a database. For production scale, move user and connector records into a server-side database and store only an opaque session identifier in the cookie.
@@ -45,9 +46,9 @@ Elias does **not** use Vercel as an account sign-in provider. The previous `/api
 
 The intended architecture is an MCP host/client connection. Elias’s server calls a configured Vercel MCP endpoint, discovers available tools, and invokes those tools only from authenticated server routes. The browser never receives the MCP credential and never redirects the user to a Vercel login screen.
 
-Elias includes its own protected MCP bridge at `/api/mcp/vercel`. `VERCEL_MCP_TOKEN` is a private random secret shared only between Elias’s server-side MCP client and that bridge. `VERCEL_API_TOKEN` is a personal Vercel API token created from [Vercel Account Tokens](https://vercel.com/account/tokens); the bridge uses it only in server-side requests to `api.vercel.com`. The bridge exposes read-only project, deployment, and build-log tools and does not place either credential in browser code.
+Elias includes its own protected MCP endpoint at `/api/mcp/vercel`. Vercel authorization is now **per Elias account**: the signed-in user opens the Vercel connector detail screen, pastes that user’s Vercel API token, and Elias verifies it against `api.vercel.com` before storing it in the encrypted session. The token is never returned to the browser, never shared with another Elias user, and is removed when the user disconnects Vercel.
 
-From Chat, the user opens **+ add** and chooses **Connect Vercel via MCP**. Elias calls `POST /api/connect/vercel`, checks the bridge, and reports the discovered tool count. If the credentials are missing or invalid, the interface shows a configuration state instead of sending the user to a Vercel login page. Use a long random value for `VERCEL_MCP_TOKEN`; it is not the `oac_...` client ID and it is not the Vercel API token.
+From Chat, the user opens **+ add** and chooses **Connect Vercel via MCP**. Elias opens the connector detail screen, shows the three available read-only tools, and asks for authorization only if that Elias account is not connected. A second Elias user must authorize a separate Vercel account or token; the first user’s connection is not reused. The `oac_...` client ID is not used by this flow.
 
 ## User flow
 

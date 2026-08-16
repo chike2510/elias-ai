@@ -13,6 +13,8 @@ export async function GET() {
           email: session.email,
           avatarUrl: session.avatarUrl,
           githubConnected: Boolean(session.githubConnected),
+          vercelConnected: Boolean(session.vercelConnected),
+          vercelAccount: session.vercelConnected ? { teamId: session.vercelTeamId } : null,
           vercelMcpConfigured: vercelMcpConfigured(),
         }
       : null,

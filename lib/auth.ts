@@ -9,6 +9,9 @@ export type EliasSession = {
   avatarUrl?: string;
   githubToken?: string;
   githubConnected?: boolean;
+  vercelApiToken?: string;
+  vercelConnected?: boolean;
+  vercelTeamId?: string;
   createdAt: number;
 };
 

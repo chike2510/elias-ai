@@ -33,8 +33,8 @@ export default function AppShell({ children, title }: { children: React.ReactNod
           {navigation.map((item) => <Nav key={item.href} {...item} active={item.href === "/" ? pathname === "/" : pathname.startsWith(item.href)} />)}
         </nav>
         <div className="sidebar-footer">
-          <span className="profile-avatar">{user?.login?.slice(0, 1).toUpperCase() || "?"}</span>
-          <div><strong>{user?.name || user?.login || "Your account"}</strong><small>@{user?.login || "not signed in"}</small></div>
+          <Link href="/profile" className="profile-avatar" aria-label="Open profile">{user?.login?.slice(0, 1).toUpperCase() || "?"}</Link>
+          <Link href="/profile" className="profile-summary"><strong>{user?.name || user?.login || "Your account"}</strong><small>@{user?.login || "not signed in"}</small></Link>
           <button type="button" className="profile-menu" onClick={() => void logout()} aria-label="Sign out">↗</button>
         </div>
       </aside>
@@ -50,7 +50,7 @@ export default function AppShell({ children, title }: { children: React.ReactNod
           <div className="top-actions">
             <button className="icon-btn desktop-history" onClick={() => setHistoryOpen(true)} aria-label="Open conversation history"><MessageSquare size={18} /></button>
             <Link className="top-start" href="/chat">New conversation <span>⌘K</span></Link>
-            <span className="avatar">{user?.login?.slice(0, 1).toUpperCase() || "?"}</span>
+            <Link href="/profile" className="avatar" aria-label="Open profile">{user?.login?.slice(0, 1).toUpperCase() || "?"}</Link>
           </div>
         </header>
 
