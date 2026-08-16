@@ -1,22 +1,20 @@
-import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { getSession, publicOrigin, vercelClientId, vercelConfigured } from "@/lib/auth";
+import { getSession } from "@/lib/auth";
+import { getVercelMcpStatus } from "@/lib/vercelMcp";
 
-export async function GET(request: Request) {
+export async function POST() {
   const session = await getSession();
-  if (!session) return NextResponse.redirect(new URL("/login", request.url));
-  if (!vercelConfigured()) return NextResponse.redirect(new URL("/projects?error=vercel_not_configured", request.url));
-  const clientId = vercelClientId();
-  if (!/^[A-Za-z0-9_-]{8,}$/.test(clientId)) return NextResponse.redirect(new URL("/projects?error=vercel_invalid_client_id", request.url));
-  const state = crypto.randomUUID();
-  const jar = await cookies();
-  jar.set("elias_vercel_connect_state", state, { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/", maxAge: 600 });
-  const url = new URL("https://vercel.com/oauth/authorize");
-  url.searchParams.set("client_id", clientId);
-  url.searchParams.set("redirect_uri", `${publicOrigin(request)}/api/connect/vercel/callback`);
-  url.searchParams.set("response_type", "code");
-  url.searchParams.set("scope", "user project deployment team");
-  url.searchParams.set("prompt", "consent");
-  url.searchParams.set("state", state);
-  return NextResponse.redirect(url);
+  if (!session) return NextResponse.json({ error: "Sign in to use the Vercel MCP connector." }, { status: 401 });
+
+  try {
+    const status = await getVercelMcpStatus();
+    return NextResponse.json(status, { status: status.connected ? 200 : 503 });
+  } catch (error) {
+    return NextResponse.json({
+      configured: true,
+      connected: false,
+      tools: [],
+      message: error instanceof Error ? error.message : "Vercel MCP connection failed.",
+    }, { status: 502 });
+  }
 }

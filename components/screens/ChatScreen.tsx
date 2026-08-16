@@ -26,6 +26,7 @@ function inferTask(value: string): "code" | "research" | "study" | "general" {
 }
 
 type ModelOption = { id: string; provider: string; label: string; detail: string; configured?: boolean };
+type VercelMcpStatus = { configured?: boolean; connected?: boolean; message?: string; tools?: Array<{ name: string; description?: string }> };
 
 const FALLBACK_MODEL_OPTIONS: ModelOption[] = [
   { id: "auto", provider: "auto", label: "Auto", detail: "Best model for the task", configured: true },
@@ -59,6 +60,7 @@ export default function ChatScreen() {
   const [modelOpen, setModelOpen] = useState(false);
   const [selectedModel, setSelectedModel] = useState("auto");
   const [modelOptions, setModelOptions] = useState<ModelOption[]>(FALLBACK_MODEL_OPTIONS);
+  const [vercelStatus, setVercelStatus] = useState<VercelMcpStatus | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const uploadRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -194,6 +196,18 @@ export default function ChatScreen() {
     setBusy(false);
   }
 
+  async function connectVercel() {
+    setPlusOpen(false);
+    setVercelStatus({ message: "Checking the Vercel MCP connector…" });
+    try {
+      const response = await fetch("/api/connect/vercel", { method: "POST" });
+      const data = await response.json() as VercelMcpStatus;
+      setVercelStatus(data);
+    } catch {
+      setVercelStatus({ connected: false, message: "Could not reach the Vercel MCP connector." });
+    }
+  }
+
   async function addFiles(list: FileList | null) {
     if (!list) return;
     const next: Array<{ name: string; context?: string }> = [];
@@ -291,10 +305,11 @@ export default function ChatScreen() {
           <textarea value={input} onChange={(event) => setInput(event.target.value)} rows={3} placeholder="Message ELIAS…" onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendMessage(input); } }} />
           <input ref={uploadRef} hidden type="file" multiple accept=".zip,.ts,.tsx,.js,.jsx,.html,.css,.md,.txt,.pdf,.docx,.png,.jpg,.jpeg,.webp" onChange={(event) => { void addFiles(event.target.files); event.currentTarget.value = ""; }} />
           <div className="chat-composer-bar">
-            <div className="composer-left"><div className="composer-plus-wrap"><button type="button" className="composer-plus" aria-label="Add attachment or connection" aria-expanded={plusOpen} onClick={() => setPlusOpen((open) => !open)}><Plus size={19} /></button>{plusOpen ? <div className="composer-plus-menu"><strong>Add to this conversation</strong><button type="button" onClick={() => { uploadRef.current?.click(); setPlusOpen(false); }}><Paperclip size={15} /> Attach file</button><a href="/api/connect/github"><Link2 size={15} /> Connect GitHub</a><a href="/api/connect/vercel"><FolderPlus size={15} /> Connect Vercel</a><Link href="/projects"><FolderPlus size={15} /> Add project context</Link><Link href="/tasks"><Sparkles size={15} /> Link a task</Link></div> : null}</div><Link href="/studio?mode=voice" className="composer-utility" title="Voice" aria-label="Voice"><Mic size={17} /></Link><Link href="/studio?mode=camera" className="composer-utility" title="Camera" aria-label="Camera"><Camera size={17} /></Link></div>
+            <div className="composer-left"><div className="composer-plus-wrap"><button type="button" className="composer-plus" aria-label="Add attachment or connection" aria-expanded={plusOpen} onClick={() => setPlusOpen((open) => !open)}><Plus size={19} /></button>{plusOpen ? <div className="composer-plus-menu"><strong>Add to this conversation</strong><button type="button" onClick={() => { uploadRef.current?.click(); setPlusOpen(false); }}><Paperclip size={15} /> Attach file</button><a href="/api/connect/github"><Link2 size={15} /> Connect GitHub</a><button type="button" onClick={() => void connectVercel()}><FolderPlus size={15} /> Connect Vercel via MCP</button><Link href="/projects"><FolderPlus size={15} /> Add project context</Link><Link href="/tasks"><Sparkles size={15} /> Link a task</Link></div> : null}</div><Link href="/studio?mode=voice" className="composer-utility" title="Voice" aria-label="Voice"><Mic size={17} /></Link><Link href="/studio?mode=camera" className="composer-utility" title="Camera" aria-label="Camera"><Camera size={17} /></Link></div>
             {busy ? <button className="chat-send stop-button" type="button" onClick={stop} title="Stop generation"><X size={18} /></button> : <button className="chat-send" type="button" disabled={!input.trim()} onClick={() => void sendMessage(input)}><ArrowUp size={18} /></button>}
           </div>
         </div>
+        {vercelStatus ? <div className={`connector-toast ${vercelStatus.connected ? "success" : "warning"}`} role="status"><strong>{vercelStatus.connected ? "Vercel MCP connected" : "Vercel MCP not ready"}</strong><span>{vercelStatus.message}</span>{vercelStatus.connected && vercelStatus.tools?.length ? <small>{vercelStatus.tools.length} tools available to Elias.</small> : null}</div> : null}
       </main>
     </AppShell>
   );

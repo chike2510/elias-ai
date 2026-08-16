@@ -9,10 +9,9 @@ Configure these values in the local `.env.local` file and in the Vercel project 
 ```text
 GITHUB_CLIENT_ID=...
 GITHUB_CLIENT_SECRET=...
-VERCEL_CLIENT_ID=...
-VERCEL_CLIENT_SECRET=...
-ELIAS_PUBLIC_URL=https://elias-ai-chi.vercel.app
 ELIAS_SESSION_SECRET=use-a-long-random-value-at-least-32-characters
+VERCEL_MCP_URL=https://your-vercel-mcp-server.example.com/api/mcp
+VERCEL_MCP_AUTHORIZATION=Bearer <server-side-token>
 ```
 
 `ELIAS_SESSION_SECRET` encrypts the HttpOnly Elias session cookie. The current prototype stores the authorized provider tokens inside that encrypted cookie so the connector flow works without introducing a database. For production scale, move user and connector records into a server-side database and store only an opaque session identifier in the cookie.
@@ -39,20 +38,25 @@ Elias supports provider-backed model routing through the configured OpenAI-compa
 
 Supported provider environment variables include `QWEN_API_KEY`, `AGENTROUTER_API_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `CEREBRAS_API_KEY`, `MISTRAL_API_KEY`, and `GITHUB_TOKEN` where applicable.
 
-## Vercel OAuth integration
+## Vercel as an MCP connector
 
-Create a Vercel OAuth integration in the Vercel Integration Console. Register this redirect URL:
+Elias does **not** use Vercel as an account sign-in provider. The previous `/api/connect/vercel` OAuth redirect has been removed because it sent users to `https://vercel.com/oauth/authorize` and incorrectly treated a service connector as end-user authentication.
+
+The intended architecture is an MCP host/client connection. Elias’s server calls a configured Vercel MCP endpoint, discovers available tools, and invokes those tools only from authenticated server routes. The browser never receives the MCP credential and never redirects the user to a Vercel login screen.
+
+Configure the server-only bridge values:
 
 ```text
-https://elias-ai-chi.vercel.app/api/connect/vercel/callback
+VERCEL_MCP_URL=https://your-vercel-mcp-server.example.com/api/mcp
+VERCEL_MCP_AUTHORIZATION=Bearer <server-side-token>
 ```
 
-Set `ELIAS_PUBLIC_URL=https://elias-ai-chi.vercel.app` so both authorization and token exchange use the stable registered domain instead of a Vercel preview origin.
+Alternatively, set `VERCEL_MCP_TOKEN` to the raw token. The endpoint must support Streamable HTTP JSON-RPC and the standard `initialize`, `notifications/initialized`, `tools/list`, and `tools/call` methods.
 
-Set the integration scopes to the minimum required for the first release: `user`, `project`, `deployment`, and `team`. Vercel exchanges the short-lived authorization code through `POST https://api.vercel.com/v2/oauth/access_token`. The access token is used only on the server side.
+From Chat, the user opens **+ add** and chooses **Connect Vercel via MCP**. Elias calls `POST /api/connect/vercel`, checks the server-side MCP bridge, and reports the discovered tool count. If the endpoint is missing or unreachable, the interface shows a configuration state instead of sending the user to a broken OAuth page.
 
 ## User flow
 
 A new user visits Elias and is sent to `/login`. **Continue with GitHub** creates the Elias session from the GitHub identity. The workbench then starts empty: no sample conversations, projects, tasks, or connected services are shown.
 
-From Chat, the user opens **+ add** and chooses **Connect GitHub** or **Connect Vercel**. Elias sends the user to the corresponding consent page, validates the callback state, exchanges the code server-side, and records the resulting connection in the authenticated session. Project screens should display real resources only after the relevant connector has been authorized.
+From Chat, the user opens **+ add** and chooses **Connect GitHub** or **Connect Vercel via MCP**. GitHub remains a user-granted repository connector. Vercel is handled through the server-side MCP bridge and is not a second Elias login. Project screens should display real resources only after the relevant connector has been validated.

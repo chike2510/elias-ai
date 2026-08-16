@@ -9,9 +9,6 @@ export type EliasSession = {
   avatarUrl?: string;
   githubToken?: string;
   githubConnected?: boolean;
-  vercelConnected?: boolean;
-  vercelToken?: string;
-  vercelTeamId?: string;
   createdAt: number;
 };
 
@@ -77,12 +74,4 @@ export function githubConfigured() {
 
 export function publicOrigin(request: Request) {
   return (process.env.ELIAS_PUBLIC_URL || new URL(request.url).origin).replace(/\/$/, "");
-}
-
-export function vercelClientId() {
-  return process.env.VERCEL_CLIENT_ID?.trim() || "";
-}
-
-export function vercelConfigured() {
-  return Boolean(vercelClientId() && process.env.VERCEL_CLIENT_SECRET?.trim());
 }
