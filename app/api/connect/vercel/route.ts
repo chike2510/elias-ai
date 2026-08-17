@@ -8,14 +8,16 @@ const tools = [
 ];
 
 async function verifyVercelToken(token: string) {
-  const response = await fetch("https://api.vercel.com/v2/user", { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" });
+  // Project- and team-scoped tokens are intentionally denied access to /v2/user.
+  // Validate against a project resource instead; Vercel infers scope from the token.
+  const response = await fetch("https://api.vercel.com/v9/projects?limit=1", { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" });
   if (!response.ok) {
-    if (response.status === 404) throw new Error("This is not a Vercel Access Token. Use the token created at Vercel Account Settings → Tokens; do not paste VERCEL_MCP_TOKEN or the oac_ OAuth Client ID.");
+    if (response.status === 404) throw new Error("Vercel could not find an accessible project for this token. Create a Full Account, Team, or Project token at Vercel Account Settings → Tokens; do not paste VERCEL_MCP_TOKEN or the oac_ OAuth Client ID.");
     if (response.status === 401) throw new Error("Vercel rejected this token. Check that it is active and copied completely.");
     throw new Error(`Vercel verification failed (${response.status}).`);
   }
-  const data = await response.json() as { user?: { id?: string; username?: string; name?: string } };
-  return data.user || {};
+  const data = await response.json() as { projects?: Array<{ id?: string; name?: string; accountId?: string }> };
+  return { projects: data.projects || [] };
 }
 
 export async function POST(request: Request) {
@@ -28,8 +30,9 @@ export async function POST(request: Request) {
 
   try {
     const user = await verifyVercelToken(token);
-    await setSession({ ...session, vercelApiToken: token, vercelConnected: true, vercelTeamId: user.id });
-    return NextResponse.json({ connected: true, tools, account: { id: user.id, username: user.username, name: user.name }, message: `Connected to Vercel${user.username ? ` as @${user.username}` : ""}.` });
+    await setSession({ ...session, vercelApiToken: token, vercelConnected: true, vercelTeamId: undefined });
+    const firstProject = user.projects[0];
+    return NextResponse.json({ connected: true, tools, account: { projectCount: user.projects.length, sampleProject: firstProject?.name }, message: `Connected to Vercel${firstProject?.name ? ` with access to ${firstProject.name}` : ""}.` });
   } catch (error) {
     return NextResponse.json({ connected: false, tools: [], message: error instanceof Error ? error.message : "Vercel connection failed." }, { status: 502 });
   }
