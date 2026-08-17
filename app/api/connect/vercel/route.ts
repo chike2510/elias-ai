@@ -9,7 +9,11 @@ const tools = [
 
 async function verifyVercelToken(token: string) {
   const response = await fetch("https://api.vercel.com/v2/user", { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" });
-  if (!response.ok) throw new Error(response.status === 401 ? "Vercel rejected this token." : `Vercel verification failed (${response.status}).`);
+  if (!response.ok) {
+    if (response.status === 404) throw new Error("This is not a Vercel Access Token. Use the token created at Vercel Account Settings → Tokens; do not paste VERCEL_MCP_TOKEN or the oac_ OAuth Client ID.");
+    if (response.status === 401) throw new Error("Vercel rejected this token. Check that it is active and copied completely.");
+    throw new Error(`Vercel verification failed (${response.status}).`);
+  }
   const data = await response.json() as { user?: { id?: string; username?: string; name?: string } };
   return data.user || {};
 }
