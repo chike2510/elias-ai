@@ -28,6 +28,7 @@ function inferTask(value: string): "code" | "research" | "study" | "general" {
 
 type ModelOption = { id: string; provider: string; label: string; detail: string; configured?: boolean };
 type VercelMcpStatus = { configured?: boolean; connected?: boolean; message?: string; tools?: Array<{ name: string; description?: string }> };
+type Attachment = { name: string; context?: string; status?: "uploading" | "ready" | "error" };
 
 const FALLBACK_MODEL_OPTIONS: ModelOption[] = [
   { id: "auto", provider: "auto", label: "Auto", detail: "Best model for the task", configured: true },
@@ -42,7 +43,7 @@ const FALLBACK_MODEL_OPTIONS: ModelOption[] = [
   { id: "openrouter:openrouter/free", provider: "openrouter", label: "OpenRouter Free", detail: "OpenRouter · automatic free route" },
 ];
 
-function shouldHandoffToTask(value: string, attachments: Array<{ name: string; context?: string }>) {
+function shouldHandoffToTask(value: string, attachments: Attachment[]) {
   return attachments.length > 0 || /create|generate|build|make|write|produce|download|pdf|report|document|file|artifact|deliverable|research|latest|current|source|code|debug|refactor|repository|project|implement|study|exam|notes/i.test(value);
 }
 
@@ -56,7 +57,7 @@ export default function ChatScreen() {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
-  const [attachments, setAttachments] = useState<Array<{ name: string; context?: string }>>([]);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [plusOpen, setPlusOpen] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
   const [selectedModel, setSelectedModel] = useState("auto");
@@ -209,12 +210,18 @@ export default function ChatScreen() {
     }
   }
 
-  async function addFiles(list: FileList | null) {
+  async function addFiles(list: FileList | File[] | null) {
     if (!list) return;
-    const next: Array<{ name: string; context?: string }> = [];
-    for (const file of Array.from(list)) {
+    const selected = Array.from(list);
+    setAttachments((current) => [...current, ...selected.map((file) => ({ name: file.name, status: "uploading" as const }))]);
+    const updateAttachment = (name: string, patch: Partial<Attachment>) => setAttachments((current) => {
+      const index = current.findIndex((file) => file.name === name && file.status === "uploading");
+      if (index < 0) return current;
+      return current.map((file, itemIndex) => itemIndex === index ? { ...file, ...patch } : file);
+    });
+    for (const file of selected) {
       if (file.size > 20_000_000) {
-        next.push({ name: `${file.name} · too large` });
+        updateAttachment(file.name, { status: "error", name: `${file.name} · too large` });
         continue;
       }
       let extractedText: string | undefined;
@@ -232,10 +239,11 @@ export default function ChatScreen() {
       }
       try {
         await saveArtifact({ id: makeId("artifact"), name: file.name, type: file.type || "application/octet-stream", createdAt: Date.now(), blob: file, text: extractedText });
-      } catch { /* conversation attachment remains available in memory */ }
-      next.push({ name: file.name, context: extractedText });
+        updateAttachment(file.name, { context: extractedText, status: "ready" });
+      } catch {
+        updateAttachment(file.name, { context: extractedText, status: "error" });
+      }
     }
-    setAttachments((current) => [...current, ...next]);
   }
 
   const messages = useMemo(() => conversation?.messages ?? [], [conversation]);
@@ -296,7 +304,7 @@ export default function ChatScreen() {
           <div ref={bottomRef} />
         </div>
 
-        {attachments.length ? <div className="attachment-strip">{attachments.map((file, index) => <span key={`${file.name}-${index}`}>{file.name}<button type="button" onClick={() => setAttachments((current) => current.filter((_, itemIndex) => itemIndex !== index))}><X size={12} /></button></span>)}</div> : null}
+        {attachments.length ? <div className="attachment-strip">{attachments.map((file, index) => <span className={file.status === "error" ? "attachment-error" : ""} key={`${file.name}-${index}`}>{file.name}{file.status === "uploading" ? " · uploading…" : file.status === "error" ? " · failed" : ""}<button type="button" onClick={() => setAttachments((current) => current.filter((_, itemIndex) => itemIndex !== index))}><X size={12} /></button></span>)}</div> : null}
 
         <aside className="chat-context-panel">
           <div className="context-heading"><strong>Active context</strong><span>•••</span></div>
@@ -307,7 +315,7 @@ export default function ChatScreen() {
         </aside>
         <div className="chat-composer">
           <textarea value={input} onChange={(event) => setInput(event.target.value)} rows={3} placeholder="Message ELIAS…" onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendMessage(input); } }} />
-          <input ref={uploadRef} hidden type="file" multiple accept=".zip,.ts,.tsx,.js,.jsx,.html,.css,.md,.txt,.pdf,.docx,.png,.jpg,.jpeg,.webp" onChange={(event) => { void addFiles(event.target.files); event.currentTarget.value = ""; }} />
+          <input ref={uploadRef} hidden type="file" multiple accept=".zip,.ts,.tsx,.js,.jsx,.html,.css,.md,.txt,.pdf,.docx,.png,.jpg,.jpeg,.webp" onChange={(event) => { const files = Array.from(event.currentTarget.files ?? []); void addFiles(files); event.currentTarget.value = ""; }} />
           <div className="chat-composer-bar">
             <div className="composer-left"><div className="composer-plus-wrap"><button type="button" className="composer-plus" aria-label="Add attachment or connection" aria-expanded={plusOpen} onClick={() => setPlusOpen((open) => !open)}><Plus size={19} /></button>{plusOpen ? <div className="composer-plus-menu"><strong>Add to this conversation</strong><button type="button" onClick={() => { uploadRef.current?.click(); setPlusOpen(false); }}><Paperclip size={15} /> Attach file</button><a href="/api/connect/github"><Link2 size={15} /> Connect GitHub</a><Link href="/connectors/vercel"><FolderPlus size={15} /> Connect Vercel via MCP</Link><Link href="/projects"><FolderPlus size={15} /> Add project context</Link><Link href="/tasks"><Sparkles size={15} /> Link a task</Link></div> : null}</div><Link href="/studio?mode=voice" className="composer-utility" title="Voice" aria-label="Voice"><Mic size={17} /></Link><Link href="/studio?mode=camera" className="composer-utility" title="Camera" aria-label="Camera"><Camera size={17} /></Link></div>
             {busy ? <button className="chat-send stop-button" type="button" onClick={stop} title="Stop generation"><X size={18} /></button> : <button className="chat-send" type="button" disabled={!input.trim()} onClick={() => void sendMessage(input)}><ArrowUp size={18} /></button>}
