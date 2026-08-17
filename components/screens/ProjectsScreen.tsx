@@ -8,9 +8,10 @@ import { makeId, getProjects, saveProject, type ProjectRecord } from "@/lib/pers
 
 export default function ProjectsScreen() {
   const [projects, setProjects] = useState<ProjectRecord[]>([]);
+  const [repositories, setRepositories] = useState<Array<{ id: number; fullName: string; description: string; private: boolean; url: string; language: string }>>([]);
   const [query, setQuery] = useState("");
 
-  async function refresh() { try { setProjects(await getProjects()); } catch { setProjects([]); } }
+  async function refresh() { try { setProjects(await getProjects()); } catch { setProjects([]); } try { const response = await fetch("/api/github/repos", { cache: "no-store" }); const data = await response.json(); setRepositories(data.repositories || []); } catch { setRepositories([]); } }
   useEffect(() => { void refresh(); }, []);
 
   async function createProject() {
@@ -30,9 +31,10 @@ export default function ProjectsScreen() {
             <div className="searchbox"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search projects" /></div>
             <div className="filter-row project-filters"><b>All projects</b><span>Connected</span><span>Local workspaces</span></div>
             <div className="project-list connected-project-list">
+              {repositories.filter((repo) => `${repo.fullName} ${repo.description}`.toLowerCase().includes(query.toLowerCase())).map((repo) => <a href={repo.url} target="_blank" rel="noreferrer" key={`github-${repo.id}`} className="connected-service-row"><span className="service-icon github"><Github size={20} /></span><span className="project-copy"><strong>{repo.fullName}</strong><small>{repo.description}</small><em><i className="live-dot" /> GitHub · {repo.private ? "Private" : "Public"} · {repo.language}</em></span><ArrowUpRight size={16} /></a>)}
               {filtered.map((project) => <Link href={`/agent?project=${encodeURIComponent(project.id)}`} key={project.id} className="connected-service-row"><span className="service-icon local"><Code2 size={20} /></span><span className="project-copy"><strong>{project.name}</strong><small>{project.description || "Local coding workspace"}</small><em><i className="live-dot" /> Local workspace · Ready</em></span><ArrowUpRight size={16} /></Link>)}
             </div>
-            {!filtered.length ? <div className="empty-projects panel"><Sparkles size={22} /><b>No projects connected yet</b><small>Connect GitHub or Vercel from Chat, or create a local workspace for Elias.</small><div className="empty-project-actions"><Link className="secondary" href="/chat"><Plus size={15} /> Add a connector</Link><button className="secondary" onClick={() => void createProject()}><Plus size={15} /> Create workspace</button></div></div> : null}
+            {!filtered.length && !repositories.length ? <div className="empty-projects panel"><Sparkles size={22} /><b>No projects connected yet</b><small>Connect GitHub or Vercel from Chat, or create a local workspace for Elias.</small><div className="empty-project-actions"><Link className="secondary" href="/chat"><Plus size={15} /> Add a connector</Link><button className="secondary" onClick={() => void createProject()}><Plus size={15} /> Create workspace</button></div></div> : null}
           </div>
           <aside className="permissions-panel panel"><div className="panel-head"><h3>Project permissions</h3><span>Not connected</span></div><p>Connection permissions will appear here after you authorize a project or service.</p><Permission icon={<Github size={16} />} label="Read repository" detail="Available after GitHub authorization" /><Permission icon={<Code2 size={16} />} label="Inspect pull requests" detail="Available after GitHub authorization" /><Permission icon={<Cloud size={16} />} label="View deployments" detail="Available after Vercel authorization" /><Permission icon={<Plus size={16} />} label="Propose changes" detail="Requires explicit approval" /><Link className="secondary wide" href="/chat"><Plus size={15} /> Add a connection</Link></aside>
         </div>

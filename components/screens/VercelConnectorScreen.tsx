@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import AppShell from "@/components/AppShell";
 
 type Status = { connected?: boolean; needsToken?: boolean; message?: string; account?: { username?: string; name?: string }; tools?: Array<{ name: string; description?: string }> };
-const defaultTools = [{ name: "list_projects", description: "List projects visible to this Vercel account." }, { name: "get_deployment", description: "Inspect a deployment by ID or hostname." }, { name: "get_deployment_build_logs", description: "Read recent build events for a deployment." }];
+const defaultTools = [{ name: "list_projects", description: "List projects visible to this Vercel account." }, { name: "get_project", description: "Inspect project settings and repository linkage." }, { name: "list_project_domains", description: "List domains attached to a project." }, { name: "get_deployment", description: "Inspect a deployment by ID or hostname." }, { name: "get_deployment_build_logs", description: "Read recent build events for a deployment." }];
 
 export default function VercelConnectorScreen() {
   const [status, setStatus] = useState<Status>({ tools: defaultTools });
