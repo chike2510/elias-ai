@@ -241,3 +241,5 @@ html,body{background:var(--bg-deep);color:var(--text);font-family:var(--body)}bo
 .upload-error{margin:10px 0 0;color:var(--danger);line-height:1.45}
 
 .attachment-strip span{display:inline-flex;align-items:center;gap:5px;max-width:260px}.attachment-strip span.attachment-error{color:#ff9ba5;border-color:#67303e;background:#241419}.attachment-strip span button{flex:none}
+
+.user-message-text{white-space:pre-wrap;overflow-wrap:anywhere}.chat-attachment-card{display:flex;align-items:center;gap:10px;max-width:100%;margin-top:10px;padding:10px 12px;border:1px solid rgba(168,126,255,.32);border-radius:12px;background:rgba(125,83,220,.18);text-align:left}.chat-attachment-icon{display:grid;place-items:center;flex:none;width:32px;height:32px;border-radius:9px;color:#c5a7ff;background:rgba(157,111,255,.2)}.chat-attachment-card>span:nth-child(2){display:flex;min-width:0;flex-direction:column;gap:3px}.chat-attachment-card strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}.chat-attachment-card small{color:var(--muted);font-size:9px;line-height:1.35}

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowUp, Camera, Check, ChevronDown, ChevronRight, Copy, FolderPlus, Link2, LoaderCircle, MessageSquare, Mic, Paperclip, Plus, Sparkles, WandSparkles, X } from "lucide-react";
+import { ArrowUp, Camera, Check, ChevronDown, ChevronRight, Copy, FileText, FolderPlus, Link2, LoaderCircle, MessageSquare, Mic, Paperclip, Plus, Sparkles, WandSparkles, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import AppShell from "@/components/AppShell";
 import MarkdownMessage from "@/components/MarkdownMessage";
@@ -284,7 +284,7 @@ export default function ChatScreen() {
               <div className="chat-avatar">{message.role === "assistant" ? <Sparkles size={14} /> : "you"}</div>
               <div className="chat-message-body">
                 <span className="chat-role">{message.role === "assistant" ? `ELIAS${message.provider ? ` · ${message.provider}` : ""}` : "you"}</span>
-                {message.role === "assistant" ? <MarkdownMessage content={message.content} /> : <div className="chat-content user-content">{message.content}</div>}
+                {message.role === "assistant" ? <MarkdownMessage content={message.content} /> : <UserMessageContent content={message.content} />}
                 {message.role === "assistant" ? (
                   <div className="message-actions">
                     <button type="button" onClick={() => { void navigator.clipboard?.writeText(message.content); setCopied(message.id); window.setTimeout(() => setCopied(null), 1400); }}>
@@ -324,6 +324,17 @@ export default function ChatScreen() {
       </main>
     </AppShell>
   );
+}
+
+function UserMessageContent({ content }: { content: string }) {
+  const marker = /\n\n\[attached file: ([^\]]+)\]\n/g;
+  const matches = Array.from(content.matchAll(marker));
+  const firstAttachment = matches[0]?.index ?? content.length;
+  const visibleText = content.slice(0, firstAttachment).trim();
+  return <div className="user-content">
+    {visibleText ? <div className="user-message-text">{visibleText}</div> : null}
+    {matches.map((match, index) => <div className="chat-attachment-card" key={`${match[1]}-${index}`}><span className="chat-attachment-icon"><FileText size={16} /></span><span><strong>{match[1]}</strong><small>PDF attachment · extracted context available to ELIAS</small></span></div>)}
+  </div>;
 }
 
 function FolderIcon() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" /></svg>; }
