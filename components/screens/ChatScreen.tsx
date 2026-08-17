@@ -12,6 +12,7 @@ import type { TaskRecord } from "@/lib/task";
 import { getConversation,
   getConversations,
   makeId,
+  saveArtifact,
   saveConversation,
   type ConversationMessage,
   type ConversationRecord,
@@ -216,20 +217,23 @@ export default function ChatScreen() {
         next.push({ name: `${file.name} · too large` });
         continue;
       }
+      let extractedText: string | undefined;
       if (/\.(ts|tsx|js|jsx|html|css|scss|md|txt|json|py|java|sql)$/i.test(file.name)) {
-        try { next.push({ name: file.name, context: await file.text() }); continue; } catch { /* show as name only */ }
+        try { extractedText = await file.text(); } catch { /* preserve the original file */ }
       }
-      if (/\.(pdf|docx|xlsx|xls|csv)$/i.test(file.name)) {
+      if (!extractedText && /\.(pdf|docx|xlsx|xls|csv)$/i.test(file.name)) {
         try {
           const form = new FormData();
           form.append("file", file);
           const response = await fetch("/api/documents/extract", { method: "POST", body: form });
           const data = await readApiResponse<{ text?: string }>(response);
-          next.push({ name: file.name, context: data.text });
-          continue;
-        } catch { /* show as name only */ }
+          extractedText = data.text;
+        } catch { /* preserve the original file and surface it in Library */ }
       }
-      next.push({ name: file.name });
+      try {
+        await saveArtifact({ id: makeId("artifact"), name: file.name, type: file.type || "application/octet-stream", createdAt: Date.now(), blob: file, text: extractedText });
+      } catch { /* conversation attachment remains available in memory */ }
+      next.push({ name: file.name, context: extractedText });
     }
     setAttachments((current) => [...current, ...next]);
   }

@@ -237,3 +237,5 @@ html,body{background:var(--bg-deep);color:var(--text);font-family:var(--body)}bo
 .repo-search{margin-top:12px}
 .repo-loading,.repo-empty{display:flex;align-items:center;gap:8px;padding:20px 4px;color:var(--soft);font-size:12px}
 @media(max-width:640px){.repos-panel{overflow:hidden}.repo-row{grid-template-columns:32px minmax(0,1fr) 16px;gap:10px;padding:13px 0}.repo-row strong{font-size:12px}.repo-row small{font-size:10px;white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}.repo-row em{font-size:9px}.repo-avatar{width:30px;height:30px}.repo-list{margin-top:10px}}
+
+.upload-error{margin:10px 0 0;color:var(--danger);line-height:1.45}
