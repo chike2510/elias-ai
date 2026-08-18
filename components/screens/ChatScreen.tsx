@@ -30,7 +30,7 @@ function inferTask(value: string): "code" | "research" | "study" | "general" {
 
 type ModelOption = { id: string; provider: string; label: string; detail: string; configured?: boolean };
 type VercelMcpStatus = { configured?: boolean; connected?: boolean; message?: string; tools?: Array<{ name: string; description?: string }> };
-type Attachment = { name: string; context?: string; status?: "uploading" | "ready" | "error"; documentId?: string };
+type Attachment = { name: string; context?: string; status?: "uploading" | "ready" | "error"; progress?: number; error?: string; documentId?: string; source?: File };
 
 const FALLBACK_MODEL_OPTIONS: ModelOption[] = [
   { id: "auto", provider: "auto", label: "Auto", detail: "Best model for the task", configured: true },
@@ -251,7 +251,7 @@ export default function ChatScreen() {
   async function addFiles(list: FileList | File[] | null) {
     if (!list) return;
     const selected = Array.from(list);
-    setAttachments((current) => [...current, ...selected.map((file) => ({ name: file.name, status: "uploading" as const }))]);
+    setAttachments((current) => [...current, ...selected.map((file) => ({ name: file.name, status: "uploading" as const, progress: 0, source: file }))]);
     const updateAttachment = (name: string, patch: Partial<Attachment>) => setAttachments((current) => {
       const index = current.findIndex((file) => file.name === name && file.status === "uploading");
       if (index < 0) return current;
@@ -259,30 +259,33 @@ export default function ChatScreen() {
     });
     for (const file of selected) {
       if (file.size > 20_000_000) {
-        updateAttachment(file.name, { status: "error", name: `${file.name} · too large` });
+        updateAttachment(file.name, { status: "error", progress: 0, error: "File is larger than 20 MB." });
         continue;
       }
       let extractedText: string | undefined;
+      updateAttachment(file.name, { progress: 20 });
       if (/\.(ts|tsx|js|jsx|html|css|scss|md|txt|json|py|java|sql)$/i.test(file.name)) {
-        try { extractedText = await file.text(); } catch { /* preserve the original file */ }
+        try { extractedText = await file.text(); updateAttachment(file.name, { progress: 70 }); } catch { /* preserve the original file */ }
       }
       if (!extractedText && /\.(pdf|docx|xlsx|xls|csv)$/i.test(file.name)) {
         try {
           const form = new FormData();
           form.append("file", file);
+          updateAttachment(file.name, { progress: 45 });
           const response = await fetch("/api/documents/process", { method: "POST", body: form });
           const data = await readApiResponse<{ text?: string; document?: { summary?: string; pageCount?: number; chars?: number; truncated?: boolean; chunks?: Array<{ id: string; index: number; pageStart: number; pageEnd: number; text: string; summary?: string }> } }>(response);
           extractedText = data.text;
           var processedDocument = data.document;
-        } catch { /* preserve the original file and surface it in Library */ }
+          updateAttachment(file.name, { progress: 78 });
+        } catch { updateAttachment(file.name, { status: "error", progress: 0, error: "Could not process this file." }); continue; }
       }
       try {
         const documentId = makeId("artifact");
         await saveArtifact({ id: documentId, name: file.name, type: file.type || "application/octet-stream", createdAt: Date.now(), blob: file, text: extractedText, summary: processedDocument?.summary, pageCount: processedDocument?.pageCount, charCount: processedDocument?.chars, truncated: processedDocument?.truncated, chunks: processedDocument?.chunks });
         setActiveDocumentIds((current) => current.includes(documentId) ? current : [...current, documentId]);
-        updateAttachment(file.name, { context: extractedText, status: "ready", documentId });
+        updateAttachment(file.name, { context: extractedText, status: "ready", progress: 100, documentId, error: undefined });
       } catch {
-        updateAttachment(file.name, { context: extractedText, status: "error" });
+        updateAttachment(file.name, { context: extractedText, status: "error", progress: 0, error: "Could not save this file." });
       }
     }
   }
@@ -302,16 +305,16 @@ export default function ChatScreen() {
           <Link href="/tasks" className="history-row history-task-link"><span className="history-bullet"><Check size={14} /></span><span><strong>Active tasks</strong><small>View execution history</small></span></Link>
         </aside>
         <div className="chat-head">
-          <div><p className="eyebrow">ELIAS / conversation</p><h1>{conversation?.title || "New conversation"}</h1></div>
-          <div className="chat-head-actions"><div className="model-picker"><button type="button" className="model-picker-trigger" aria-expanded={modelOpen} onClick={() => setModelOpen((open) => !open)}><span><small>MODEL</small><strong>{modelOptions.find((option) => option.id === selectedModel)?.label || "Auto"}</strong></span><ChevronDown size={15} /></button>{modelOpen ? <div className="model-picker-menu">{modelOptions.map((option) => <button key={option.id} type="button" className={option.id === selectedModel ? "selected" : ""} onClick={() => { setSelectedModel(option.id); setModelOpen(false); }}><span><strong>{option.label}</strong><small>{option.detail}{option.id !== "auto" && option.configured === false ? " · not configured" : ""}</small></span>{option.id === selectedModel ? <Check size={14} /> : null}</button>)}</div> : null}</div><Link href="/chat" className="chat-new"><Plus size={15} /> new</Link></div>
+          <div><h1>{conversation?.title || "New chat"}</h1></div>
+          <div className="chat-head-actions"><div className="model-picker"><button type="button" className="model-picker-trigger" aria-expanded={modelOpen} onClick={() => setModelOpen((open) => !open)}><span><small>MODEL</small><strong>{modelOptions.find((option) => option.id === selectedModel)?.label || "Auto"}</strong></span><ChevronDown size={15} /></button>{modelOpen ? <div className="model-picker-menu">{modelOptions.map((option) => <button key={option.id} type="button" className={option.id === selectedModel ? "selected" : ""} onClick={() => { setSelectedModel(option.id); setModelOpen(false); }}><span><strong>{option.label}</strong><small>{option.detail}{option.id !== "auto" && option.configured === false ? " · not configured" : ""}</small></span>{option.id === selectedModel ? <Check size={14} /> : null}</button>)}</div> : null}</div><Link href="/chat" className="chat-new" aria-label="Start a new chat"><Plus size={15} /></Link></div>
         </div>
 
         <div className="chat-body">
           {!messages.length ? (
             <div className="chat-empty">
               <div className="brand-mark large"><Sparkles size={27} /></div>
-              <h2>what are we working on?</h2>
-              <p>Talk normally. ELIAS can switch between conversation, coding, research, study, and agent work without losing the thread.</p>
+              <h2>What are we working on?</h2>
+              <p>Ask anything or add context with +.</p>
               <div className="chat-suggestions">
                 <button onClick={() => setInput("review this project architecture and tell me what you would improve")}><span>Review a project</span><ChevronRight size={14} /></button>
                 <button onClick={() => setInput("research the latest changes in Next.js and cite your sources")}><span>Research something current</span><ChevronRight size={14} /></button>
@@ -345,15 +348,9 @@ export default function ChatScreen() {
           <div ref={bottomRef} />
         </div>
 
-        {attachments.length ? <div className="attachment-strip">{attachments.map((file, index) => <span className={file.status === "error" ? "attachment-error" : ""} key={`${file.name}-${index}`}>{file.name}{file.status === "uploading" ? " · uploading…" : file.status === "error" ? " · failed" : ""}<button type="button" onClick={() => setAttachments((current) => current.filter((_, itemIndex) => itemIndex !== index))}><X size={12} /></button></span>)}</div> : null}
+        {attachments.length ? <div className="attachment-strip">{attachments.map((file, index) => <span className={`attachment-status ${file.status === "error" ? "attachment-error" : file.status === "ready" ? "attachment-ready" : ""}`} key={`${file.name}-${index}`}><span className="attachment-status-main"><FileText size={13} /><strong>{file.name}</strong><small>{file.status === "uploading" ? `Processing ${file.progress || 0}%` : file.status === "error" ? (file.error || "Failed") : "Ready"}</small></span>{file.status === "uploading" ? <i className="attachment-progress"><b style={{ width: `${file.progress || 0}%` }} /></i> : null}{file.status === "error" ? <button type="button" className="attachment-retry" onClick={() => { if (file.source) void addFiles([file.source]); }}>Retry</button> : null}<button type="button" onClick={() => setAttachments((current) => current.filter((_, itemIndex) => itemIndex !== index))} aria-label={`Remove ${file.name}`}><X size={12} /></button></span>)}</div> : null}
 
-        <aside className="chat-context-panel">
-          <div className="context-heading"><strong>Active context</strong><span>•••</span></div>
-          <div className="context-block"><span className="context-label">Project</span><Link href="/projects" className="context-item"><span className="context-icon"><FolderIcon /></span><span><strong>Orion Platform</strong><small>Platform redesign</small></span><ChevronRight size={14} /></Link></div>
-          <div className="context-block"><span className="context-label">Linked task</span><Link href="/tasks" className="context-item"><span className="context-icon violet"><ListIcon /></span><span><strong>Launch brief research</strong><small><i className="live-dot" /> Ready to start</small></span><ChevronRight size={14} /></Link></div>
-          <div className="context-summary"><span className="context-label">Context summary</span><p>Elias will use the active project and linked task to ground responses and deliverables.</p></div>
-          <Link href="/projects" className="secondary context-manage">Manage context</Link>
-        </aside>
+        {activeDocumentIds.length ? <aside className="chat-context-panel"><div className="context-heading"><strong>Context</strong></div><div className="context-summary"><p>{activeDocumentIds.length} document{activeDocumentIds.length === 1 ? "" : "s"} active</p></div><Link href="/files" className="secondary context-manage">Open Library</Link></aside> : null}
         <div className="chat-composer">
           <textarea value={input} onChange={(event) => setInput(event.target.value)} rows={3} placeholder="Message ELIAS…" onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendMessage(input); } }} />
           <input ref={uploadRef} hidden type="file" multiple accept=".zip,.ts,.tsx,.js,.jsx,.html,.css,.md,.txt,.pdf,.docx,.png,.jpg,.jpeg,.webp" onChange={(event) => { const files = Array.from(event.currentTarget.files ?? []); void addFiles(files); event.currentTarget.value = ""; }} />

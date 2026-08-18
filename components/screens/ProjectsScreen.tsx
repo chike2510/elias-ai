@@ -1,46 +1,33 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowUpRight, Check, Cloud, Code2, Folder, Github, Plus, Search, Sparkles } from "lucide-react";
+import { ArrowUpRight, Code2, Folder, Github, Plus, Search } from "lucide-react";
 import { useEffect, useState } from "react";
 import AppShell from "@/components/AppShell";
 import { makeId, getProjects, saveProject, type ProjectRecord } from "@/lib/persistence";
 
+type Repository = { id: number; fullName: string; description: string; private: boolean; url: string; language: string };
+
 export default function ProjectsScreen() {
   const [projects, setProjects] = useState<ProjectRecord[]>([]);
-  const [repositories, setRepositories] = useState<Array<{ id: number; fullName: string; description: string; private: boolean; url: string; language: string }>>([]);
+  const [repositories, setRepositories] = useState<Repository[]>([]);
   const [query, setQuery] = useState("");
 
-  async function refresh() { try { setProjects(await getProjects()); } catch { setProjects([]); } try { const response = await fetch("/api/github/repos", { cache: "no-store" }); const data = await response.json(); setRepositories(data.repositories || []); } catch { setRepositories([]); } }
+  async function refresh() {
+    try { setProjects(await getProjects()); } catch { setProjects([]); }
+    try { const response = await fetch("/api/github/repos", { cache: "no-store" }); const data = await response.json(); setRepositories(data.repositories || []); } catch { setRepositories([]); }
+  }
   useEffect(() => { void refresh(); }, []);
 
   async function createProject() {
-    const project: ProjectRecord = { id: makeId("project"), name: "New coding workspace", description: "ELIAS autonomous project", createdAt: Date.now(), updatedAt: Date.now() };
+    const project: ProjectRecord = { id: makeId("project"), name: "New workspace", description: "", createdAt: Date.now(), updatedAt: Date.now() };
     await saveProject(project);
     window.location.href = `/agent?project=${encodeURIComponent(project.id)}`;
   }
 
-  const filtered = projects.filter((project) => `${project.name} ${project.description || ""}`.toLowerCase().includes(query.toLowerCase()));
+  const term = query.toLowerCase();
+  const visibleRepositories = repositories.filter((repo) => `${repo.fullName} ${repo.description}`.toLowerCase().includes(term));
+  const visibleProjects = projects.filter((project) => `${project.name} ${project.description || ""}`.toLowerCase().includes(term));
 
-  return (
-    <AppShell title="Projects">
-      <main className="screen projects-screen">
-        <div className="destination-heading"><div><p className="eyebrow">ELIAS / context</p><h1>Projects</h1><p className="destination-dek">The systems Elias works in.</p></div><button className="primary" onClick={() => void createProject()}><Plus size={15} /> New project</button></div>
-        <div className="projects-layout">
-          <div className="projects-main">
-            <div className="searchbox"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search projects" /></div>
-            <div className="filter-row project-filters"><b>All projects</b><span>Connected</span><span>Local workspaces</span></div>
-            <div className="project-list connected-project-list">
-              {repositories.filter((repo) => `${repo.fullName} ${repo.description}`.toLowerCase().includes(query.toLowerCase())).map((repo) => <a href={repo.url} target="_blank" rel="noreferrer" key={`github-${repo.id}`} className="connected-service-row"><span className="service-icon github"><Github size={20} /></span><span className="project-copy"><strong>{repo.fullName}</strong><small>{repo.description}</small><em><i className="live-dot" /> GitHub · {repo.private ? "Private" : "Public"} · {repo.language}</em></span><ArrowUpRight size={16} /></a>)}
-              {filtered.map((project) => <Link href={`/agent?project=${encodeURIComponent(project.id)}`} key={project.id} className="connected-service-row"><span className="service-icon local"><Code2 size={20} /></span><span className="project-copy"><strong>{project.name}</strong><small>{project.description || "Local coding workspace"}</small><em><i className="live-dot" /> Local workspace · Ready</em></span><ArrowUpRight size={16} /></Link>)}
-            </div>
-            {!filtered.length && !repositories.length ? <div className="empty-projects panel"><Sparkles size={22} /><b>No projects connected yet</b><small>Connect GitHub or Vercel from Chat, or create a local workspace for Elias.</small><div className="empty-project-actions"><Link className="secondary" href="/chat"><Plus size={15} /> Add a connector</Link><button className="secondary" onClick={() => void createProject()}><Plus size={15} /> Create workspace</button></div></div> : null}
-          </div>
-          <aside className="permissions-panel panel"><div className="panel-head"><h3>Project permissions</h3><span>Not connected</span></div><p>Connection permissions will appear here after you authorize a project or service.</p><Permission icon={<Github size={16} />} label="Read repository" detail="Available after GitHub authorization" /><Permission icon={<Code2 size={16} />} label="Inspect pull requests" detail="Available after GitHub authorization" /><Permission icon={<Cloud size={16} />} label="View deployments" detail="Available after Vercel authorization" /><Permission icon={<Plus size={16} />} label="Propose changes" detail="Requires explicit approval" /><Link className="secondary wide" href="/chat"><Plus size={15} /> Add a connection</Link></aside>
-        </div>
-      </main>
-    </AppShell>
-  );
+  return <AppShell title="Projects"><main className="screen projects-screen"><header className="compact-destination-header"><div><span className="eyebrow">WORKSPACE</span><h1>Projects</h1></div><button className="primary" onClick={() => void createProject()}><Plus size={15} /> New</button></header><div className="searchbox project-search"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search projects" /></div><section className="project-list connected-project-list">{visibleRepositories.map((repo) => <a href={repo.url} target="_blank" rel="noreferrer" key={`github-${repo.id}`} className="connected-service-row"><span className="service-icon github"><Github size={20} /></span><span className="project-copy"><strong>{repo.fullName}</strong><small>{repo.description || "GitHub repository"}</small><em>{repo.private ? "Private" : "Public"}{repo.language ? ` · ${repo.language}` : ""}</em></span><ArrowUpRight size={16} /></a>)}{visibleProjects.map((project) => <Link href={`/agent?project=${encodeURIComponent(project.id)}`} key={project.id} className="connected-service-row"><span className="service-icon local"><Code2 size={20} /></span><span className="project-copy"><strong>{project.name}</strong><small>{project.description || "Local workspace"}</small><em>Local workspace</em></span><ArrowUpRight size={16} /></Link>)}</section>{!visibleRepositories.length && !visibleProjects.length ? <section className="empty-projects panel"><Folder size={22} /><b>{query ? "No matches" : "No projects yet"}</b><small>{query ? "Try another search." : "Connect GitHub or create a workspace."}</small><div className="empty-project-actions"><Link className="secondary" href="/connectors/github">Connect GitHub</Link><button className="secondary" onClick={() => void createProject()}>Create workspace</button></div></section> : null}</main></AppShell>;
 }
-
-function Permission({ icon, label, detail, granted = false }: { icon: React.ReactNode; label: string; detail: string; granted?: boolean }) { return <div className="permission-row"><span className="permission-icon">{icon}</span><span><strong>{label}</strong><small>{detail}</small></span><span className={granted ? "permission-check granted" : "permission-check"}>{granted ? <Check size={13} /> : "–"}</span></div>; }
