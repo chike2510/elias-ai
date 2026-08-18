@@ -79,7 +79,19 @@ export type ImprovementRecord = {
   updatedAt: number;
 };
 
-const DB_VERSION = 3;
+export type MemoryRecord = {
+  id: string;
+  kind: "preference" | "project" | "task" | "observation";
+  title: string;
+  value: string;
+  source?: string;
+  confidence: "low" | "medium" | "high";
+  expiresAt?: number;
+  createdAt: number;
+  updatedAt: number;
+};
+
+const DB_VERSION = 4;
 
 function dbName() {
   if (typeof window === "undefined") return "elias_anonymous";
@@ -115,6 +127,10 @@ function openDb(): Promise<IDBDatabase> {
         const store = db.createObjectStore("improvements", { keyPath: "id" });
         store.createIndex("kind", "kind", { unique: false });
         store.createIndex("status", "status", { unique: false });
+      }
+      if (!db.objectStoreNames.contains("memories")) {
+        const store = db.createObjectStore("memories", { keyPath: "id" });
+        store.createIndex("kind", "kind", { unique: false });
       }
     };
     request.onsuccess = () => resolve(request.result);
@@ -284,6 +300,22 @@ export async function recordAutomaticSignal(input: { kind: "feedback" | "evaluat
 
 export async function deleteImprovement(id: string) {
   await complete("improvements", "readwrite", (store) => store.delete(id));
+}
+
+export async function getMemories() {
+  const db = await openDb();
+  const transaction = db.transaction("memories", "readonly");
+  const result = await requestResult<MemoryRecord[]>(transaction.objectStore("memories").getAll());
+  db.close();
+  return result.filter((item) => !item.expiresAt || item.expiresAt > Date.now()).sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+export async function saveMemory(record: MemoryRecord) {
+  await complete("memories", "readwrite", (store) => store.put(record));
+}
+
+export async function deleteMemory(id: string) {
+  await complete("memories", "readwrite", (store) => store.delete(id));
 }
 
 export function makeId(prefix: string) {

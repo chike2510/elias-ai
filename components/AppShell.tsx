@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ClipboardCheck, FileText, Folder, Home, LibraryBig, Menu, MessageSquare, Sparkles } from "lucide-react";
+import { ClipboardCheck, Command, FileText, Folder, Home, LibraryBig, Menu, MessageSquare, Search, ShieldCheck, Sparkles } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import HistoryDrawer from "@/components/HistoryDrawer";
@@ -17,8 +17,10 @@ const navigation = [
 export default function AppShell({ children, title }: { children: React.ReactNode; title?: string }) {
   const pathname = usePathname();
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [commandOpen, setCommandOpen] = useState(false);
   const [user, setUser] = useState<{ login?: string; name?: string; avatarUrl?: string } | null>(null);
   useEffect(() => { void fetch("/api/auth/me", { cache: "no-store" }).then((response) => response.json()).then((data: { user?: { login?: string; name?: string; avatarUrl?: string } | null }) => setUser(data.user || null)).catch(() => setUser(null)); }, []);
+  useEffect(() => { const onKeyDown = (event: KeyboardEvent) => { if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); setCommandOpen((value) => !value); } if (event.key === "Escape") setCommandOpen(false); }; window.addEventListener("keydown", onKeyDown); return () => window.removeEventListener("keydown", onKeyDown); }, []);
   async function logout() { await fetch("/api/auth/logout", { method: "POST" }); window.location.href = "/login"; }
 
   return (
@@ -49,7 +51,7 @@ export default function AppShell({ children, title }: { children: React.ReactNod
           <div className="topbar-context">{title || "AI workbench"}</div>
           <div className="top-actions">
             <button className="icon-btn desktop-history" onClick={() => setHistoryOpen(true)} aria-label="Open conversation history"><MessageSquare size={18} /></button>
-            <Link className="top-start" href="/chat">New conversation <span>⌘K</span></Link>
+            <button className="top-start command-trigger" type="button" onClick={() => setCommandOpen(true)}><Command size={13} /> Command palette <span>⌘K</span></button>
             <Link href="/profile" className="avatar" aria-label="Open profile">{user?.login?.slice(0, 1).toUpperCase() || "?"}</Link>
           </div>
         </header>
@@ -66,10 +68,14 @@ export default function AppShell({ children, title }: { children: React.ReactNod
       </div>
 
       <HistoryDrawer open={historyOpen} onClose={() => setHistoryOpen(false)} />
+      {commandOpen ? <div className="command-overlay" role="presentation" onMouseDown={() => setCommandOpen(false)}><section className="command-palette" role="dialog" aria-modal="true" aria-label="Elias command palette" onMouseDown={(event) => event.stopPropagation()}><div className="command-palette-head"><Command size={16} /><strong>Command Elias</strong><button className="icon-btn" onClick={() => setCommandOpen(false)} aria-label="Close command palette">×</button></div><div className="command-list"><CommandLink href="/chat" label="Start a new conversation" icon={<MessageSquare size={15} />} onSelect={() => setCommandOpen(false)} /><CommandLink href="/search" label="Search your workspace" icon={<Search size={15} />} onSelect={() => setCommandOpen(false)} /><CommandLink href="/tasks" label="Open autonomous tasks" icon={<ClipboardCheck size={15} />} onSelect={() => setCommandOpen(false)} /><CommandLink href="/approvals" label="Review approval inbox" icon={<ShieldCheck size={15} />} onSelect={() => setCommandOpen(false)} /><CommandLink href="/memory" label="Manage Elias memory" icon={<Sparkles size={15} />} onSelect={() => setCommandOpen(false)} /><CommandLink href="/improvements" label="Improve Elias" icon={<Sparkles size={15} />} onSelect={() => setCommandOpen(false)} /></div><small className="command-hint">Press Esc to close</small></section></div> : null}
     </div>
   );
 }
 
 function Nav({ href, label, icon: Icon, active }: { href: string; label: string; icon: React.ComponentType<{ size?: number }>; active: boolean }) {
   return <Link href={href} className={`nav-item ${active ? "active" : ""}`}><Icon size={18} /><span>{label}</span></Link>;
+}
+function CommandLink({ href, label, icon, onSelect }: { href: string; label: string; icon: React.ReactNode; onSelect: () => void }) {
+  return <Link href={href} className="command-item" onClick={onSelect}><span>{icon}</span><b>{label}</b><span className="command-arrow">↵</span></Link>;
 }
