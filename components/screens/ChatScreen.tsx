@@ -9,7 +9,8 @@ import MarkdownMessage from "@/components/MarkdownMessage";
 import { readApiResponse } from "@/lib/clientApi";
 import { cacheTaskSnapshot } from "@/lib/clientTask";
 import type { TaskRecord } from "@/lib/task";
-import { getConversation,
+import { getArtifacts,
+  getConversation,
   getConversations,
   makeId,
   saveArtifact,
@@ -28,7 +29,7 @@ function inferTask(value: string): "code" | "research" | "study" | "general" {
 
 type ModelOption = { id: string; provider: string; label: string; detail: string; configured?: boolean };
 type VercelMcpStatus = { configured?: boolean; connected?: boolean; message?: string; tools?: Array<{ name: string; description?: string }> };
-type Attachment = { name: string; context?: string; status?: "uploading" | "ready" | "error" };
+type Attachment = { name: string; context?: string; status?: "uploading" | "ready" | "error"; documentId?: string };
 
 const FALLBACK_MODEL_OPTIONS: ModelOption[] = [
   { id: "auto", provider: "auto", label: "Auto", detail: "Best model for the task", configured: true },
@@ -58,6 +59,7 @@ export default function ChatScreen() {
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [activeDocumentIds, setActiveDocumentIds] = useState<string[]>([]);
   const [plusOpen, setPlusOpen] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
   const [selectedModel, setSelectedModel] = useState("auto");
@@ -106,11 +108,21 @@ export default function ChatScreen() {
     const base = retry
       ? { ...conversation, messages: conversation.messages.filter((message) => message.status !== "error") }
       : conversation;
+    let retrievedContext = "";
+    if (!retry && !attachments.length && activeDocumentIds.length) {
+      try {
+        const artifacts = await getArtifacts();
+        const terms = text.toLowerCase().split(/\W+/).filter((term) => term.length > 3);
+        const ranked = artifacts.filter((artifact) => activeDocumentIds.includes(artifact.id) && artifact.chunks?.length).flatMap((artifact) => (artifact.chunks || []).map((chunk) => ({ artifact, chunk, score: terms.reduce((total, term) => total + (chunk.text.toLowerCase().includes(term) || chunk.summary?.toLowerCase().includes(term) ? 1 : 0), 0) }))).sort((a, b) => b.score - a.score).slice(0, 4);
+        if (ranked.length) retrievedContext = `\n\n[retrieved document context]\n${ranked.map(({ artifact, chunk }) => `[${artifact.name} · pages ${chunk.pageStart}-${chunk.pageEnd}]\n${chunk.summary || chunk.text.slice(0, 8_000)}`).join("\n\n")}`;
+      } catch { /* continue without retrieval context */ }
+    }
     const attachmentContext = retry ? "" : attachments.filter((file) => file.context).map((file) => `\n\n[attached file: ${file.name}]\n${file.context!.slice(0, 60_000)}`).join("");
+    const documentContext = `${attachmentContext}${retrievedContext}`;
     const userMessage: ConversationMessage = {
       id: makeId("msg"),
       role: "user",
-      content: `${text}${attachmentContext}`,
+      content: `${text}${documentContext}`,
       createdAt: Date.now(),
     };
     const title = base.messages.length === 0 ? text.slice(0, 58) + (text.length > 58 ? "…" : "") : base.title;
@@ -132,7 +144,7 @@ export default function ChatScreen() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            objective: `${text}${attachmentContext}`,
+            objective: `${text}${documentContext}`,
             kind: inferTask(text),
             conversationId: optimistic.id,
             ...(selectedModel !== "auto" ? { preferredProvider: selectedModel.split(":")[0], preferredModel: selectedModel.split(":").slice(1).join(":") } : {}),
@@ -232,14 +244,17 @@ export default function ChatScreen() {
         try {
           const form = new FormData();
           form.append("file", file);
-          const response = await fetch("/api/documents/extract", { method: "POST", body: form });
-          const data = await readApiResponse<{ text?: string }>(response);
+          const response = await fetch("/api/documents/process", { method: "POST", body: form });
+          const data = await readApiResponse<{ text?: string; document?: { summary?: string; pageCount?: number; chars?: number; truncated?: boolean; chunks?: Array<{ id: string; index: number; pageStart: number; pageEnd: number; text: string; summary?: string }> } }>(response);
           extractedText = data.text;
+          var processedDocument = data.document;
         } catch { /* preserve the original file and surface it in Library */ }
       }
       try {
-        await saveArtifact({ id: makeId("artifact"), name: file.name, type: file.type || "application/octet-stream", createdAt: Date.now(), blob: file, text: extractedText });
-        updateAttachment(file.name, { context: extractedText, status: "ready" });
+        const documentId = makeId("artifact");
+        await saveArtifact({ id: documentId, name: file.name, type: file.type || "application/octet-stream", createdAt: Date.now(), blob: file, text: extractedText, summary: processedDocument?.summary, pageCount: processedDocument?.pageCount, charCount: processedDocument?.chars, truncated: processedDocument?.truncated, chunks: processedDocument?.chunks });
+        setActiveDocumentIds((current) => current.includes(documentId) ? current : [...current, documentId]);
+        updateAttachment(file.name, { context: extractedText, status: "ready", documentId });
       } catch {
         updateAttachment(file.name, { context: extractedText, status: "error" });
       }
@@ -332,8 +347,8 @@ function UserMessageContent({ content }: { content: string }) {
   const firstAttachment = matches[0]?.index ?? content.length;
   const visibleText = content.slice(0, firstAttachment).trim();
   return <div className="user-content">
-    {visibleText ? <div className="user-message-text">{visibleText}</div> : null}
-    {matches.map((match, index) => <div className="chat-attachment-card" key={`${match[1]}-${index}`}><span className="chat-attachment-icon"><FileText size={16} /></span><span><strong>{match[1]}</strong><small>PDF attachment · extracted context available to ELIAS</small></span></div>)}
+    {visibleText ? <div className="user-message-text">{visibleText.replace(/\n\n\[retrieved document context\][\s\S]*$/, "").trim()}</div> : null}
+    {matches.map((match, index) => <div className="chat-attachment-card" key={`${match[1]}-${index}`}><span className="chat-attachment-icon"><FileText size={16} /></span><span><strong>{match[1]}</strong><small>Processed document · extracted context available to ELIAS</small></span></div>)}
   </div>;
 }
 

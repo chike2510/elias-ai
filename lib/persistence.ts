@@ -35,6 +35,15 @@ export type ProjectFileRecord = {
   updatedAt: number;
 };
 
+export type ArtifactChunkRecord = {
+  id: string;
+  index: number;
+  pageStart: number;
+  pageEnd: number;
+  text: string;
+  summary?: string;
+};
+
 export type ArtifactRecord = {
   id: string;
   projectId?: string;
@@ -44,6 +53,11 @@ export type ArtifactRecord = {
   createdAt: number;
   blob?: Blob;
   text?: string;
+  summary?: string;
+  pageCount?: number;
+  charCount?: number;
+  truncated?: boolean;
+  chunks?: ArtifactChunkRecord[];
 };
 
 const DB_VERSION = 2;
