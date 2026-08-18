@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 
 type ActionRequest = {
-  action?: "create_branch" | "commit_file" | "create_pull_request";
+  action?: "create_branch" | "commit_file" | "create_pull_request" | "create_issue" | "create_review_comment";
   owner?: string;
   repo?: string;
   branch?: string;
@@ -13,6 +13,10 @@ type ActionRequest = {
   title?: string;
   body?: string;
   head?: string;
+  pullNumber?: number;
+  commitId?: string;
+  line?: number;
+  side?: "LEFT" | "RIGHT";
   confirm?: string;
 };
 
@@ -104,6 +108,25 @@ export async function POST(request: Request) {
       const title = input.title?.trim() || "Elias change proposal";
       const result = await githubFetch(session.githubToken, `/repos/${owner}/${repo}/pulls`, { method: "POST", body: JSON.stringify({ title, head, base, body: input.body?.trim() || "Created from Elias with explicit user confirmation." }) });
       return NextResponse.json({ ok: true, action, number: result.number, url: result.html_url, message: `Opened pull request ${result.number || ""}.` });
+    }
+
+    if (action === "create_issue") {
+      const title = input.title?.trim() || "Elias review finding";
+      const body = input.body?.trim() || "Created from Elias with explicit user confirmation.";
+      const result = await githubFetch(session.githubToken, `/repos/${owner}/${repo}/issues`, { method: "POST", body: JSON.stringify({ title, body }) });
+      return NextResponse.json({ ok: true, action, number: result.number, url: result.html_url, message: `Created issue ${result.number || ""}.` });
+    }
+
+    if (action === "create_review_comment") {
+      const pullNumber = Number(input.pullNumber);
+      const commitId = input.commitId?.trim() || "";
+      const path = input.path?.trim().replace(/^\/+/, "") || "";
+      const line = Number(input.line);
+      const side = input.side === "LEFT" ? "LEFT" : "RIGHT";
+      const body = input.body?.trim() || "Elias review comment";
+      if (!Number.isInteger(pullNumber) || pullNumber < 1 || !commitId || !path || !Number.isInteger(line) || line < 1) throw new Error("A pull request number, commit ID, file path, and positive line number are required.");
+      const result = await githubFetch(session.githubToken, `/repos/${owner}/${repo}/pulls/${pullNumber}/comments`, { method: "POST", body: JSON.stringify({ body, commit_id: commitId, path, line, side }) });
+      return NextResponse.json({ ok: true, action, id: result.id, url: result.html_url, message: "Posted the review comment." });
     }
 
     return fail("Unsupported GitHub write action.");
