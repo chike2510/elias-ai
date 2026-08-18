@@ -53,6 +53,7 @@ export default function ChatScreen() {
   const params = useSearchParams();
   const requestedId = params.get("id");
   const requestedPrompt = params.get("prompt");
+  const requestedDocumentId = params.get("documentId");
   const [conversation, setConversation] = useState<ConversationRecord | null>(null);
   const [history, setHistory] = useState<ConversationRecord[]>([]);
   const [input, setInput] = useState("");
@@ -84,13 +85,14 @@ export default function ChatScreen() {
         }
       }
       if (!active) return;
+      if (requestedDocumentId) setActiveDocumentIds([requestedDocumentId]);
       const now = Date.now();
       setConversation({ id: makeId("chat"), title: "New conversation", createdAt: now, updatedAt: now, messages: [] });
       if (requestedPrompt && !requestedId) setInput(requestedPrompt);
     }
     void load();
     return () => { active = false; };
-  }, [requestedId, requestedPrompt]);
+  }, [requestedId, requestedPrompt, requestedDocumentId]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
