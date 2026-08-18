@@ -10,6 +10,7 @@ const tools = [
   { name: "get_project", description: "Inspect a Vercel project’s settings and repository linkage.", inputSchema: { type: "object", required: ["projectIdOrName"], properties: { projectIdOrName: { type: "string" }, teamId: { type: "string" } } } },
   { name: "list_project_domains", description: "List domains attached to a Vercel project.", inputSchema: { type: "object", required: ["projectIdOrName"], properties: { projectIdOrName: { type: "string" }, teamId: { type: "string" } } } },
   { name: "redeploy_project", description: "Trigger a deployment from a linked GitHub repository. Requires explicit confirmation.", inputSchema: { type: "object", required: ["projectIdOrName", "repo", "ref", "confirm"], properties: { projectIdOrName: { type: "string" }, repo: { type: "string", description: "owner/repository" }, ref: { type: "string" }, teamId: { type: "string" }, confirm: { type: "string", description: "Must equal CONFIRM_DEPLOY" } } } },
+  { name: "update_project_env", description: "Create a Vercel project environment variable. Requires explicit confirmation.", inputSchema: { type: "object", required: ["projectIdOrName", "key", "value", "target", "confirm"], properties: { projectIdOrName: { type: "string" }, key: { type: "string" }, value: { type: "string" }, target: { type: "array", items: { type: "string", enum: ["production", "preview", "development"] } }, teamId: { type: "string" }, confirm: { type: "string", description: "Must equal CONFIRM_ENV_UPDATE" } } } },
 ];
 function rpc(id: JsonRpcRequest["id"], result: unknown) { return NextResponse.json({ jsonrpc: "2.0", id: id ?? null, result }, { headers: { "Mcp-Session-Id": "elias-user-session" } }); }
 function failure(id: JsonRpcRequest["id"], code: number, message: string, status = 400) { return NextResponse.json({ jsonrpc: "2.0", id: id ?? null, error: { code, message } }, { status }); }
@@ -30,6 +31,15 @@ async function callTool(token: string, name: string, args: Record<string, unknow
     if (!projectIdOrName || repo.split("/").length !== 2 || !/^[a-zA-Z0-9._/-]+$/.test(ref)) throw new Error("projectIdOrName, repo (owner/name), and ref are required.");
     const suffix = query(args, ["teamId"]);
     return vercelFetch(token, `/v13/deployments${suffix ? `?${suffix}` : ""}`, { method: "POST", body: JSON.stringify({ name: projectIdOrName, project: projectIdOrName, target: "production", gitSource: { type: "github", repo, ref } }) });
+  }
+  if (name === "update_project_env") {
+    if (args.confirm !== "CONFIRM_ENV_UPDATE") throw new Error("Environment update blocked. Ask the user for explicit confirmation, then call again with confirm=CONFIRM_ENV_UPDATE.");
+    const key = typeof args.key === "string" ? args.key.trim() : "";
+    const value = typeof args.value === "string" ? args.value : "";
+    const target = Array.isArray(args.target) ? args.target.filter((item): item is string => typeof item === "string" && ["production", "preview", "development"].includes(item)) : [];
+    if (!projectIdOrName || !/^[A-Z][A-Z0-9_]{1,127}$/.test(key) || !value || !target.length) throw new Error("projectIdOrName, an uppercase environment key, value, and at least one target are required.");
+    const suffix = query(args, ["teamId"]);
+    return vercelFetch(token, `/v10/projects/${encodeURIComponent(projectIdOrName)}/env${suffix ? `?${suffix}` : ""}`, { method: "POST", body: JSON.stringify({ key, value, type: "encrypted", target }) });
   }
   throw new Error(`Tool '${name}' is not available.`);
 }

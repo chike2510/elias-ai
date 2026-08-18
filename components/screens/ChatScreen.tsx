@@ -114,9 +114,26 @@ export default function ChatScreen() {
     if (!retry && !attachments.length && activeDocumentIds.length) {
       try {
         const artifacts = await getArtifacts();
-        const terms = text.toLowerCase().split(/\W+/).filter((term) => term.length > 3);
-        const ranked = artifacts.filter((artifact) => activeDocumentIds.includes(artifact.id) && artifact.chunks?.length).flatMap((artifact) => (artifact.chunks || []).map((chunk) => ({ artifact, chunk, score: terms.reduce((total, term) => total + (chunk.text.toLowerCase().includes(term) || chunk.summary?.toLowerCase().includes(term) ? 1 : 0), 0) }))).sort((a, b) => b.score - a.score).slice(0, 4);
-        if (ranked.length) retrievedContext = `\n\n[retrieved document context]\n${ranked.map(({ artifact, chunk }) => `[${artifact.name} · pages ${chunk.pageStart}-${chunk.pageEnd}]\n${chunk.summary || chunk.text.slice(0, 8_000)}`).join("\n\n")}`;
+        const stopWords = new Set(["this", "that", "with", "from", "what", "which", "about", "into", "have", "does", "your", "please", "document"]);
+        const terms = [...new Set(text.toLowerCase().split(/\W+/).filter((term) => term.length > 2 && !stopWords.has(term)))];
+        const ranked = artifacts.filter((artifact) => activeDocumentIds.includes(artifact.id) && artifact.chunks?.length).flatMap((artifact) => (artifact.chunks || []).map((chunk) => {
+          const source = chunk.text.toLowerCase();
+          const summary = (chunk.summary || "").toLowerCase();
+          const score = terms.reduce((total, term) => total + (summary.includes(term) ? 4 : source.includes(term) ? 2 : 0), 0) + (source.includes(text.toLowerCase()) ? 8 : 0) + (chunk.summary ? 1 : 0);
+          return { artifact, chunk, score };
+        })).filter((item) => item.score > 0).sort((a, b) => b.score - a.score || a.chunk.index - b.chunk.index).slice(0, 6);
+        if (ranked.length) {
+          const sections: string[] = [];
+          let budget = 18_000;
+          for (const { artifact, chunk } of ranked) {
+            const excerpt = (chunk.summary || chunk.text).slice(0, Math.min(4_500, budget));
+            if (!excerpt) continue;
+            sections.push(`[${artifact.name} · pages ${chunk.pageStart}-${chunk.pageEnd}]\\n${excerpt}`);
+            budget -= excerpt.length;
+            if (budget <= 0) break;
+          }
+          retrievedContext = sections.length ? `\\n\\n[retrieved document context]\\n${sections.join("\\n\\n")}` : "";
+        }
       } catch { /* continue without retrieval context */ }
     }
     const attachmentContext = retry ? "" : attachments.filter((file) => file.context).map((file) => `\n\n[attached file: ${file.name}]\n${file.context!.slice(0, 60_000)}`).join("");
@@ -142,11 +159,13 @@ export default function ChatScreen() {
 
     try {
       if (shouldHandoffToTask(text, attachments)) {
+        const handoffBudget = Math.max(0, 20_000 - text.length - 2);
+        const handoffObjective = text.length >= 20_000 ? text.slice(0, 20_000) : `${text}\n\n${documentContext.slice(0, handoffBudget)}`;
         const taskResponse = await fetch("/api/tasks", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            objective: `${text}${documentContext}`,
+            objective: handoffObjective,
             kind: inferTask(text),
             conversationId: optimistic.id,
             ...(selectedModel !== "auto" ? { preferredProvider: selectedModel.split(":")[0], preferredModel: selectedModel.split(":").slice(1).join(":") } : {}),
