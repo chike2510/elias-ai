@@ -21,7 +21,7 @@ function clampText(value: unknown, max: number) { return typeof value === "strin
 export async function POST(request: Request, { params }: { params: Promise<{ owner: string; repo: string }> }) {
   const session = await getSession();
   if (!session?.githubToken) return NextResponse.json({ message: "Connect GitHub for this Elias account first." }, { status: 401 });
-  let body: { paths?: unknown; diff?: unknown; branch?: unknown; provider?: unknown; model?: unknown };
+  let body: { paths?: unknown; diff?: unknown; branch?: unknown; provider?: unknown; model?: unknown; architecture?: unknown };
   try { body = await request.json() as typeof body; } catch { return NextResponse.json({ message: "Invalid review request." }, { status: 400 }); }
   const paths = Array.isArray(body.paths) ? body.paths.filter((value): value is string => typeof value === "string" && safePath(value)).slice(0, 8) : [];
   const diff = typeof body.diff === "string" ? body.diff.slice(0, 35_000) : "";
@@ -38,12 +38,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ own
     if (payload.type === "file" && payload.content && payload.encoding === "base64") selectedFiles.push({ path, content: Buffer.from(payload.content.replace(/\s/g, ""), "base64").toString("utf8").slice(0, 14_000) });
   }
   const sourceContext = selectedFiles.map((file) => `FILE: ${file.path}\n${file.content}`).join("\n\n").slice(0, 48_000);
+  const architectureContext = body.architecture && typeof body.architecture === "object" ? JSON.stringify(body.architecture).slice(0, 12_000) : "(not supplied)";
   const provider = typeof body.provider === "string" && providers.has(body.provider as ProviderName) ? body.provider as ProviderName : await chooseProvider("code", 8);
   if (!provider) return NextResponse.json({ message: "No configured AI provider is available for model-assisted review." }, { status: 503 });
   const requestedModel = typeof body.model === "string" && body.model.length < 180 ? body.model : undefined;
   const model = requestedModel || await pickModel(provider, "code");
   if (!model) return NextResponse.json({ message: `No usable model is available for ${provider}.` }, { status: 503 });
-  const prompt = `Review the selected source files and optional diff as a senior application-security and code-quality reviewer. Do not invent files, lines, runtime behavior, or vulnerabilities. Only report actionable issues supported by the supplied evidence. Prioritize correctness, security, data privacy, auth boundaries, error handling, tests, performance, and maintainability. Return JSON only with this exact shape: {"summary":"string","riskLevel":"low|medium|high|critical","findings":[{"id":"short-id","severity":"critical|high|medium|low","title":"string","detail":"string","evidence":[{"path":"path from input or DIFF","line":1,"quote":"short exact quote or diff hunk"}],"recommendation":"string","confidence":0.0}]}. Use an empty findings array when no supported issue exists.\n\nBRANCH: ${branch}\n\nSELECTED FILES:\n${sourceContext || "(none)"}\n\nDIFF:\n${diff || "(none)"}`;
+  const prompt = `Review the selected source files and optional diff as a senior application-security and code-quality reviewer. Do not invent files, lines, runtime behavior, or vulnerabilities. Only report actionable issues supported by the supplied evidence. Prioritize correctness, security, data privacy, auth boundaries, error handling, tests, performance, and maintainability. Return JSON only with this exact shape: {"summary":"string","riskLevel":"low|medium|high|critical","findings":[{"id":"short-id","severity":"critical|high|medium|low","title":"string","detail":"string","evidence":[{"path":"path from input or DIFF","line":1,"quote":"short exact quote or diff hunk"}],"recommendation":"string","confidence":0.0}]}. Use an empty findings array when no supported issue exists.\n\nBRANCH: ${branch}\n\nARCHITECTURE CONTEXT:\n${architectureContext}\n\nSELECTED FILES:\n${sourceContext || "(none)"}\n\nDIFF:\n${diff || "(none)"}`;
   try {
     const response = await completeWithProvider({ provider, model, temperature: 0.1, messages: [{ role: "system", content: "You are ELIAS Code Review. Output valid JSON only." }, { role: "user", content: prompt }] });
     const parsed = parseModelJson(response.text);

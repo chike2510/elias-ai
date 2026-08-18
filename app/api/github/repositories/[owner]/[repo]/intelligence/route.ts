@@ -7,6 +7,8 @@ type Finding = { id: string; severity: "critical" | "warning" | "info"; title: s
 const headersFor = (token: string) => ({ Accept: "application/vnd.github+json", Authorization: `Bearer ${token}`, "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "ELIAS" });
 function textFromBase64(value: string) { return Buffer.from(value, "base64").toString("utf8"); }
 function riskFinding(severity: Finding["severity"], title: string, detail: string, evidence: string[], path?: string): Finding { return { id: `${severity}_${title.toLowerCase().replace(/[^a-z0-9]+/g, "_")}`, severity, title, detail, evidence, ...(path ? { path } : {}) }; }
+function roleFor(path: string) { if (/(^|\/)(app|pages|routes?)\//.test(path) || /(^|\/)(route|page)\.(ts|tsx|js|jsx)$/.test(path)) return "route"; if (/(^|\/)(api|server|lib|services?)\//.test(path)) return "backend"; if (/(^|\/)(components?|ui|views?)\//.test(path)) return "ui"; if (/(^|\/)(tests?|__tests__)\//.test(path) || /\.(test|spec)\.[jt]sx?$/.test(path)) return "test"; if (/(config|schema|middleware|auth)/i.test(path)) return "configuration"; return "module"; }
+function importsFrom(text: string) { const values = [...text.matchAll(/(?:from\s+|import\s*\(\s*|require\s*\(\s*)["']([^"']+)["']/g)].map((match) => match[1]).filter(Boolean); return [...new Set(values)].slice(0, 40); }
 
 export async function GET(_: Request, { params }: { params: Promise<{ owner: string; repo: string }> }) {
   const session = await getSession();
@@ -27,7 +29,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ owner: str
   const tree = (treePayload.tree || []).filter((entry) => entry.type === "blob");
   const paths = tree.map((entry) => entry.path);
   const keyNames = ["package.json", "tsconfig.json", "next.config.js", "next.config.mjs", "next.config.ts", "vite.config.ts", "Dockerfile", ".env.example", "README.md", "drizzle/schema.ts", "prisma/schema.prisma"];
-  const keyEntries = tree.filter((entry) => keyNames.includes(entry.path) || /(^|\/)(auth|middleware|route|server|api|security|config)[^/]*\.(ts|tsx|js|jsx)$/.test(entry.path)).slice(0, 24);
+  const keyEntries = tree.filter((entry) => keyNames.includes(entry.path) || /(^|\/)(auth|middleware|route|server|api|security|config)[^/]*\.(ts|tsx|js|jsx)$/.test(entry.path) || /(^|\/)(app|src|lib|components|pages)\/[^/]+\.(ts|tsx|js|jsx)$/.test(entry.path)).slice(0, 60);
   const contents = await Promise.all(keyEntries.map(async (entry) => { const response = await fetch(`${base}/contents/${entry.path}?ref=${encodeURIComponent(branch)}`, { headers, cache: "no-store" }); if (!response.ok) return { path: entry.path, text: "" }; const payload = await response.json() as { content?: string; encoding?: string }; return { path: entry.path, text: payload.content && payload.encoding === "base64" ? textFromBase64(payload.content) : "" }; }));
   const files = contents.filter((item) => item.text).map((item) => ({ path: item.path, lines: item.text.split("\n").length, chars: item.text.length }));
   const findings: Finding[] = [];
@@ -44,5 +46,10 @@ export async function GET(_: Request, { params }: { params: Promise<{ owner: str
   const routeCount = paths.filter((path) => /(^|\/)(route|page)\.(ts|tsx|js|jsx)$/.test(path) || /(^|\/)api\//.test(path)).length;
   const sourceCount = paths.filter((path) => /\.(ts|tsx|js|jsx|py|go|java|rb|rs|php)$/.test(path)).length;
   if (sourceCount > 0 && !paths.some((path) => /(^|\/)(eslint|biome|prettier)/i.test(path) || /\.(eslintrc|prettierrc)/i.test(path))) findings.push(riskFinding("info", "No obvious formatter or linter configuration", "Consistent static analysis makes automated reviews more reliable and reduces style drift.", ["Repository tree"]));
-  return NextResponse.json({ intelligence: { repository: repository.full_name, branch, language: repository.language || "Unknown", topics: repository.topics || [], license: repository.license?.spdx_id || null, treeSize: paths.length, sourceFiles: sourceCount, routeFiles: routeCount, testFiles: testCount, truncated: Boolean(treePayload.truncated), files, dependencies: Object.keys(dependencies).sort().slice(0, 120), findings, generatedAt: new Date().toISOString() } });
+  const sourceModules = contents.filter((item) => /\.(ts|tsx|js|jsx|py|go|java|rb|rs|php)$/.test(item.path)).map((item) => ({ path: item.path, role: roleFor(item.path), lines: item.text.split("\n").length, imports: importsFrom(item.text) }));
+  const dependencyEdges = sourceModules.flatMap((module) => module.imports.filter((value) => value.startsWith(".") || value.startsWith("@/")).map((target) => ({ from: module.path, to: target }))).slice(0, 500);
+  const layerCounts = sourceModules.reduce<Record<string, number>>((counts, module) => { counts[module.role] = (counts[module.role] || 0) + 1; return counts; }, {});
+  const configFiles = paths.filter((path) => /(config|schema|middleware|dockerfile|\.env|tsconfig|package\.json|lock)/i.test(path)).slice(0, 80);
+  const architecture = { layerCounts, entrypoints: paths.filter((path) => /(^|\/)(page|route|index|main|server)\.(ts|tsx|js|jsx)$/.test(path)).slice(0, 80), configFiles, modules: sourceModules.slice(0, 60), dependencyEdges, graphTruncated: sourceModules.length > 60 || dependencyEdges.length >= 500 };
+  return NextResponse.json({ intelligence: { repository: repository.full_name, branch, language: repository.language || "Unknown", topics: repository.topics || [], license: repository.license?.spdx_id || null, treeSize: paths.length, sourceFiles: sourceCount, routeFiles: routeCount, testFiles: testCount, truncated: Boolean(treePayload.truncated), files, dependencies: Object.keys(dependencies).sort().slice(0, 120), architecture, findings, generatedAt: new Date().toISOString() } });
 }
