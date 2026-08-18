@@ -60,7 +60,22 @@ export type ArtifactRecord = {
   chunks?: ArtifactChunkRecord[];
 };
 
-const DB_VERSION = 2;
+export type ImprovementRecord = {
+  id: string;
+  kind: "feedback" | "evaluation" | "proposal";
+  title: string;
+  detail: string;
+  status: "open" | "accepted" | "dismissed" | "implemented";
+  score?: number;
+  source?: string;
+  evidence?: string[];
+  targetFiles?: string[];
+  branch?: string;
+  createdAt: number;
+  updatedAt: number;
+};
+
+const DB_VERSION = 3;
 
 function dbName() {
   if (typeof window === "undefined") return "elias_anonymous";
@@ -91,6 +106,11 @@ function openDb(): Promise<IDBDatabase> {
         const store = db.createObjectStore("artifacts", { keyPath: "id" });
         store.createIndex("projectId", "projectId", { unique: false });
         store.createIndex("conversationId", "conversationId", { unique: false });
+      }
+      if (!db.objectStoreNames.contains("improvements")) {
+        const store = db.createObjectStore("improvements", { keyPath: "id" });
+        store.createIndex("kind", "kind", { unique: false });
+        store.createIndex("status", "status", { unique: false });
       }
     };
     request.onsuccess = () => resolve(request.result);
@@ -219,6 +239,22 @@ export async function saveArtifact(record: ArtifactRecord) {
 
 export async function deleteArtifact(id: string) {
   await complete("artifacts", "readwrite", (store) => store.delete(id));
+}
+
+export async function getImprovements() {
+  const db = await openDb();
+  const transaction = db.transaction("improvements", "readonly");
+  const result = await requestResult<ImprovementRecord[]>(transaction.objectStore("improvements").getAll());
+  db.close();
+  return result.sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+export async function saveImprovement(record: ImprovementRecord) {
+  await complete("improvements", "readwrite", (store) => store.put(record));
+}
+
+export async function deleteImprovement(id: string) {
+  await complete("improvements", "readwrite", (store) => store.delete(id));
 }
 
 export function makeId(prefix: string) {
