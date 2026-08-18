@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { posix } from "node:path";
 import { getSession } from "@/lib/auth";
 
 type TreeEntry = { path: string; type: "blob" | "tree"; size?: number; sha: string };
@@ -9,6 +10,12 @@ function textFromBase64(value: string) { return Buffer.from(value, "base64").toS
 function riskFinding(severity: Finding["severity"], title: string, detail: string, evidence: string[], path?: string): Finding { return { id: `${severity}_${title.toLowerCase().replace(/[^a-z0-9]+/g, "_")}`, severity, title, detail, evidence, ...(path ? { path } : {}) }; }
 function roleFor(path: string) { if (/(^|\/)(app|pages|routes?)\//.test(path) || /(^|\/)(route|page)\.(ts|tsx|js|jsx)$/.test(path)) return "route"; if (/(^|\/)(api|server|lib|services?)\//.test(path)) return "backend"; if (/(^|\/)(components?|ui|views?)\//.test(path)) return "ui"; if (/(^|\/)(tests?|__tests__)\//.test(path) || /\.(test|spec)\.[jt]sx?$/.test(path)) return "test"; if (/(config|schema|middleware|auth)/i.test(path)) return "configuration"; return "module"; }
 function importsFrom(text: string) { const values = [...text.matchAll(/(?:from\s+|import\s*\(\s*|require\s*\(\s*)["']([^"']+)["']/g)].map((match) => match[1]).filter(Boolean); return [...new Set(values)].slice(0, 40); }
+function resolveImport(from: string, target: string, knownPaths: Set<string>) {
+  if (!(target.startsWith(".") || target.startsWith("@/"))) return null;
+  const root = target.startsWith("@/") ? target.slice(2) : posix.normalize(posix.join(posix.dirname(from), target));
+  const candidates = [root, ...[".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".json"].map((extension) => `${root}${extension}`), ...[".ts", ".tsx", ".js", ".jsx"].map((extension) => `${root}/index${extension}`)];
+  return candidates.find((candidate) => knownPaths.has(candidate)) || null;
+}
 
 export async function GET(_: Request, { params }: { params: Promise<{ owner: string; repo: string }> }) {
   const session = await getSession();
@@ -46,10 +53,12 @@ export async function GET(_: Request, { params }: { params: Promise<{ owner: str
   const routeCount = paths.filter((path) => /(^|\/)(route|page)\.(ts|tsx|js|jsx)$/.test(path) || /(^|\/)api\//.test(path)).length;
   const sourceCount = paths.filter((path) => /\.(ts|tsx|js|jsx|py|go|java|rb|rs|php)$/.test(path)).length;
   if (sourceCount > 0 && !paths.some((path) => /(^|\/)(eslint|biome|prettier)/i.test(path) || /\.(eslintrc|prettierrc)/i.test(path))) findings.push(riskFinding("info", "No obvious formatter or linter configuration", "Consistent static analysis makes automated reviews more reliable and reduces style drift.", ["Repository tree"]));
-  const sourceModules = contents.filter((item) => /\.(ts|tsx|js|jsx|py|go|java|rb|rs|php)$/.test(item.path)).map((item) => ({ path: item.path, role: roleFor(item.path), lines: item.text.split("\n").length, imports: importsFrom(item.text) }));
-  const dependencyEdges = sourceModules.flatMap((module) => module.imports.filter((value) => value.startsWith(".") || value.startsWith("@/")).map((target) => ({ from: module.path, to: target }))).slice(0, 500);
+  const knownPaths = new Set(paths);
+  const sourceModules = contents.filter((item) => /\.(ts|tsx|js|jsx|py|go|java|rb|rs|php)$/.test(item.path)).map((item) => { const imports = importsFrom(item.text); const resolvedImports = imports.map((target) => ({ target, resolvedPath: resolveImport(item.path, target, knownPaths) })).filter((item): item is { target: string; resolvedPath: string } => Boolean(item.resolvedPath)); return { path: item.path, role: roleFor(item.path), lines: item.text.split("\n").length, imports, resolvedImports, unresolvedImports: imports.filter((target) => (target.startsWith(".") || target.startsWith("@/")) && !resolvedImports.some((item) => item.target === target)) }; });
+  const dependencyEdges = sourceModules.flatMap((module) => module.resolvedImports.map((item) => ({ from: module.path, to: item.resolvedPath, import: item.target }))).slice(0, 500);
+  const reverseDependents = dependencyEdges.reduce<Record<string, string[]>>((index, edge) => { index[edge.to] = [...new Set([...(index[edge.to] || []), edge.from])].slice(0, 80); return index; }, {});
   const layerCounts = sourceModules.reduce<Record<string, number>>((counts, module) => { counts[module.role] = (counts[module.role] || 0) + 1; return counts; }, {});
   const configFiles = paths.filter((path) => /(config|schema|middleware|dockerfile|\.env|tsconfig|package\.json|lock)/i.test(path)).slice(0, 80);
-  const architecture = { layerCounts, entrypoints: paths.filter((path) => /(^|\/)(page|route|index|main|server)\.(ts|tsx|js|jsx)$/.test(path)).slice(0, 80), configFiles, modules: sourceModules.slice(0, 60), dependencyEdges, graphTruncated: sourceModules.length > 60 || dependencyEdges.length >= 500 };
+  const architecture = { layerCounts, entrypoints: paths.filter((path) => /(^|\/)(page|route|index|main|server)\.(ts|tsx|js|jsx)$/.test(path)).slice(0, 80), configFiles, modules: sourceModules.slice(0, 60), dependencyEdges, reverseDependents, graphTruncated: sourceModules.length > 60 || dependencyEdges.length >= 500 };
   return NextResponse.json({ intelligence: { repository: repository.full_name, branch, language: repository.language || "Unknown", topics: repository.topics || [], license: repository.license?.spdx_id || null, treeSize: paths.length, sourceFiles: sourceCount, routeFiles: routeCount, testFiles: testCount, truncated: Boolean(treePayload.truncated), files, dependencies: Object.keys(dependencies).sort().slice(0, 120), architecture, findings, generatedAt: new Date().toISOString() } });
 }
