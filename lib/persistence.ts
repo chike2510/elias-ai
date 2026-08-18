@@ -71,6 +71,10 @@ export type ImprovementRecord = {
   evidence?: string[];
   targetFiles?: string[];
   branch?: string;
+  severity?: "info" | "warning" | "critical";
+  occurrences?: number;
+  lastSeenAt?: number;
+  fingerprint?: string;
   createdAt: number;
   updatedAt: number;
 };
@@ -251,6 +255,31 @@ export async function getImprovements() {
 
 export async function saveImprovement(record: ImprovementRecord) {
   await complete("improvements", "readwrite", (store) => store.put(record));
+}
+
+function sanitizeSignal(value: string) {
+  return value.replace(/Bearer\s+[A-Za-z0-9._-]+/gi, "Bearer [redacted]").replace(/(token|secret|api[_-]?key)\s*[:=]\s*[^\s,;]+/gi, "$1=[redacted]").replace(/https?:\/\/[^\s)]+/g, "[url]").replace(/\s+/g, " ").trim().slice(0, 700);
+}
+
+function signalFingerprint(kind: ImprovementRecord["kind"], title: string, detail: string) {
+  const normalized = `${kind}|${title}|${detail}`.toLowerCase().replace(/[^a-z0-9|]+/g, " ").trim();
+  let hash = 2166136261;
+  for (let index = 0; index < normalized.length; index += 1) hash = Math.imul(hash ^ normalized.charCodeAt(index), 16777619);
+  return `auto_${(hash >>> 0).toString(16)}`;
+}
+
+export async function recordAutomaticSignal(input: { kind: "feedback" | "evaluation"; title: string; detail: string; severity?: "info" | "warning" | "critical"; source?: string; evidence?: string[] }) {
+  const title = sanitizeSignal(input.title);
+  const detail = sanitizeSignal(input.detail);
+  const fingerprint = signalFingerprint(input.kind, title, detail);
+  const records = await getImprovements();
+  const existing = records.find((record) => record.fingerprint === fingerprint && record.status === "open");
+  const timestamp = Date.now();
+  const record: ImprovementRecord = existing
+    ? { ...existing, occurrences: (existing.occurrences || 1) + 1, lastSeenAt: timestamp, updatedAt: timestamp, severity: input.severity || existing.severity }
+    : { id: makeId("auto_signal"), kind: input.kind, title, detail, status: "open", source: input.source || "automatic", evidence: (input.evidence || []).map(sanitizeSignal).slice(0, 4), severity: input.severity || "warning", occurrences: 1, lastSeenAt: timestamp, fingerprint, createdAt: timestamp, updatedAt: timestamp };
+  await saveImprovement(record);
+  return record;
 }
 
 export async function deleteImprovement(id: string) {

@@ -15,6 +15,7 @@ import { getArtifacts,
   makeId,
   saveArtifact,
   saveConversation,
+  recordAutomaticSignal,
   type ConversationMessage,
   type ConversationRecord,
 } from "@/lib/persistence";
@@ -122,6 +123,9 @@ export default function ChatScreen() {
           const score = terms.reduce((total, term) => total + (summary.includes(term) ? 4 : source.includes(term) ? 2 : 0), 0) + (source.includes(text.toLowerCase()) ? 8 : 0) + (chunk.summary ? 1 : 0);
           return { artifact, chunk, score };
         })).filter((item) => item.score > 0).sort((a, b) => b.score - a.score || a.chunk.index - b.chunk.index).slice(0, 6);
+        if (!ranked.length) {
+          void recordAutomaticSignal({ kind: "evaluation", title: "Document retrieval returned no matching chunks", detail: `No relevant chunk matched the query across ${activeDocumentIds.length} selected document${activeDocumentIds.length === 1 ? "" : "s"}.`, severity: "warning", source: "chat-retrieval" }).catch(() => undefined);
+        }
         if (ranked.length) {
           const sections: string[] = [];
           let budget = 18_000;
@@ -212,6 +216,7 @@ export default function ChatScreen() {
       await persist({ ...optimistic, updatedAt: Date.now(), messages: [...optimistic.messages, assistant] });
     } catch (error) {
       if (controller.signal.aborted) return;
+      void recordAutomaticSignal({ kind: "evaluation", title: "Chat or task request failed", detail: error instanceof Error ? error.message : "ELIAS failed to respond.", severity: "critical", source: selectedModel === "auto" ? "chat-auto" : `chat-${selectedModel}` }).catch(() => undefined);
       const assistant: ConversationMessage = {
         id: makeId("msg"),
         role: "assistant",
