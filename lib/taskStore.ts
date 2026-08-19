@@ -91,9 +91,9 @@ export function getStoredTask(id: string): TaskRecord | undefined {
   return task ? clone(task) : undefined;
 }
 
-export function listStoredTasks(projectId?: string): TaskRecord[] {
+export function listStoredTasks(projectId?: string, conversationId?: string): TaskRecord[] {
   return [...refresh().tasks.values()]
-    .filter((task) => !projectId || task.projectId === projectId)
+    .filter((task) => (!projectId || task.projectId === projectId) && (!conversationId || task.conversationId === conversationId))
     .sort((a, b) => b.updatedAt - a.updatedAt)
     .map(clone);
 }

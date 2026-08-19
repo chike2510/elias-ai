@@ -16,7 +16,7 @@ function validWorkspace(value: unknown) {
 
 export async function GET(request: NextRequest) {
   try {
-    return jsonOk({ tasks: await listTasks(request.nextUrl.searchParams.get("projectId") || undefined) });
+    return jsonOk({ tasks: await listTasks(request.nextUrl.searchParams.get("projectId") || undefined, request.nextUrl.searchParams.get("conversationId") || undefined) });
   } catch (error) {
     return jsonError(error instanceof Error ? error.message : "Could not list tasks.");
   }

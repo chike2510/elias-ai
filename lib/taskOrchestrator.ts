@@ -97,8 +97,8 @@ export function getTask(id: string) {
   return getStoredTask(id);
 }
 
-export function listTasks(projectId?: string) {
-  return import("@/lib/taskStore").then(({ listStoredTasks }) => listStoredTasks(projectId));
+export function listTasks(projectId?: string, conversationId?: string) {
+  return import("@/lib/taskStore").then(({ listStoredTasks }) => listStoredTasks(projectId, conversationId));
 }
 
 export function updateTaskAction(id: string, action: "start" | "pause" | "cancel" | "approve" | "reject" | "restore_checkpoint", value?: string) {

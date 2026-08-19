@@ -49,6 +49,14 @@ function shouldHandoffToTask(value: string, attachments: Attachment[]) {
   return attachments.length > 0 || /create|generate|build|make|write|produce|download|pdf|report|document|file|artifact|deliverable|research|latest|current|source|code|debug|refactor|repository|project|implement|study|exam|notes/i.test(value);
 }
 
+function inlineArtifactHref(taskId: string, artifact: TaskRecord["artifacts"][number]) {
+  if (artifact.content !== undefined) {
+    if (artifact.encoding === "base64") return `data:${artifact.type};base64,${artifact.content}`;
+    return `data:${artifact.type},${encodeURIComponent(artifact.content)}`;
+  }
+  return `/api/tasks/${encodeURIComponent(taskId)}/artifact/${encodeURIComponent(artifact.id)}`;
+}
+
 export default function ChatScreen() {
   const router = useRouter();
   const params = useSearchParams();
@@ -62,6 +70,8 @@ export default function ChatScreen() {
   const [copied, setCopied] = useState<string | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [activeDocumentIds, setActiveDocumentIds] = useState<string[]>([]);
+  const [activeTask, setActiveTask] = useState<TaskRecord | null>(null);
+  const [taskBusy, setTaskBusy] = useState(false);
   const [plusOpen, setPlusOpen] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
   const [selectedModel, setSelectedModel] = useState("auto");
@@ -96,8 +106,32 @@ export default function ChatScreen() {
   }, [requestedId, requestedPrompt, requestedDocumentId]);
 
   useEffect(() => {
+    if (!conversation?.id) return;
+    void fetch(`/api/tasks?conversationId=${encodeURIComponent(conversation.id)}`, { cache: "no-store" })
+      .then((response) => response.ok ? response.json() as Promise<{ tasks?: TaskRecord[] }> : Promise.reject(new Error("task lookup failed")))
+      .then((data) => { const latest = data.tasks?.[0]; if (latest) { setActiveTask(latest); cacheTaskSnapshot(latest); } })
+      .catch(() => undefined);
+  }, [conversation?.id]);
+
+  useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [conversation?.messages.length, busy]);
+  }, [conversation?.messages.length, busy, activeTask?.events.length]);
+
+  useEffect(() => {
+    if (!activeTask || !["queued", "planning", "running", "waiting_approval"].includes(activeTask.status)) return;
+    const timer = window.setInterval(async () => {
+      try {
+        const response = await fetch(`/api/tasks/${encodeURIComponent(activeTask.id)}`, { cache: "no-store" });
+        if (!response.ok) return;
+        const data = await response.json() as { task?: TaskRecord };
+        if (data.task) {
+          setActiveTask(data.task);
+          cacheTaskSnapshot(data.task);
+        }
+      } catch { /* keep the inline task state while the network recovers */ }
+    }, 2500);
+    return () => window.clearInterval(timer);
+  }, [activeTask?.id, activeTask?.status]);
 
   async function persist(next: ConversationRecord) {
     setConversation(next);
@@ -182,14 +216,14 @@ export default function ChatScreen() {
         const taskMessage: ConversationMessage = {
           id: makeId("msg"),
           role: "assistant",
-          content: `I turned this into a live task and started the workbench.\n\n[Open the task workspace](/tasks?id=${encodeURIComponent(taskData.task.id)})\n\nStatus: **${taskData.task.status}**${taskData.task.error ? `\n\n${taskData.task.error}` : ""}`,
+          content: `I turned this into a live task inside this conversation.\n\nStatus: **${taskData.task.status}**${taskData.task.error ? `\n\n${taskData.task.error}` : ""}`,
           provider: "task orchestrator",
           model: "task runtime",
           status: "complete",
           createdAt: Date.now(),
         };
         await persist({ ...optimistic, updatedAt: Date.now(), messages: [...optimistic.messages, taskMessage] });
-        router.push(`/tasks?id=${encodeURIComponent(taskData.task.id)}`);
+        setActiveTask(taskData.task);
         return;
       }
 
@@ -234,6 +268,33 @@ export default function ChatScreen() {
   function stop() {
     abortRef.current?.abort();
     setBusy(false);
+  }
+
+  async function continueTask() {
+    if (!activeTask || taskBusy || ["completed", "cancelled"].includes(activeTask.status)) return;
+    setTaskBusy(true);
+    try {
+      const response = await fetch(`/api/tasks/${encodeURIComponent(activeTask.id)}/step`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ maxSteps: 1, task: activeTask }) });
+      const data = await readApiResponse<{ task: TaskRecord }>(response);
+      setActiveTask(data.task);
+      cacheTaskSnapshot(data.task);
+    } catch (error) {
+      setActiveTask((current) => current ? { ...current, error: error instanceof Error ? error.message : "Task execution failed." } : current);
+    } finally { setTaskBusy(false); }
+  }
+
+  async function resolveTaskApproval(approvalId: string, decision: "approve" | "reject") {
+    if (!activeTask || taskBusy) return;
+    setTaskBusy(true);
+    try {
+      const response = await fetch(`/api/tasks/${encodeURIComponent(activeTask.id)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: decision, value: approvalId }) });
+      const data = await readApiResponse<{ task: TaskRecord }>(response);
+      setActiveTask(data.task);
+      cacheTaskSnapshot(data.task);
+      if (decision === "approve") window.setTimeout(() => void continueTask(), 0);
+    } catch (error) {
+      setActiveTask((current) => current ? { ...current, error: error instanceof Error ? error.message : "Approval update failed." } : current);
+    } finally { setTaskBusy(false); }
   }
 
   async function connectVercel() {
@@ -347,6 +408,22 @@ export default function ChatScreen() {
           {busy ? <div className="chat-message assistant"><div className="chat-avatar"><LoaderCircle size={14} className="spin" /></div><div className="chat-message-body"><span className="chat-role">ELIAS</span><div className="chat-content typing-line">working…</div></div></div> : null}
           <div ref={bottomRef} />
         </div>
+
+        {activeTask ? (() => {
+          const completedSteps = activeTask.plan.filter((step) => step.status === "completed").length;
+          const taskProgress = activeTask.plan.length ? Math.round((completedSteps / activeTask.plan.length) * 100) : 0;
+          const pendingApproval = activeTask.approvals.find((approval) => approval.status === "pending");
+          return <section className="inline-task-card" aria-label="Inline task workspace">
+            <div className="inline-task-head"><div><span className="chat-role">TASK</span><h2>{activeTask.title}</h2></div><span className={`inline-task-status ${activeTask.status}`}>{activeTask.status.replaceAll("_", " ")}</span></div>
+            <div className="inline-task-progress"><span><strong>{completedSteps}/{activeTask.plan.length || 0}</strong> steps</span><span>{taskProgress}%</span><i><b style={{ width: `${taskProgress}%` }} /></i></div>
+            {activeTask.error ? <div className="inline-task-error">{activeTask.error}</div> : null}
+            {pendingApproval ? <div className="inline-task-approval"><strong>Approval needed</strong><p>{pendingApproval.question}</p><div><button type="button" className="primary" disabled={taskBusy} onClick={() => void resolveTaskApproval(pendingApproval.id, "approve")}>approve</button><button type="button" className="secondary" disabled={taskBusy} onClick={() => void resolveTaskApproval(pendingApproval.id, "reject")}>reject</button></div></div> : null}
+            <div className="inline-task-steps">{activeTask.plan.slice(0, 5).map((step) => <div className={`inline-task-step ${step.status}`} key={step.id}><span>{step.status === "completed" ? "✓" : step.status === "active" ? "•" : "○"}</span><strong>{step.title}</strong><small>{step.status}</small></div>)}</div>
+            {activeTask.events.length ? <div className="inline-task-activity"><span className="chat-role">LATEST ACTIVITY</span><p>{activeTask.events.at(-1)?.detail || activeTask.events.at(-1)?.label}</p></div> : null}
+            {activeTask.artifacts.length ? <div className="inline-task-outputs"><span className="chat-role">OUTPUTS</span>{activeTask.artifacts.map((artifact) => <a key={artifact.id} href={inlineArtifactHref(activeTask.id, artifact)} download={artifact.name}><FileText size={13} /><span>{artifact.name}</span><small>{artifact.type}</small></a>)}</div> : null}
+            <div className="inline-task-actions">{!["completed", "cancelled", "waiting_approval"].includes(activeTask.status) ? <button type="button" className="primary" disabled={taskBusy} onClick={() => void continueTask()}>{taskBusy ? "Working…" : "Continue"}</button> : null}{activeTask.artifacts.length ? <span className="inline-task-output">{activeTask.artifacts.length} output{activeTask.artifacts.length === 1 ? "" : "s"}</span> : null}<Link className="secondary" href={`/tasks?id=${encodeURIComponent(activeTask.id)}`}>details</Link></div>
+          </section>;
+        })() : null}
 
         {attachments.length ? <div className="attachment-strip">{attachments.map((file, index) => <span className={`attachment-status ${file.status === "error" ? "attachment-error" : file.status === "ready" ? "attachment-ready" : ""}`} key={`${file.name}-${index}`}><span className="attachment-status-main"><FileText size={13} /><strong>{file.name}</strong><small>{file.status === "uploading" ? `Processing ${file.progress || 0}%` : file.status === "error" ? (file.error || "Failed") : "Ready"}</small></span>{file.status === "uploading" ? <i className="attachment-progress"><b style={{ width: `${file.progress || 0}%` }} /></i> : null}{file.status === "error" ? <button type="button" className="attachment-retry" onClick={() => { if (file.source) void addFiles([file.source]); }}>Retry</button> : null}<button type="button" onClick={() => setAttachments((current) => current.filter((_, itemIndex) => itemIndex !== index))} aria-label={`Remove ${file.name}`}><X size={12} /></button></span>)}</div> : null}
 
