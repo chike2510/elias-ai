@@ -1,6 +1,8 @@
 import { NextRequest } from "next/server";
 import { jsonError, jsonOk, readJsonRequest } from "@/lib/http";
 import { runTaskLoop } from "@/lib/taskOrchestrator";
+import { restoreStoredTask } from "@/lib/taskStore";
+import type { TaskRecord } from "@/lib/task";
 
 type Context = { params: Promise<{ taskId: string }> };
 
@@ -10,7 +12,11 @@ export const maxDuration = 300;
 export async function POST(request: NextRequest, context: Context) {
   try {
     const { taskId } = await context.params;
-    const body: { maxSteps?: unknown } = await readJsonRequest<{ maxSteps?: unknown }>(request).catch(() => ({}) as { maxSteps?: unknown });
+    const body: { maxSteps?: unknown; task?: unknown } = await readJsonRequest<{ maxSteps?: unknown; task?: unknown }>(request).catch(() => ({}) as { maxSteps?: unknown; task?: unknown });
+    if (body.task && typeof body.task === "object" && (body.task as { id?: unknown }).id === taskId) {
+      const candidate = body.task as TaskRecord;
+      if (typeof candidate.objective === "string" && Array.isArray(candidate.plan) && Array.isArray(candidate.workspace) && Array.isArray(candidate.events) && Array.isArray(candidate.toolResults)) restoreStoredTask(candidate);
+    }
     const maxSteps = typeof body.maxSteps === "number" ? Math.max(1, Math.min(12, Math.floor(body.maxSteps))) : 1;
     const task = await runTaskLoop(taskId, maxSteps);
     return jsonOk({ task });

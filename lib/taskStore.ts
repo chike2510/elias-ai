@@ -82,6 +82,10 @@ export function createStoredTask(task: TaskRecord) {
   return save(task);
 }
 
+export function restoreStoredTask(task: TaskRecord) {
+  return save(task);
+}
+
 export function getStoredTask(id: string): TaskRecord | undefined {
   const task = refresh().tasks.get(id);
   return task ? clone(task) : undefined;

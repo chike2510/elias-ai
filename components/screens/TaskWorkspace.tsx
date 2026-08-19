@@ -91,7 +91,7 @@ export default function TaskWorkspace() {
     try {
       let current = task;
       for (let count = 0; count < 12; count += 1) {
-        const data = await readApiResponse<{ task: TaskRecord }>(await fetch(`/api/tasks/${encodeURIComponent(current.id)}/step`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ maxSteps: 1 }) }));
+        const data = await readApiResponse<{ task: TaskRecord }>(await fetch(`/api/tasks/${encodeURIComponent(current.id)}/step`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ maxSteps: 1, task: current }) }));
         current = data.task;
         setTask(current);
         cacheTaskSnapshot(current);
