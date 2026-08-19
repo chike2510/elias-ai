@@ -2,13 +2,14 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 
 type ActionRequest = {
-  action?: "create_branch" | "commit_file" | "create_pull_request" | "create_issue" | "create_review_comment";
+  action?: "create_branch" | "commit_file" | "commit_files" | "create_pull_request" | "create_issue" | "create_review_comment";
   owner?: string;
   repo?: string;
   branch?: string;
   base?: string;
   path?: string;
   content?: string;
+  files?: Array<{ path?: string; content?: string }>;
   message?: string;
   title?: string;
   body?: string;
@@ -100,6 +101,38 @@ export async function POST(request: Request) {
       const result = await githubFetch(session.githubToken, `/repos/${owner}/${repo}/contents/${path}`, { method: "PUT", body: JSON.stringify({ message, content: Buffer.from(content, "utf8").toString("base64"), branch, ...(sha ? { sha } : {}) }) });
       const commit = result.commit && typeof result.commit === "object" ? result.commit as { sha?: string; html_url?: string } : {};
       return NextResponse.json({ ok: true, action, path, branch, commitSha: commit.sha, url: commit.html_url, message: `Committed ${path} to ${branch}.` });
+    }
+
+    if (action === "commit_files") {
+      const branch = refName(input.branch || "main", "Target branch");
+      const message = input.message?.trim() || "Update files from Elias";
+      const files = Array.isArray(input.files) ? input.files : [];
+      if (!files.length || files.length > 50) throw new Error("Between 1 and 50 files are required for an atomic commit.");
+      const normalized = files.map((file) => {
+        const path = file.path?.trim().replace(/^\/+/, "") || "";
+        const content = file.content ?? "";
+        if (!path || path.includes("..") || path.endsWith("/") || content.length > 1_000_000) throw new Error("Every committed file must have a safe path and content under 1 MB.");
+        return { path, content };
+      });
+      if (normalized.reduce((total, file) => total + file.content.length, 0) > 5_000_000) throw new Error("The combined commit payload is too large.");
+      const ref = await githubFetch(session.githubToken, `/repos/${owner}/${repo}/git/ref/heads/${encodeURIComponent(branch)}`);
+      const headSha = ref.object && typeof ref.object === "object" && "sha" in ref.object ? String((ref.object as { sha?: unknown }).sha) : "";
+      if (!headSha) throw new Error("Could not resolve the target branch commit.");
+      const headCommit = await githubFetch(session.githubToken, `/repos/${owner}/${repo}/git/commits/${headSha}`);
+      const baseTree = headCommit.tree && typeof headCommit.tree === "object" && "sha" in headCommit.tree ? String((headCommit.tree as { sha?: unknown }).sha) : "";
+      if (!baseTree) throw new Error("Could not resolve the target tree.");
+      const tree = [];
+      for (const file of normalized) {
+        const blob = await githubFetch(session.githubToken, `/repos/${owner}/${repo}/git/blobs`, { method: "POST", body: JSON.stringify({ content: Buffer.from(file.content, "utf8").toString("base64"), encoding: "base64" }) });
+        if (typeof blob.sha !== "string") throw new Error(`Could not create a blob for ${file.path}.`);
+        tree.push({ path: file.path, mode: "100644", type: "blob", sha: blob.sha });
+      }
+      const createdTree = await githubFetch(session.githubToken, `/repos/${owner}/${repo}/git/trees`, { method: "POST", body: JSON.stringify({ base_tree: baseTree, tree }) });
+      if (typeof createdTree.sha !== "string") throw new Error("Could not create the commit tree.");
+      const commit = await githubFetch(session.githubToken, `/repos/${owner}/${repo}/git/commits`, { method: "POST", body: JSON.stringify({ message, tree: createdTree.sha, parents: [headSha] }) });
+      if (typeof commit.sha !== "string") throw new Error("Could not create the commit.");
+      await githubFetch(session.githubToken, `/repos/${owner}/${repo}/git/refs/heads/${encodeURIComponent(branch)}`, { method: "PATCH", body: JSON.stringify({ sha: commit.sha, force: false }) });
+      return NextResponse.json({ ok: true, action, branch, commitSha: commit.sha, url: commit.html_url, files: normalized.map((file) => file.path), message: `Committed ${normalized.length} files to ${branch}.` });
     }
 
     if (action === "create_pull_request") {

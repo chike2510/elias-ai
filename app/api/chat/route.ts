@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { runChat } from "@/lib/chat";
+import { runElias } from "@/lib/eliasRuntime";
 import { jsonError, jsonOk, readJsonRequest } from "@/lib/http";
 import type { ProviderName, TaskType } from "@/lib/types";
 
@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
     if (!messages.length) return jsonError("messages are required", 400, "INVALID_REQUEST");
     if (messages.some((message) => message.content.length > 120_000)) return jsonError("A message is too large.", 413, "PAYLOAD_TOO_LARGE");
 
-    const result = await runChat({ messages, task, provider, model });
+    const result = await runElias({ mode: "auto", taskType: task, provider, model, chat: { messages, task }, context: { enabledSkills: ["conversation"], allowedTools: ["document.retrieval", "web.search"] } });
     return jsonOk(result);
   } catch (error) {
     return jsonError(error instanceof Error ? error.message : "ELIAS could not respond.");

@@ -1,19 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowLeft, ChevronRight, Github, Globe2, Plus, Server, Sparkles } from "lucide-react";
-import { useEffect, useState } from "react";
+import { ArrowLeft, ChevronRight, CircleDot, Code2, Github, Globe2, Plus, Search, Server, Sparkles, SquareCode } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import AppShell from "@/components/AppShell";
+import { CONNECTOR_REGISTRY, categoryLabel, type ConnectorCategory, type ConnectorDefinition } from "@/lib/connectors";
 
 type UserState = { githubConnected?: boolean; vercelConnected?: boolean };
+const icons: Record<string, React.ReactNode> = { github: <Github size={21} />, vercel: <span className="vercel-glyph">▲</span>, drive: <Globe2 size={21} />, notion: <CircleDot size={21} />, slack: <Sparkles size={21} />, api: <Code2 size={21} />, mcp: <Server size={21} /> };
 
 export default function ConnectorsScreen() {
   const [user, setUser] = useState<UserState>({});
-  useEffect(() => { void fetch("/api/auth/me", { cache: "no-store" }).then((r) => r.json()).then((d) => setUser(d.user || {})).catch(() => undefined); }, []);
-  const cards = [
-    { href: "/connectors/github", name: "GitHub", detail: "Manage repositories, track code changes, and collaborate on projects", type: "App", icon: <Github size={23} />, connected: Boolean(user.githubConnected) },
-    { href: "/connectors/vercel", name: "Vercel", detail: "Manage Vercel projects, deployments, and build logs", type: "MCP", icon: <span className="vercel-glyph">▲</span>, connected: Boolean(user.vercelConnected) },
-    { href: "/connectors/browser", name: "My Browser", detail: "Access the web through a separate browser session", type: "Browser", icon: <Globe2 size={23} />, connected: false },
-  ];
-  return <AppShell title="Connectors"><main className="screen connectors-screen"><div className="mobile-screen-heading"><Link href="/profile" aria-label="Back to profile"><ArrowLeft size={19} /></Link><h1>Connectors</h1><button className="icon-btn" aria-label="Add connector"><Plus size={21} /></button></div><p className="connectors-intro">Give Elias the right context for the work. Each connection is separate from your Elias account.</p><section className="connector-list">{cards.map((card) => <Link className="connector-card" href={card.href} key={card.name}><span className="connector-card-icon">{card.icon}</span><span className="connector-card-copy"><strong>{card.name}</strong><small>{card.detail}</small><em>{card.connected ? <><i className="live-dot" /> Connected · {card.type}</> : `${card.type} · Not connected`}</em></span><ChevronRight size={18} /></Link>)}</section><section className="connector-note"><Sparkles size={17} /><span><strong>Account-safe by design</strong><small>Connections are stored against the signed-in Elias account and never shared with another user.</small></span></section></main></AppShell>;
+  const [category, setCategory] = useState<ConnectorCategory>("app");
+  const [query, setQuery] = useState("");
+  useEffect(() => { void fetch("/api/auth/me", { cache: "no-store" }).then((response) => response.json()).then((data) => setUser(data.user || {})).catch(() => undefined); }, []);
+  const visible = useMemo(() => CONNECTOR_REGISTRY.filter((connector) => connector.category === category && `${connector.name} ${connector.description} ${connector.tools.join(" ")}`.toLowerCase().includes(query.toLowerCase())), [category, query]);
+  function connected(connector: ConnectorDefinition) { return connector.id === "github" ? Boolean(user.githubConnected) : connector.id === "vercel" ? Boolean(user.vercelConnected) : false; }
+  return <AppShell title="Connectors"><main className="screen connectors-screen"><div className="mobile-screen-heading"><Link href="/profile" aria-label="Back to profile"><ArrowLeft size={19} /></Link><h1>Connectors</h1><Link className="icon-btn" href="/connectors/custom?type=custom_api" aria-label="Add connector"><Plus size={21} /></Link></div><div className="connector-search searchbox"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search connectors" /></div><div className="connector-tabs">{(["app", "custom_api", "custom_mcp"] as ConnectorCategory[]).map((item) => <button type="button" className={category === item ? "active" : ""} onClick={() => setCategory(item)} key={item}>{categoryLabel(item)}</button>)}</div><section className="connector-list">{visible.map((connector) => { const isConnected = connected(connector); const content = <><span className={`connector-card-icon connector-icon-${connector.icon}`}>{icons[connector.icon] || <SquareCode size={21} />}</span><span className="connector-card-copy"><strong>{connector.name}{connector.status === "planned" ? <small className="connector-beta">Soon</small> : null}</strong><small>{connector.description}</small><em>{isConnected ? "Connected" : connector.status === "planned" ? "Coming soon" : `${connector.auth === "oauth" ? "OAuth" : connector.auth === "token" ? "Token" : "Configure"} · ${connector.tools.length} tools`}</em></span><ChevronRight size={18} /></>; return connector.href && connector.status === "available" ? <Link className="connector-card" href={connector.href} key={connector.id}>{content}</Link> : connector.category !== "app" ? <Link className="connector-card" href={`/connectors/custom?type=${connector.category}`} key={connector.id}>{content}</Link> : <div className="connector-card connector-card-disabled" key={connector.id}>{content}</div>; })}</section><p className="connector-registry-note"><Sparkles size={14} /> Tools and permissions are reviewed before Elias can use them.</p></main></AppShell>;
 }

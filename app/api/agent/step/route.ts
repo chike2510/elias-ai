@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
-import { runAgentStep, type AgentInput } from "@/lib/agent";
+import { runElias } from "@/lib/eliasRuntime";
+import type { AgentInput } from "@/lib/agent";
 import { jsonError, jsonOk, readJsonRequest } from "@/lib/http";
 
 export const runtime = "nodejs";
@@ -27,8 +28,8 @@ export async function POST(request: NextRequest) {
     if (input.files.length > 500 || input.files.some((file) => !isFile(file))) return jsonError("Workspace file payload is invalid or too large.", 413, "WORKSPACE_TOO_LARGE");
     if (input.messages.length > 100 || input.messages.some((message) => !isMessage(message))) return jsonError("Agent message payload is invalid or too large.", 413, "PAYLOAD_TOO_LARGE");
     if (input.toolResults.length > 100) return jsonError("Too many tool results were supplied.", 413, "PAYLOAD_TOO_LARGE");
-    const result = await runAgentStep(input);
-    return jsonOk(result);
+    const runtimeResult = await runElias({ mode: "agent", taskType: input.taskType, provider: input.preferredProvider, model: input.preferredModel, agent: input, context: { enabledSkills: ["autonomous-task-planner"], allowedTools: ["workspace.read", "workspace.write", "web.search", "artifact.create"] } });
+    return jsonOk({ ...runtimeResult.result, runtime: runtimeResult.runtime });
   } catch (error) {
     return jsonError(error instanceof Error ? error.message : "ELIAS agent step failed.");
   }
