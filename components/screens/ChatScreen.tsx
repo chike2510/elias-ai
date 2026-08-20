@@ -146,7 +146,12 @@ export default function ChatScreen() {
 
   async function persist(next: ConversationRecord) {
     setConversation(next);
-    await saveConversation(next);
+    try {
+      await saveConversation(next);
+    } catch {
+      // Chat must remain usable when browser storage is blocked, unavailable, or corrupted.
+      // The conversation remains in React state for the current session.
+    }
   }
 
   async function sendMessage(value: string, retry = false) {
