@@ -67,12 +67,13 @@ export async function searchWeb(query: string) {
   const searchUrls = [
     `https://html.duckduckgo.com/html/?q=${encoded}`,
     `https://www.google.com/search?q=${encoded}`,
+    `https://www.bing.com/search?q=${encoded}`,
   ];
 
   for (const url of searchUrls) {
     try {
       const response = await fetch(url, {
-        headers: { "User-Agent": "ELIAS research agent/1.0" },
+        headers: { "User-Agent": "Mozilla/5.0 (compatible; ELIAS research agent/1.0)", Accept: "text/html,application/xhtml+xml" },
         cache: "no-store",
         redirect: "error",
         signal: AbortSignal.timeout(SEARCH_TIMEOUT_MS),
@@ -88,7 +89,7 @@ export async function searchWeb(query: string) {
           try { href = decodeURIComponent(new URL(href, "https://www.google.com").searchParams.get("uddg") || href); } catch { /* keep original */ }
         }
         const title = clean(match[2]);
-        if (title.length > 8 && /^https?:\/\//i.test(href) && !/(duckduckgo|google\.)/i.test(href)) {
+        if (title.length > 8 && /^https?:\/\//i.test(href) && !/(duckduckgo|google\.|bing\.)/i.test(href)) {
           try {
             const parsed = await assertSafeUrl(href);
             output.push({ title, url: parsed.toString(), source: parsed.hostname });
