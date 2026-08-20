@@ -460,14 +460,22 @@ function AddChatAction({ icon, label, badge, onClick }: { icon: React.ReactNode;
   return <button type="button" className="add-chat-action" onClick={onClick}>{icon}<span>{label}</span>{badge ? <b className="add-chat-badge">{badge}</b> : null}</button>;
 }
 
+function formatToolOutput(value: unknown) {
+  if (value === undefined || value === null) return "No output returned";
+  if (typeof value === "string") return value;
+  try { return JSON.stringify(value, null, 2); } catch { return String(value); }
+}
+
 function LiveExecutionFeed({ task }: { task: TaskRecord }) {
-  const plan = task.plan || [];
-  const events = task.events || [];
+  const plan = Array.isArray(task.plan) ? task.plan : [];
+  const events = Array.isArray(task.events) ? task.events : [];
+  const toolResults = Array.isArray(task.toolResults) ? task.toolResults : [];
   const completed = plan.filter((step) => step.status === "completed").length;
   const activeStep = plan.find((step) => step.status === "active") || plan.find((step) => step.status === "pending");
   const latest = events.at(-1);
   const percent = plan.length ? Math.round((completed / plan.length) * 100) : 0;
-  return <div className="live-execution-feed"><div className="live-execution-title"><strong>{task.status === "completed" ? "Execution complete" : task.status === "waiting_approval" ? "Waiting for approval" : "Working on it"}</strong><span>{percent}%</span></div><div className="live-execution-bar"><b style={{ width: `${percent}%` }} /></div><div className="live-execution-current">{activeStep ? <><span className="live-execution-pulse" />{activeStep.title}</> : latest?.label || "Starting the task…"}</div>{latest ? <small className="live-execution-detail">{latest.detail || latest.label}</small> : null}<div className="live-execution-steps">{plan.slice(0, 4).map((step) => <span className={step.status} key={step.id}>{step.status === "completed" ? "✓" : step.status === "active" ? "•" : "○"} {step.title}</span>)}</div></div>;
+  const timeline = events.slice(-8).reverse();
+  return <div className="live-execution-feed"><div className="live-execution-title"><strong>{task.status === "completed" ? "Execution complete" : task.status === "failed" ? "Execution failed" : task.status === "waiting_approval" ? "Waiting for approval" : "Agent is working"}</strong><span>{percent}%</span></div><div className="live-execution-bar"><b style={{ width: `${percent}%` }} /></div><div className="live-execution-current">{activeStep ? <><span className="live-execution-pulse" />{activeStep.title}</> : latest?.label || "Starting the task…"}</div>{latest ? <small className="live-execution-detail">{latest.detail || latest.label}</small> : null}<div className="live-execution-steps">{plan.slice(0, 5).map((step) => <span className={step.status} key={step.id}>{step.status === "completed" ? "✓" : step.status === "active" ? "•" : step.status === "failed" ? "×" : "○"} {step.title}</span>)}</div>{timeline.length || toolResults.length ? <div className="agent-timeline"><div className="agent-timeline-heading"><span>LIVE ACTIVITY</span><small>{events.length} events · {toolResults.length} tools</small></div>{timeline.map((event) => <div className={`agent-timeline-row ${event.status} ${event.kind}`} key={event.id}><span className="agent-timeline-icon">{event.status === "completed" ? "✓" : event.status === "failed" ? "×" : event.kind === "tool" ? "↗" : "•"}</span><div><strong>{event.label}</strong><small>{event.detail || `${event.kind} ${event.status}`}</small></div><em>{event.status}</em></div>)}{toolResults.slice(-4).reverse().map((result, index) => <details className={`agent-tool-output ${result.error ? "failed" : ""}`} key={`${result.type}-${result.startedAt || index}`}><summary><span>TOOL</span><strong>{result.type.replaceAll("_", " ")}</strong><em>{result.error ? "failed" : "output"}</em></summary><pre>{(result.error || formatToolOutput(result.result ?? result.content)).slice(0, 1800)}</pre></details>)}</div> : null}</div>;
 }
 
 function UserMessageContent({ content }: { content: string }) {
