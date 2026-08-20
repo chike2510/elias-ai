@@ -59,8 +59,7 @@ export default function AppShell({ children, title }: { children: React.ReactNod
 
         <nav className="bottom-nav" aria-label="Mobile navigation">
           <Nav href="/" label="Home" icon={Home} active={pathname === "/"} />
-          <Nav href="/chat" label="Chat" icon={MessageSquare} active={pathname.startsWith("/chat") || pathname.startsWith("/tasks")} />
-          <Link className="assistant-fab" href="/chat" aria-label="Open chat"><Sparkles size={22} /></Link>
+          <Link className="assistant-fab" href="/chat" aria-label="Open Chat and execution workspace"><Sparkles size={22} /></Link>
           <Nav href="/projects" label="Projects" icon={Folder} active={pathname.startsWith("/projects")} />
           <Nav href="/files" label="Library" icon={LibraryBig} active={pathname.startsWith("/files")} />
         </nav>

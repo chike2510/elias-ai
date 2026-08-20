@@ -88,18 +88,22 @@ export default function ChatScreen() {
     }).catch(() => undefined);
     let active = true;
     async function load() {
-      if (requestedId) {
-        const existing = await getConversation(requestedId);
-        if (active && existing) {
-          setConversation(existing);
-          return;
+      try {
+        if (requestedId) {
+          const existing = await getConversation(requestedId);
+          if (active && existing) {
+            setConversation(existing);
+            return;
+          }
         }
+      } catch {
+        // A stale or corrupted local conversation must not take down the Chat route.
       }
       if (!active) return;
       if (requestedDocumentId) setActiveDocumentIds([requestedDocumentId]);
       const now = Date.now();
-      setConversation({ id: makeId("chat"), title: "New conversation", createdAt: now, updatedAt: now, messages: [] });
-      if (requestedPrompt && !requestedId) setInput(requestedPrompt);
+      setConversation({ id: requestedId || makeId("chat"), title: "New conversation", createdAt: now, updatedAt: now, messages: [] });
+      if (requestedPrompt) setInput(requestedPrompt);
     }
     void load();
     return () => { active = false; };
@@ -109,7 +113,7 @@ export default function ChatScreen() {
     if (!conversation?.id) return;
     void fetch(`/api/tasks?conversationId=${encodeURIComponent(conversation.id)}`, { cache: "no-store" })
       .then((response) => response.ok ? response.json() as Promise<{ tasks?: TaskRecord[] }> : Promise.reject(new Error("task lookup failed")))
-      .then((data) => { const latest = data.tasks?.[0]; if (latest) { setActiveTask(latest); cacheTaskSnapshot(latest); } })
+      .then((data) => {         const latest = data.tasks?.[0]; if (latest) { setActiveTask(latest); cacheTaskSnapshot(latest); } })
       .catch(() => undefined);
   }, [conversation?.id]);
 
@@ -405,7 +409,7 @@ export default function ChatScreen() {
             </article>
           ))}
 
-          {busy ? <div className="chat-message assistant"><div className="chat-avatar"><LoaderCircle size={14} className="spin" /></div><div className="chat-message-body"><span className="chat-role">ELIAS</span><div className="chat-content typing-line">working…</div></div></div> : null}
+          {busy ? <div className="chat-message assistant"><div className="chat-avatar"><LoaderCircle size={14} className="spin" /></div><div className="chat-message-body"><span className="chat-role">ELIAS</span>{activeTask ? <LiveExecutionFeed task={activeTask} /> : <div className="chat-content typing-line">preparing execution…</div>}</div></div> : null}
           <div ref={bottomRef} />
         </div>
 
@@ -439,6 +443,16 @@ export default function ChatScreen() {
       </main>
     </AppShell>
   );
+}
+
+function LiveExecutionFeed({ task }: { task: TaskRecord }) {
+  const plan = task.plan || [];
+  const events = task.events || [];
+  const completed = plan.filter((step) => step.status === "completed").length;
+  const activeStep = plan.find((step) => step.status === "active") || plan.find((step) => step.status === "pending");
+  const latest = events.at(-1);
+  const percent = plan.length ? Math.round((completed / plan.length) * 100) : 0;
+  return <div className="live-execution-feed"><div className="live-execution-title"><strong>{task.status === "completed" ? "Execution complete" : task.status === "waiting_approval" ? "Waiting for approval" : "Working on it"}</strong><span>{percent}%</span></div><div className="live-execution-bar"><b style={{ width: `${percent}%` }} /></div><div className="live-execution-current">{activeStep ? <><span className="live-execution-pulse" />{activeStep.title}</> : latest?.label || "Starting the task…"}</div>{latest ? <small className="live-execution-detail">{latest.detail || latest.label}</small> : null}<div className="live-execution-steps">{plan.slice(0, 4).map((step) => <span className={step.status} key={step.id}>{step.status === "completed" ? "✓" : step.status === "active" ? "•" : "○"} {step.title}</span>)}</div></div>;
 }
 
 function UserMessageContent({ content }: { content: string }) {
