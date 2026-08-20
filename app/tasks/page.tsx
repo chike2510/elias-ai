@@ -1,10 +1,15 @@
-import { Suspense } from "react";
-import TaskWorkspace from "@/components/screens/TaskWorkspace";
+import { redirect } from "next/navigation";
 
-function TaskLoading() {
-  return <main className="screen task-loading"><div className="task-loading-mark">ELIAS</div><p>opening task workspace…</p></main>;
-}
+type TasksPageProps = {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+};
 
-export default function TasksPage() {
-  return <Suspense fallback={<TaskLoading />}><TaskWorkspace /></Suspense>;
+export default async function TasksPage({ searchParams }: TasksPageProps) {
+  const params = await searchParams;
+  const query = new URLSearchParams();
+  for (const key of ["id", "prompt"]) {
+    const value = params[key];
+    if (typeof value === "string" && value) query.set(key, value);
+  }
+  redirect(`/chat${query.toString() ? `?${query.toString()}` : ""}`);
 }
