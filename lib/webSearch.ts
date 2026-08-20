@@ -88,6 +88,12 @@ export async function searchWeb(query: string) {
         if (href.includes("uddg=")) {
           try { href = decodeURIComponent(new URL(href, "https://www.google.com").searchParams.get("uddg") || href); } catch { /* keep original */ }
         }
+        if (href.includes("u=a1")) {
+          try {
+            const encodedTarget = new URL(href.replaceAll("&amp;", "&"), "https://www.bing.com").searchParams.get("u")?.slice(2);
+            if (encodedTarget) href = Buffer.from(encodedTarget, "base64").toString("utf8");
+          } catch { /* keep Bing redirect only as a last resort */ }
+        }
         const title = clean(match[2]);
         if (title.length > 8 && /^https?:\/\//i.test(href) && !/(duckduckgo|google\.|bing\.)/i.test(href)) {
           try {
