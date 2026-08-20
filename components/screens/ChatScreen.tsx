@@ -49,6 +49,11 @@ function shouldHandoffToTask(value: string, attachments: Attachment[]) {
   return attachments.length > 0 || /create|generate|build|make|write|produce|download|pdf|report|document|file|artifact|deliverable|research|latest|current|source|code|debug|refactor|repository|project|implement|study|exam|notes/i.test(value);
 }
 
+function normalizeConversation(value: ConversationRecord): ConversationRecord {
+  const messages = Array.isArray(value.messages) ? value.messages.filter((message) => message && typeof message.content === "string").map((message) => ({ ...message, role: (message.role === "assistant" || message.role === "system" ? message.role : "user") as ConversationMessage["role"], content: message.content })) : [];
+  return { ...value, id: value.id || makeId("chat"), title: value.title || "Conversation", messages };
+}
+
 function inlineArtifactHref(taskId: string, artifact: TaskRecord["artifacts"][number]) {
   if (artifact.content !== undefined) {
     if (artifact.encoding === "base64") return `data:${artifact.type};base64,${artifact.content}`;
@@ -92,7 +97,7 @@ export default function ChatScreen() {
         if (requestedId) {
           const existing = await getConversation(requestedId);
           if (active && existing) {
-            setConversation(existing);
+          setConversation(normalizeConversation(existing));
             return;
           }
         }
@@ -355,7 +360,7 @@ export default function ChatScreen() {
     }
   }
 
-  const messages = useMemo(() => conversation?.messages ?? [], [conversation]);
+  const messages = useMemo(() => Array.isArray(conversation?.messages) ? conversation.messages : [], [conversation]);
   const lastUser = [...messages].reverse().find((message) => message.role === "user");
 
   return (
@@ -414,18 +419,22 @@ export default function ChatScreen() {
         </div>
 
         {activeTask ? (() => {
-          const completedSteps = activeTask.plan.filter((step) => step.status === "completed").length;
-          const taskProgress = activeTask.plan.length ? Math.round((completedSteps / activeTask.plan.length) * 100) : 0;
-          const pendingApproval = activeTask.approvals.find((approval) => approval.status === "pending");
+          const taskPlan = Array.isArray(activeTask.plan) ? activeTask.plan : [];
+          const taskApprovals = Array.isArray(activeTask.approvals) ? activeTask.approvals : [];
+          const taskEvents = Array.isArray(activeTask.events) ? activeTask.events : [];
+          const taskArtifacts = Array.isArray(activeTask.artifacts) ? activeTask.artifacts : [];
+          const completedSteps = taskPlan.filter((step) => step.status === "completed").length;
+          const taskProgress = taskPlan.length ? Math.round((completedSteps / taskPlan.length) * 100) : 0;
+          const pendingApproval = taskApprovals.find((approval) => approval.status === "pending");
           return <section className="inline-task-card" aria-label="Inline task workspace">
             <div className="inline-task-head"><div><span className="chat-role">TASK</span><h2>{activeTask.title}</h2></div><span className={`inline-task-status ${activeTask.status}`}>{activeTask.status.replaceAll("_", " ")}</span></div>
-            <div className="inline-task-progress"><span><strong>{completedSteps}/{activeTask.plan.length || 0}</strong> steps</span><span>{taskProgress}%</span><i><b style={{ width: `${taskProgress}%` }} /></i></div>
+            <div className="inline-task-progress"><span><strong>{completedSteps}/{taskPlan.length || 0}</strong> steps</span><span>{taskProgress}%</span><i><b style={{ width: `${taskProgress}%` }} /></i></div>
             {activeTask.error ? <div className="inline-task-error">{activeTask.error}</div> : null}
             {pendingApproval ? <div className="inline-task-approval"><strong>Approval needed</strong><p>{pendingApproval.question}</p><div><button type="button" className="primary" disabled={taskBusy} onClick={() => void resolveTaskApproval(pendingApproval.id, "approve")}>approve</button><button type="button" className="secondary" disabled={taskBusy} onClick={() => void resolveTaskApproval(pendingApproval.id, "reject")}>reject</button></div></div> : null}
-            <div className="inline-task-steps">{activeTask.plan.slice(0, 5).map((step) => <div className={`inline-task-step ${step.status}`} key={step.id}><span>{step.status === "completed" ? "✓" : step.status === "active" ? "•" : "○"}</span><strong>{step.title}</strong><small>{step.status}</small></div>)}</div>
-            {activeTask.events.length ? <div className="inline-task-activity"><span className="chat-role">LATEST ACTIVITY</span><p>{activeTask.events.at(-1)?.detail || activeTask.events.at(-1)?.label}</p></div> : null}
-            {activeTask.artifacts.length ? <div className="inline-task-outputs"><span className="chat-role">OUTPUTS</span>{activeTask.artifacts.map((artifact) => <a key={artifact.id} href={inlineArtifactHref(activeTask.id, artifact)} download={artifact.name}><FileText size={13} /><span>{artifact.name}</span><small>{artifact.type}</small></a>)}</div> : null}
-            <div className="inline-task-actions">{!["completed", "cancelled", "waiting_approval"].includes(activeTask.status) ? <button type="button" className="primary" disabled={taskBusy} onClick={() => void continueTask()}>{taskBusy ? "Working…" : "Continue"}</button> : null}{activeTask.artifacts.length ? <span className="inline-task-output">{activeTask.artifacts.length} output{activeTask.artifacts.length === 1 ? "" : "s"}</span> : null}<span className="secondary inline-task-detail">live in chat</span></div>
+            <div className="inline-task-steps">{taskPlan.slice(0, 5).map((step) => <div className={`inline-task-step ${step.status}`} key={step.id}><span>{step.status === "completed" ? "✓" : step.status === "active" ? "•" : "○"}</span><strong>{step.title}</strong><small>{step.status}</small></div>)}</div>
+            {taskEvents.length ? <div className="inline-task-activity"><span className="chat-role">LATEST ACTIVITY</span><p>{taskEvents.at(-1)?.detail || taskEvents.at(-1)?.label}</p></div> : null}
+            {taskArtifacts.length ? <div className="inline-task-outputs"><span className="chat-role">OUTPUTS</span>{taskArtifacts.map((artifact) => <a key={artifact.id} href={inlineArtifactHref(activeTask.id, artifact)} download={artifact.name}><FileText size={13} /><span>{artifact.name}</span><small>{artifact.type}</small></a>)}</div> : null}
+            <div className="inline-task-actions">{!["completed", "cancelled", "waiting_approval"].includes(activeTask.status) ? <button type="button" className="primary" disabled={taskBusy} onClick={() => void continueTask()}>{taskBusy ? "Working…" : "Continue"}</button> : null}{taskArtifacts.length ? <span className="inline-task-output">{taskArtifacts.length} output{taskArtifacts.length === 1 ? "" : "s"}</span> : null}<span className="secondary inline-task-detail">live in chat</span></div>
           </section>;
         })() : null}
 
