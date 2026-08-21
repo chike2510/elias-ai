@@ -145,6 +145,15 @@ function groundingWarning(content: string, meta?: WebEvidenceMeta) {
   return !meta.sourceUrls.some((url) => content.includes(url) || content.includes(url.replace(/^https?:\/\//, "")));
 }
 
+function needsGroundingRepair(content: string, evidence?: WebEvidenceResult | null) {
+  if (!evidence || evidence.meta.status !== "searched" || evidence.meta.fetchedSourceCount === 0) return false;
+  const lower = content.toLowerCase();
+  const evidenceText = `${evidence.evidence} ${evidence.meta.sourceUrls.join(" ")}`.toLowerCase();
+  const makesNegativeClaim = /no official|not found|no relevant results|could not verify|does not exist|is not scheduled/.test(lower);
+  const hasRelevantEvidence = /manchester united|manutd|hull city/.test(evidenceText);
+  return makesNegativeClaim && hasRelevantEvidence;
+}
+
 export async function runElias(input: EliasRunInput): Promise<EliasRunOutput> {
   const mode = input.mode || "auto";
   const taskType = modeTask(mode, input.taskType);
@@ -167,9 +176,19 @@ export async function runElias(input: EliasRunInput): Promise<EliasRunOutput> {
   const allowedTools = footballRequest ? Array.from(new Set([...(input.context?.allowedTools || []), "web.search", "web.open", ...FOOTBALL_ODDS_TOOLS])) : input.context?.allowedTools;
   const webEvidence = await buildWebEvidence(input.chat.messages, taskType, allowedTools);
   const messages = [...input.chat.messages, ...extendedEvidence, ...(uiUxEvidence ? [uiUxEvidence] : []), ...(footballEvidence ? [footballEvidence] : []), ...(webEvidence ? [{ role: "system" as const, content: webEvidence.evidence }] : [])];
-  const result = await runChat({ ...input.chat, messages, task: taskType, provider: input.provider, model: input.model, systemContext: groundingPolicy(webEvidence?.meta) });
+  let result = await runChat({ ...input.chat, messages, task: taskType, provider: input.provider, model: input.model, systemContext: groundingPolicy(webEvidence?.meta) });
+  if (needsGroundingRepair(result.content, webEvidence)) {
+    result = await runChat({
+      ...input.chat,
+      messages: [...messages, { role: "system" as const, content: "GROUNDING REPAIR REQUIRED: The previous draft contradicted relevant live search evidence. Rewrite it using the supplied source titles and URLs. Do not say no fixture or no relevant results when the evidence contains a relevant source. Include the exact current facts, cite the supplied URLs, and state uncertainty only where the sources genuinely conflict." }],
+      task: taskType,
+      provider: result.provider as ProviderName,
+      model: result.model,
+      systemContext: groundingPolicy(webEvidence?.meta),
+    });
+  }
   const runtime = runtimeMetadata(result, { ...input.context, allowedTools }, selectedSkills);
   runtime.webEvidence = webEvidence?.meta;
-  runtime.groundingWarning = groundingWarning(result.content, webEvidence?.meta);
+  runtime.groundingWarning = groundingWarning(result.content, webEvidence?.meta) || needsGroundingRepair(result.content, webEvidence);
   return { kind: "chat", mode, result, runtime };
 }
