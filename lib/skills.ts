@@ -1,4 +1,6 @@
 export type SkillStatus = "enabled" | "installed" | "needs_approval" | "disabled";
+import { EXTENDED_SKILL_DEFINITIONS } from "@/lib/extendedSkills";
+
 export type SkillContributor = { name: string; role: string; kind: "official" | "community" };
 
 export type SkillDefinition = {
@@ -23,4 +25,5 @@ export const SKILL_REGISTRY: SkillDefinition[] = [
   { id: "football-odds-slip-model", name: "Football Odds Slip Model", description: "Analyze real football fixtures and bookmaker markets with transparent probabilities, EV screening, odds-band filtering, slip auditing, and confirmation-gated booking-code verification.", category: "official", status: "enabled", version: "1.0.0", updatedAt: "2026-08-21", tools: ["football.fixtures.current", "football.stats.fetch", "bookmaker.markets.read", "football.probability.estimate", "football.ev.calculate", "football.slip.audit", "football.booking.verify"], permissions: ["Live fixture read", "Bookmaker market read", "Statistical analysis", "Slip generation", "Booking verification with confirmation"], contributors: [{ name: "Elias Core", role: "Maintainer", kind: "official" }], evaluation: { cases: 0, passRate: 0 } },
   { id: "autonomous-task-planner", name: "Autonomous Task Planner", description: "Turn objectives into visible steps, tool calls, approvals, and recoverable outputs.", category: "official", status: "enabled", version: "1.0.0", updatedAt: "2026-08-19", tools: ["agent.plan", "agent.execute", "approvals.request"], permissions: ["Task context", "Tool selection"], contributors: [{ name: "Elias Core", role: "Maintainer", kind: "official" }], evaluation: { cases: 20, passRate: 0.87 } },
   { id: "financial-analysis", name: "Financial Analysis", description: "Analyze company filings, market data, and investor materials with an evidence-first workflow.", category: "community", status: "needs_approval", version: "0.1.0", updatedAt: "2026-08-11", tools: ["web.search", "data.fetch", "spreadsheet.create"], permissions: ["Financial data read", "Report generation"], contributors: [{ name: "Community contributor", role: "Author", kind: "community" }], evaluation: { cases: 4, passRate: 0.72 } },
+  ...EXTENDED_SKILL_DEFINITIONS,
 ];
