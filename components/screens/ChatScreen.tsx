@@ -261,13 +261,15 @@ export default function ChatScreen() {
         }),
         signal: controller.signal,
       });
-      const data = await readApiResponse<{ content: string; provider?: string; model?: string }>(response);
+      const data = await readApiResponse<{ content?: string; provider?: string; model?: string; result?: { content?: string; provider?: string; model?: string } }>(response);
+      const reply = data.result || data;
+      const content = typeof reply.content === "string" && reply.content.trim() ? reply.content : "I received your message but could not form a response.";
       const assistant: ConversationMessage = {
         id: makeId("msg"),
         role: "assistant",
-        content: data.content,
-        provider: data.provider,
-        model: data.model,
+        content,
+        provider: reply.provider,
+        model: reply.model,
         status: "complete",
         createdAt: Date.now(),
       };
