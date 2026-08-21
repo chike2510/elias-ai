@@ -141,12 +141,12 @@ function groundingPolicy(meta?: WebEvidenceMeta) {
 }
 
 function groundingWarning(content: string, meta?: WebEvidenceMeta) {
-  if (!meta || meta.status !== "searched" || meta.fetchedSourceCount === 0) return false;
+  if (!meta || meta.status !== "searched" || meta.resultCount === 0 || meta.sourceUrls.length === 0) return false;
   return !meta.sourceUrls.some((url) => content.includes(url) || content.includes(url.replace(/^https?:\/\//, "")));
 }
 
 function needsGroundingRepair(content: string, evidence?: WebEvidenceResult | null) {
-  if (!evidence || evidence.meta.status !== "searched" || evidence.meta.fetchedSourceCount === 0) return false;
+  if (!evidence || evidence.meta.status !== "searched" || evidence.meta.resultCount === 0 || evidence.meta.sourceUrls.length === 0) return false;
   const lower = content.toLowerCase();
   const evidenceText = `${evidence.evidence} ${evidence.meta.sourceUrls.join(" ")}`.toLowerCase();
   const makesNegativeClaim = /no official|not found|no relevant results|could not verify|does not exist|is not scheduled/.test(lower);
