@@ -305,7 +305,7 @@ export default function ChatScreen() {
     if (!activeTask || taskBusy || ["completed", "cancelled"].includes(activeTask.status)) return;
     setTaskBusy(true);
     try {
-      const response = await fetch(`/api/tasks/${encodeURIComponent(activeTask.id)}/step`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ maxSteps: 1, task: activeTask }) });
+      const response = await fetch(`/api/tasks/${encodeURIComponent(activeTask.id)}/step`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ maxSteps: 12, task: activeTask }) });
       const data = await readApiResponse<{ task: TaskRecord }>(response);
       setActiveTask(data.task);
       cacheTaskSnapshot(data.task);

@@ -234,7 +234,7 @@ export async function runTaskStep(id: string): Promise<TaskRecord> {
       createFallbackArtifact(task, output.message);
     }
     if (task.approvals.some((approval) => approval.status === "pending")) return setTaskStatus(id, "waiting_approval");
-    if (currentStep) updateStoredTask(id, (current) => { const step = current.plan.find((item) => item.id === currentStep.id); if (step) { step.status = output.done ? "completed" : "active"; step.updatedAt = Date.now(); } });
+    if (currentStep) updateStoredTask(id, (current) => { const step = current.plan.find((item) => item.id === currentStep.id); if (step) { const producedEvidence = output.requests.length > 0 || output.actions.length > 0; step.status = output.done || producedEvidence ? "completed" : "active"; step.updatedAt = Date.now(); } });
     if (output.done) {
       recordTaskEvent(id, { kind: "validation", label: "Task ready for delivery", status: "completed", detail: "Agent returned done=true after recording tool results." });
       return setTaskStatus(id, "completed");
