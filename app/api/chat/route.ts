@@ -12,7 +12,7 @@ const providers = new Set<ProviderName>(["qwen", "agentrouter", "groq", "openrou
 
 function repositoryFromQuery(query: string) {
   const match = query.match(/(?:github\s+)?repository\s+([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)/i) || query.match(/\b([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\b/);
-  return match?.[1] || null;
+  return match?.[1]?.replace(/[.,!?;:]+$/g, "") || null;
 }
 
 async function loadRepositoryContext(query: string) {
