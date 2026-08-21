@@ -266,7 +266,7 @@ export default function ChatScreen() {
         }),
         signal: controller.signal,
       });
-      const data = await readApiResponse<{ content?: string; provider?: string; model?: string; result?: { content?: string; provider?: string; model?: string } }>(response);
+      const data = await readApiResponse<{ content?: string; provider?: string; model?: string; runtime?: { webEvidence?: { status: string; resultCount: number; fetchedSourceCount: number; sourceUrls: string[]; errors: string[] }; groundingWarning?: boolean }; result?: { content?: string; provider?: string; model?: string; runtime?: { webEvidence?: { status: string; resultCount: number; fetchedSourceCount: number; sourceUrls: string[]; errors: string[] }; groundingWarning?: boolean } } }>(response);
       const reply = data.result || data;
       const content = typeof reply.content === "string" && reply.content.trim() ? reply.content : "I received your message but could not form a response.";
       const assistant: ConversationMessage = {
@@ -276,6 +276,7 @@ export default function ChatScreen() {
         provider: reply.provider,
         model: reply.model,
         status: "complete",
+        webEvidence: reply.runtime?.webEvidence,
         createdAt: Date.now(),
       };
       await persist({ ...optimistic, updatedAt: Date.now(), messages: [...optimistic.messages, assistant] });
@@ -421,6 +422,7 @@ export default function ChatScreen() {
               <div className="chat-message-body">
                 <span className="chat-role">{message.role === "assistant" ? `ELIAS${message.provider ? ` · ${message.provider}` : ""}` : "you"}</span>
                 {message.role === "assistant" ? <MarkdownMessage content={message.content} /> : <UserMessageContent content={message.content} />}
+                {message.role === "assistant" && message.webEvidence ? <small className={`web-evidence-status ${message.webEvidence.status === "searched" ? "verified" : "warning"}`}>web search · {message.webEvidence.status === "searched" ? `${message.webEvidence.resultCount} results · ${message.webEvidence.fetchedSourceCount} sources fetched` : message.webEvidence.status.replaceAll("_", " ")}</small> : null}
                 {message.role === "assistant" ? (
                   <div className="message-actions">
                     <button type="button" onClick={() => { void navigator.clipboard?.writeText(message.content); setCopied(message.id); window.setTimeout(() => setCopied(null), 1400); }}>

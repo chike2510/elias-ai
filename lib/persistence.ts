@@ -8,6 +8,7 @@ export type ConversationMessage = {
   provider?: string;
   model?: string;
   status?: "complete" | "error";
+  webEvidence?: { status: string; resultCount: number; fetchedSourceCount: number; sourceUrls: string[]; errors: string[] };
 };
 
 export type ConversationRecord = {

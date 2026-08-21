@@ -26,7 +26,7 @@ function systemPrompt(task: TaskType) {
   return parts.join(" ");
 }
 
-export async function runChat({ messages, task, provider: requestedProvider, model: requestedModel }: { messages: ChatInputMessage[]; task: TaskType; provider?: import("@/lib/types").ProviderName; model?: string }) {
+export async function runChat({ messages, task, provider: requestedProvider, model: requestedModel, systemContext }: { messages: ChatInputMessage[]; task: TaskType; provider?: import("@/lib/types").ProviderName; model?: string; systemContext?: string }) {
   const complexity = scoreComplexity(messages, task);
   const errors: string[] = [];
   const providers = requestedProvider ? [requestedProvider] : [...new Set(providerOrder(task, complexity))];
@@ -39,7 +39,11 @@ export async function runChat({ messages, task, provider: requestedProvider, mod
         provider,
         model,
         temperature: 0.25,
-        messages: [{ role: "system", content: systemPrompt(task) }, ...messages],
+        messages: [
+          { role: "system", content: systemPrompt(task) },
+          ...(systemContext ? [{ role: "system" as const, content: systemContext }] : []),
+          ...messages,
+        ],
       });
       if (!response.text) {
         errors.push(`${provider}: empty response`);
