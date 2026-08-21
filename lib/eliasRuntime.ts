@@ -2,6 +2,7 @@ import { runAgentStep, type AgentInput, type AgentOutput } from "@/lib/agent";
 import { runChat, type ChatInputMessage } from "@/lib/chat";
 import type { ProviderName, TaskType } from "@/lib/types";
 import { fetchUrl, searchWeb } from "@/lib/webSearch";
+import { isUiUxRequest, uiUxSelectedSkills, uiUxSystemInstruction } from "@/lib/uiUxSkill";
 
 export type EliasMode = "auto" | "instant" | "deep" | "code" | "research" | "agent";
 
@@ -44,10 +45,10 @@ function modeTask(mode: EliasMode | undefined, taskType: TaskType | undefined): 
   return taskType || "general";
 }
 
-function runtimeMetadata(result: ChatOutput | AgentOutput, context: EliasRunInput["context"]): EliasRunOutput["runtime"] {
+function runtimeMetadata(result: ChatOutput | AgentOutput, context: EliasRunInput["context"], selectedSkills?: string[]): EliasRunOutput["runtime"] {
   return {
     agent: "elias",
-    selectedSkills: context?.enabledSkills || [],
+    selectedSkills: selectedSkills || context?.enabledSkills || [],
     selectedTools: context?.allowedTools || [],
     model: result.model,
     provider: result.provider,
@@ -88,12 +89,16 @@ export async function runElias(input: EliasRunInput): Promise<EliasRunOutput> {
   if (mode === "agent" || input.agent) {
     if (!input.agent) throw new Error("Agent input is required for agent mode.");
     const result = await runAgentStep({ ...input.agent, taskType, preferredProvider: input.provider, preferredModel: input.model });
-    return { kind: "agent", mode, result, runtime: runtimeMetadata(result, input.context) };
+    const selectedSkills = input.context?.enabledSkills || [];
+    return { kind: "agent", mode, result, runtime: runtimeMetadata(result, input.context, selectedSkills) };
   }
 
   if (!input.chat) throw new Error("Chat input is required for conversational modes.");
+  const query = latestUserQuery(input.chat.messages);
+  const selectedSkills = uiUxSelectedSkills(query, input.context?.enabledSkills || []);
+  const uiUxEvidence = isUiUxRequest(query) ? { role: "system" as const, content: uiUxSystemInstruction(query) } : null;
   const webEvidence = await buildWebEvidence(input.chat.messages, taskType, input.context?.allowedTools);
-  const messages = webEvidence ? [...input.chat.messages, { role: "system" as const, content: formatWebEvidence(webEvidence) || "" }] : input.chat.messages;
+  const messages = [...input.chat.messages, ...(uiUxEvidence ? [uiUxEvidence] : []), ...(webEvidence ? [{ role: "system" as const, content: formatWebEvidence(webEvidence) || "" }] : [])];
   const result = await runChat({ ...input.chat, messages, task: taskType, provider: input.provider, model: input.model });
-  return { kind: "chat", mode, result, runtime: runtimeMetadata(result, input.context) };
+  return { kind: "chat", mode, result, runtime: runtimeMetadata(result, input.context, selectedSkills) };
 }
