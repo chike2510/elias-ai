@@ -23,13 +23,13 @@ async function loadRepositoryContext(query: string) {
   const [owner, repo] = fullName.split("/");
   if (!owner || !repo) return null;
   const headers = { Accept: "application/vnd.github+json", Authorization: `Bearer ${session.githubToken}`, "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "ELIAS" };
+  const inventoryResponse = await fetch("https://api.github.com/user/repos?affiliation=owner,collaborator,organization_member&per_page=100&sort=updated", { headers, cache: "no-store" });
+  if (!inventoryResponse.ok) return { fullName, error: `Connected GitHub could not list repositories (HTTP ${inventoryResponse.status}).` };
+  const inventory = await inventoryResponse.json() as Array<{ full_name?: string; description?: string | null; default_branch?: string; language?: string | null; private?: boolean; stargazers_count?: number; open_issues_count?: number }>;
+  const repository = inventory.find((item) => item.full_name?.toLowerCase() === fullName.toLowerCase());
+  if (!repository) return { fullName, error: `Connected GitHub could not find ${fullName} in the authorized repository list. Refresh the GitHub connection if its access changed.` };
   const base = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
-  const [repositoryResponse, commitsResponse] = await Promise.all([
-    fetch(base, { headers, cache: "no-store" }),
-    fetch(`${base}/commits?per_page=6`, { headers, cache: "no-store" }),
-  ]);
-  if (!repositoryResponse.ok) return { fullName, error: `Connected GitHub could not load ${fullName} (HTTP ${repositoryResponse.status}).` };
-  const repository = await repositoryResponse.json() as { full_name?: string; description?: string | null; default_branch?: string; language?: string | null; private?: boolean; stargazers_count?: number; open_issues_count?: number };
+  const commitsResponse = await fetch(`${base}/commits?per_page=6`, { headers, cache: "no-store" });
   const commits = commitsResponse.ok ? await commitsResponse.json() as Array<{ sha?: string; commit?: { message?: string; author?: { name?: string; date?: string } } }> : [];
   return { fullName, repository, commits: commits.slice(0, 6).map((commit) => ({ sha: commit.sha, message: (commit.commit?.message || "Commit").split("\n")[0], author: commit.commit?.author?.name || "GitHub user", date: commit.commit?.author?.date })) };
 }
