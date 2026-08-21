@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { after, NextRequest } from "next/server";
 import { jsonError, jsonOk, readJsonRequest } from "@/lib/http";
 import { createTaskRecord, listTasks, runTaskLoop } from "@/lib/taskOrchestrator";
 import type { CreateTaskInput } from "@/lib/task";
@@ -30,7 +30,12 @@ export async function POST(request: NextRequest) {
     if (body.workspace !== undefined && !validWorkspace(body.workspace)) return jsonError("workspace is invalid or too large", 413, "PAYLOAD_TOO_LARGE");
     const { autoStart, ...input } = body;
     const task = createTaskRecord({ ...input, objective: body.objective.trim() });
-    if (autoStart === true) return jsonOk({ task: await runTaskLoop(task.id, 6) }, { status: 201 });
+    if (autoStart === true) {
+      after(async () => {
+        try { await runTaskLoop(task.id, 6); } catch { /* task state records the failure for the Chat poller */ }
+      });
+      return jsonOk({ task }, { status: 201 });
+    }
     return jsonOk({ task }, { status: 201 });
   } catch (error) {
     return jsonError(error instanceof Error ? error.message : "Could not create task.");
