@@ -137,8 +137,20 @@ async function executeRequest(task: TaskRecord, request: AgentRequest): Promise<
     return { id: request.id, type: request.type, result: packageFile ? packageFile.content.slice(0, 40_000) : "package.json not found", startedAt, completedAt: Date.now() };
   }
   if (request.type === "run_validation") return runWorkspaceValidation(task.workspace, request.check);
-  if (request.type === "search_web") return { id: request.id, type: request.type, query: request.query, result: await searchWeb(request.query), startedAt, completedAt: Date.now() };
-  if (request.type === "fetch_url") return { id: request.id, type: request.type, url: request.url, content: await fetchUrl(request.url), startedAt, completedAt: Date.now() };
+  if (request.type === "search_web") {
+    try {
+      return { id: request.id, type: request.type, query: request.query, result: await searchWeb(request.query), startedAt, completedAt: Date.now() };
+    } catch (error) {
+      return { id: request.id, type: request.type, query: request.query, error: error instanceof Error ? error.message : "Web search failed.", startedAt, completedAt: Date.now() };
+    }
+  }
+  if (request.type === "fetch_url") {
+    try {
+      return { id: request.id, type: request.type, url: request.url, content: await fetchUrl(request.url), startedAt, completedAt: Date.now() };
+    } catch (error) {
+      return { id: request.id, type: request.type, url: request.url, error: error instanceof Error ? error.message : "Source could not be opened.", startedAt, completedAt: Date.now() };
+    }
+  }
 
   const artifactId = `artifact_${crypto.randomUUID()}`;
   const pdf = request.mimeType === "application/pdf" || /\.pdf$/i.test(request.name);
