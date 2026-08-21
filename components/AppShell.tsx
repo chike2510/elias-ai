@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { Command, Folder, Home, LibraryBig, Menu, MessageSquare, Search, ShieldCheck, Sparkles, SquarePen } from "lucide-react";
-import { usePathname } from "next/navigation";
+import { ArrowLeft, Command, Folder, Home, LibraryBig, Menu, MessageSquare, Search, ShieldCheck, Sparkles, SquarePen } from "lucide-react";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import HistoryDrawer from "@/components/HistoryDrawer";
 
@@ -15,6 +15,8 @@ const navigation = [
 
 export default function AppShell({ children, title }: { children: React.ReactNode; title?: string }) {
   const pathname = usePathname();
+  const params = useSearchParams();
+  const openConversation = pathname === "/chat" && Boolean(params.get("id"));
   const [historyOpen, setHistoryOpen] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
   const [user, setUser] = useState<{ login?: string; name?: string; avatarUrl?: string } | null>(null);
@@ -23,7 +25,7 @@ export default function AppShell({ children, title }: { children: React.ReactNod
   async function logout() { await fetch("/api/auth/logout", { method: "POST" }); window.location.href = "/login"; }
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${openConversation ? "open-chat-shell" : ""}`}>
       <aside className="desktop-sidebar">
         <Link href="/" className="brand sidebar-brand">
           <span className="brand-mark"><img src="/branding/elias-logo.png" alt="" /></span>
@@ -42,7 +44,7 @@ export default function AppShell({ children, title }: { children: React.ReactNod
 
       <div className="app-main">
         <header className="topbar">
-          <button className="icon-btn mobile-only" onClick={() => setHistoryOpen(true)} aria-label="Open conversation history"><Menu size={20} /></button>
+          {openConversation ? <Link href="/" className="icon-btn mobile-only" aria-label="Back to home"><ArrowLeft size={20} /></Link> : <button className="icon-btn mobile-only" onClick={() => setHistoryOpen(true)} aria-label="Open conversation history"><Menu size={20} /></button>}
           <Link href="/" className="brand mobile-brand">
             <span className="brand-mark"><img src="/branding/elias-logo.png" alt="" /></span>
             <span className="brand-wordmark">ELIAS</span><i />
@@ -57,12 +59,12 @@ export default function AppShell({ children, title }: { children: React.ReactNod
 
         <div className="app-content">{children}</div>
 
-        <nav className="bottom-nav" aria-label="Mobile navigation">
+        {!openConversation ? <nav className="bottom-nav" aria-label="Mobile navigation">
           <Nav href="/" label="Home" icon={Home} active={pathname === "/"} />
           <Link className="assistant-fab" href="/chat" aria-label="Open Chat and execution workspace"><Sparkles size={22} /></Link>
           <Nav href="/projects" label="Projects" icon={Folder} active={pathname.startsWith("/projects")} />
           <Nav href="/files" label="Library" icon={LibraryBig} active={pathname.startsWith("/files")} />
-        </nav>
+        </nav> : null}
       </div>
 
       <HistoryDrawer open={historyOpen} onClose={() => setHistoryOpen(false)} />

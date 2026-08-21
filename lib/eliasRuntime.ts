@@ -1,7 +1,7 @@
 import { runAgentStep, type AgentInput, type AgentOutput } from "@/lib/agent";
 import { runChat, type ChatInputMessage } from "@/lib/chat";
 import type { ProviderName, TaskType } from "@/lib/types";
-import { fetchUrl, searchWeb } from "@/lib/webSearch";
+import { searchWeb } from "@/lib/webSearch";
 import { isUiUxRequest, uiUxSelectedSkills, uiUxSystemInstruction } from "@/lib/uiUxSkill";
 import { FOOTBALL_ODDS_TOOLS, footballOddsSelectedSkills, footballOddsSystemInstruction, isFootballOddsRequest } from "@/lib/footballOddsSkill";
 import { detectExtendedSkills, extendedSkillInstruction } from "@/lib/extendedSkills";
@@ -111,12 +111,8 @@ async function buildWebEvidence(messages: ChatInputMessage[], task: TaskType, al
       const meta: WebEvidenceMeta = { status: rawResults.length ? "insufficient_relevance" : "no_results", query, searchedAt, resultCount: 0, fetchedSourceCount: 0, sourceUrls: [], errors: [rawResults.length ? "Search returned no relevant results." : "Search returned no results."] };
       return { meta, evidence: `[LIVE WEB RESEARCH ${meta.status.toUpperCase()}]\nQuery: ${query}\n${meta.errors[0]}\nDo not present current claims as verified.` };
     }
-    const sources = await Promise.all(results.map(async (result) => {
-      try { return { ...result, content: (await fetchUrl(result.url)).slice(0, 7_000), error: undefined }; }
-      catch (error) { return { ...result, content: "Source page could not be fetched; use the result link only.", error: error instanceof Error ? error.message : "Source fetch failed" }; }
-    }));
-    const fetched = sources.filter((source) => !source.error && source.content.length > 80);
-    const meta: WebEvidenceMeta = { status: "searched", query, searchedAt, resultCount: results.length, fetchedSourceCount: fetched.length, sourceUrls: sources.map((source) => source.url), errors: sources.flatMap((source) => source.error ? [source.error] : []) };
+    const sources = results.map((result) => ({ ...result, content: "Search-result metadata only. Open the cited URL separately when detailed source text is required.", error: undefined }));
+    const meta: WebEvidenceMeta = { status: "searched", query, searchedAt, resultCount: results.length, fetchedSourceCount: 0, sourceUrls: sources.map((source) => source.url), errors: [] };
     return { meta, evidence: formatWebEvidence({ query, results, sources, meta }) };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Web search failed.";

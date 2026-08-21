@@ -1,7 +1,7 @@
 import { lookup } from "node:dns/promises";
 
 const MAX_SOURCE_CHARS = 30_000;
-const SEARCH_TIMEOUT_MS = 12_000;
+const SEARCH_TIMEOUT_MS = 5_000;
 
 function clean(value: string) {
   return value
@@ -10,7 +10,7 @@ function clean(value: string) {
     .replace(/<[^>]+>/g, " ")
     .replace(/&amp;/g, "&")
     .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
+    .replace(/&#39;|&#x27;/g, "'")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
     .replace(/\s+/g, " ")
