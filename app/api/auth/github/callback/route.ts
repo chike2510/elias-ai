@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { getSession } from "@/lib/auth";
 import { githubConfigured, setSession } from "@/lib/auth";
 
 type GithubUser = { id: number; login: string; name?: string | null; email?: string | null; avatar_url?: string };
@@ -31,6 +32,7 @@ export async function GET(request: Request) {
     }
   }
 
-  await setSession({ userId: `github_${profile.id}`, login: profile.login, name: profile.name || undefined, email, avatarUrl: profile.avatar_url, createdAt: Date.now() });
+  const previous = await getSession();
+  await setSession({ ...previous, userId: `github_${profile.id}`, login: profile.login, name: profile.name || undefined, email, avatarUrl: profile.avatar_url, githubToken: tokenData.access_token, githubConnected: true, createdAt: previous?.createdAt || Date.now() });
   return NextResponse.redirect(new URL("/", request.url));
 }

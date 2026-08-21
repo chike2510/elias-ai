@@ -46,7 +46,10 @@ const FALLBACK_MODEL_OPTIONS: ModelOption[] = [
 ];
 
 function shouldHandoffToTask(value: string, attachments: Attachment[]) {
-  return attachments.length > 0 || /create|generate|build|make|write|produce|download|pdf|report|document|file|artifact|deliverable|research|latest|current|source|code|debug|refactor|repository|project|implement|study|exam|notes/i.test(value);
+  if (attachments.length > 0) return true;
+  const text = value.trim();
+  if (text.length < 12) return false;
+  return /\b(create|generate|build|make|write|produce|download|develop|implement|refactor|debug|review|research|study|analy[sz]e|compare|summari[sz]e)\b/i.test(text) && /\b(report|pdf|document|file|artifact|website|web app|app|page|screen|dashboard|repository|repo|project|code|source|paper|slides|presentation|chapter|notes|exam|course|latest|current|sources|citations|interface|ui|ux|design|feature|bug|component)\b/i.test(text);
 }
 
 function normalizeConversation(value: ConversationRecord): ConversationRecord {
@@ -72,6 +75,7 @@ export default function ChatScreen() {
   const [history, setHistory] = useState<ConversationRecord[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const [taskMode, setTaskMode] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [activeDocumentIds, setActiveDocumentIds] = useState<string[]>([]);
@@ -95,6 +99,8 @@ export default function ChatScreen() {
     }).catch(() => undefined);
     let active = true;
     async function load() {
+      setActiveTask(null);
+      setTaskMode(false);
       try {
         if (requestedId) {
           const existing = await getConversation(requestedId);
@@ -206,13 +212,14 @@ export default function ChatScreen() {
     setInput("");
     setAttachments([]);
     await persist(optimistic);
-    if (!requestedId) router.replace(`/chat?id=${encodeURIComponent(optimistic.id)}`);
+    if (!requestedId) window.history.replaceState(null, "", `/chat?id=${encodeURIComponent(optimistic.id)}`);
     setBusy(true);
     const controller = new AbortController();
     abortRef.current = controller;
 
     try {
       if (shouldHandoffToTask(text, attachments)) {
+        setTaskMode(true);
         const handoffBudget = Math.max(0, 20_000 - text.length - 2);
         const handoffObjective = text.length >= 20_000 ? text.slice(0, 20_000) : `${text}\n\n${documentContext.slice(0, handoffBudget)}`;
         const taskResponse = await fetch("/api/tasks", {
@@ -243,6 +250,7 @@ export default function ChatScreen() {
         return;
       }
 
+      setTaskMode(false);
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -382,7 +390,7 @@ export default function ChatScreen() {
           <Link href="/chat" className="history-row history-task-link"><span className="history-bullet"><Check size={14} /></span><span><strong>Active work</strong><small>Tasks run inside this conversation</small></span></Link>
         </aside>
         <div className="chat-head">
-          <div><h1>{conversation?.title || "New chat"}</h1></div>
+          <div className="chat-head-context"><span>Conversation</span></div>
           <div className="chat-head-actions"><div className="model-picker"><button type="button" className="model-picker-trigger" aria-expanded={modelOpen} onClick={() => setModelOpen((open) => !open)}><span><small>MODEL</small><strong>{modelOptions.find((option) => option.id === selectedModel)?.label || "Auto"}</strong></span><ChevronDown size={15} /></button>{modelOpen ? <div className="model-picker-menu">{modelOptions.map((option) => <button key={option.id} type="button" className={option.id === selectedModel ? "selected" : ""} onClick={() => { setSelectedModel(option.id); setModelOpen(false); }}><span><strong>{option.label}</strong><small>{option.detail}{option.id !== "auto" && option.configured === false ? " · not configured" : ""}</small></span>{option.id === selectedModel ? <Check size={14} /> : null}</button>)}</div> : null}</div><Link href="/chat" className="chat-new" aria-label="Start a new chat"><Plus size={15} /></Link></div>
         </div>
 
@@ -421,7 +429,7 @@ export default function ChatScreen() {
             </article>
           ))}
 
-          {busy ? <div className="chat-message assistant"><div className="chat-avatar"><LoaderCircle size={14} className="spin" /></div><div className="chat-message-body"><span className="chat-role">ELIAS</span>{activeTask ? <LiveExecutionFeed task={activeTask} /> : <div className="chat-content typing-line">preparing execution…</div>}</div></div> : null}
+          {busy ? <div className="chat-message assistant"><div className="chat-avatar"><LoaderCircle size={14} className="spin" /></div><div className="chat-message-body"><span className="chat-role">ELIAS</span>{taskMode && activeTask ? <LiveExecutionFeed task={activeTask} /> : taskMode ? <div className="chat-content typing-line">setting up the task…</div> : <div className="chat-content typing-line">thinking…</div>}</div></div> : null}
           <div ref={bottomRef} />
         </div>
 
