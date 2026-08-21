@@ -135,20 +135,25 @@ export default function ChatScreen() {
   }, [conversation?.messages.length, busy, activeTask?.events.length]);
 
   useEffect(() => {
-    if (!activeTask || !["queued", "planning", "running", "waiting_approval"].includes(activeTask.status)) return;
-    const timer = window.setInterval(async () => {
+    if (!activeTask?.id) return;
+    let stopped = false;
+    let timer: number | undefined;
+    const poll = async () => {
       try {
         const response = await fetch(`/api/tasks/${encodeURIComponent(activeTask.id)}`, { cache: "no-store" });
-        if (!response.ok) return;
-        const data = await response.json() as { task?: TaskRecord };
-        if (data.task) {
-          setActiveTask(data.task);
-          cacheTaskSnapshot(data.task);
-        }
+        if (!response.ok || stopped) return;
+        const payload = await response.json() as { task?: TaskRecord };
+        const latest = payload.task;
+        if (!latest || stopped) return;
+        setActiveTask(latest);
+        cacheTaskSnapshot(latest);
+        if (["completed", "failed", "cancelled"].includes(latest.status) && timer !== undefined) window.clearInterval(timer);
       } catch { /* keep the inline task state while the network recovers */ }
-    }, 2500);
-    return () => window.clearInterval(timer);
-  }, [activeTask?.id, activeTask?.status]);
+    };
+    void poll();
+    timer = window.setInterval(() => { void poll(); }, 1200);
+    return () => { stopped = true; if (timer !== undefined) window.clearInterval(timer); };
+  }, [activeTask?.id]);
 
   async function persist(next: ConversationRecord) {
     setConversation(next);

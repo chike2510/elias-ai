@@ -134,11 +134,12 @@ export type TaskSnapshot = {
 
 export function inferTaskKind(objective: string): TaskKind {
   const value = objective.toLowerCase();
+  const codingRequest = /code|coding|build|implement|develop|debug|refactor|repository|repo|project|component|dashboard|website|web app|file tree|typescript|javascript|python|api|run type checks|review the existing.*architecture/.test(value);
+  if (codingRequest) return "code";
   if (/research|latest|source|current|compare|investigate/.test(value)) return "research";
   if (/study|exam|flashcard|lesson|chapter/.test(value)) return "study";
   if (/document|report|readme|specification|write a memo/.test(value)) return "document";
   if (/image|photo|voice|video|camera|audio/.test(value)) return "media";
-  if (/code|build|debug|refactor|repository|project|file|typescript|javascript|python|api/.test(value)) return "code";
   return "chat";
 }
 
