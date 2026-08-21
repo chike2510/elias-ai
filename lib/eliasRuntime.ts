@@ -3,6 +3,7 @@ import { runChat, type ChatInputMessage } from "@/lib/chat";
 import type { ProviderName, TaskType } from "@/lib/types";
 import { fetchUrl, searchWeb } from "@/lib/webSearch";
 import { isUiUxRequest, uiUxSelectedSkills, uiUxSystemInstruction } from "@/lib/uiUxSkill";
+import { FOOTBALL_ODDS_TOOLS, footballOddsSelectedSkills, footballOddsSystemInstruction, isFootballOddsRequest } from "@/lib/footballOddsSkill";
 
 export type EliasMode = "auto" | "instant" | "deep" | "code" | "research" | "agent";
 
@@ -95,10 +96,13 @@ export async function runElias(input: EliasRunInput): Promise<EliasRunOutput> {
 
   if (!input.chat) throw new Error("Chat input is required for conversational modes.");
   const query = latestUserQuery(input.chat.messages);
-  const selectedSkills = uiUxSelectedSkills(query, input.context?.enabledSkills || []);
+  const footballRequest = isFootballOddsRequest(query);
+  const selectedSkills = footballOddsSelectedSkills(query, uiUxSelectedSkills(query, input.context?.enabledSkills || []));
   const uiUxEvidence = isUiUxRequest(query) ? { role: "system" as const, content: uiUxSystemInstruction(query) } : null;
-  const webEvidence = await buildWebEvidence(input.chat.messages, taskType, input.context?.allowedTools);
-  const messages = [...input.chat.messages, ...(uiUxEvidence ? [uiUxEvidence] : []), ...(webEvidence ? [{ role: "system" as const, content: formatWebEvidence(webEvidence) || "" }] : [])];
+  const footballEvidence = footballRequest ? { role: "system" as const, content: footballOddsSystemInstruction(query) } : null;
+  const allowedTools = footballRequest ? Array.from(new Set([...(input.context?.allowedTools || []), "web.search", "web.open", ...FOOTBALL_ODDS_TOOLS])) : input.context?.allowedTools;
+  const webEvidence = await buildWebEvidence(input.chat.messages, taskType, allowedTools);
+  const messages = [...input.chat.messages, ...(uiUxEvidence ? [uiUxEvidence] : []), ...(footballEvidence ? [footballEvidence] : []), ...(webEvidence ? [{ role: "system" as const, content: formatWebEvidence(webEvidence) || "" }] : [])];
   const result = await runChat({ ...input.chat, messages, task: taskType, provider: input.provider, model: input.model });
-  return { kind: "chat", mode, result, runtime: runtimeMetadata(result, input.context, selectedSkills) };
+  return { kind: "chat", mode, result, runtime: runtimeMetadata(result, { ...input.context, allowedTools }, selectedSkills) };
 }
