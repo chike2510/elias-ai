@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "Elias — Intelligence Layer",
+  "version": "0.1.0",
+  "description": "Capture page context and monitor Elias tasks from your browser.",
+  "permissions": ["activeTab", "scripting", "storage", "contextMenus", "sidePanel", "notifications"],
+  "host_permissions": ["https://elias-ai-chi.vercel.app/*"],
+  "action": { "default_title": "Ask Elias", "default_popup": "popup.html" },
+  "background": { "service_worker": "background.js", "type": "module" },
+  "side_panel": { "default_path": "sidepanel.html" },
+  "options_page": "options.html",
+  "content_scripts": [{ "matches": ["<all_urls>"], "js": ["content.js"], "run_at": "document_idle" }],
+  "commands": { "open-elias": { "suggested_key": { "default": "Ctrl+Shift+E" }, "description": "Open Elias" } }
+}

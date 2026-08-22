@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowUp, AudioLines, CalendarClock, Camera, Check, ChevronDown, ChevronRight, Clapperboard, Copy, FileClock, FileText, FolderOpen, FolderPlus, Gamepad2, ImagePlus, Link2, ListChecks, LoaderCircle, MessageSquare, Mic, Monitor, Paperclip, Plus, Puzzle, Sparkles, WandSparkles, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import AppShell from "@/components/AppShell";
+import GoalProgressCard from "@/components/GoalProgressCard";
 import MarkdownMessage from "@/components/MarkdownMessage";
 import { readApiResponse } from "@/lib/clientApi";
 import { cacheTaskSnapshot } from "@/lib/clientTask";
@@ -455,7 +456,7 @@ export default function ChatScreen() {
             <div className="inline-task-progress"><span><strong>{completedSteps}/{taskPlan.length || 0}</strong> steps</span><span>{taskProgress}%</span><i><b style={{ width: `${taskProgress}%` }} /></i></div>
             {activeTask.error ? <div className="inline-task-error">{activeTask.error}</div> : null}
             {pendingApproval ? <div className="inline-task-approval"><strong>Approval needed</strong><p>{pendingApproval.question}</p><div><button type="button" className="primary" disabled={taskBusy} onClick={() => void resolveTaskApproval(pendingApproval.id, "approve")}>approve</button><button type="button" className="secondary" disabled={taskBusy} onClick={() => void resolveTaskApproval(pendingApproval.id, "reject")}>reject</button></div></div> : null}
-            <div className="inline-task-steps">{taskPlan.slice(0, 5).map((step) => <div className={`inline-task-step ${step.status}`} key={step.id}><span>{step.status === "completed" ? "✓" : step.status === "active" ? "•" : "○"}</span><strong>{step.title}</strong><small>{step.status}</small></div>)}</div>
+            <GoalProgressCard task={activeTask} />
             {taskEvents.length ? <div className="inline-task-activity"><span className="chat-role">LATEST ACTIVITY</span><p>{taskEvents.at(-1)?.detail || taskEvents.at(-1)?.label}</p></div> : null}
             {taskArtifacts.length ? <div className="inline-task-outputs"><span className="chat-role">OUTPUTS</span>{taskArtifacts.map((artifact) => <a key={artifact.id} href={inlineArtifactHref(activeTask.id, artifact)} download={artifact.name}><FileText size={13} /><span>{artifact.name}</span><small>{artifact.type}</small></a>)}</div> : null}
             <div className="inline-task-actions">{!["completed", "cancelled", "waiting_approval"].includes(activeTask.status) ? <button type="button" className="primary" disabled={taskBusy} onClick={() => void continueTask()}>{taskBusy ? "Working…" : "Continue"}</button> : null}{taskArtifacts.length ? <span className="inline-task-output">{taskArtifacts.length} output{taskArtifacts.length === 1 ? "" : "s"}</span> : null}<span className="secondary inline-task-detail">live in chat</span></div>
