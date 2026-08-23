@@ -117,6 +117,9 @@ function searchVariants(query: string) {
       variants.length = 0;
       variants.push(`${entities} football score result`);
       variants.push(`${entities} latest football news match report`);
+      variants.push(`${entities} site:espn.com soccer match`);
+      variants.push(`${entities} site:skysports.com football result`);
+      variants.push(`${entities} site:bbc.com/sport football`);
     }
   }
   return [...new Set(variants)].map((value) => value.slice(0, 300));
@@ -168,6 +171,7 @@ function groundingPolicy(meta?: WebEvidenceMeta) {
   return [
     runtimeClock(),
     "LIVE EVIDENCE POLICY: Use supplied live evidence for current claims and cite its URLs.",
+    "The runtime clock is authoritative for the current date. Do not compare it with your knowledge cutoff, call the date future, or claim that current web events are fictional. Treat fetched 2026 pages as current evidence when their URLs and content support the claim.",
     "Never replace the runtime date with a remembered training-data date.",
     meta && (meta.status !== "searched" || meta.fetchedSourceCount === 0) ? "Current verification was unavailable; explicitly say so and do not infer a current negative result from empty, irrelevant, or unfetched search results." : "If the evidence conflicts, report the conflict and identify the sources.",
   ].join("\n");
