@@ -104,6 +104,9 @@ function isFootballQuery(query: string) {
 function searchVariants(query: string) {
   const variants = [query];
   if (isFootballQuery(query)) {
+    const filler = new Set(["what", "was", "were", "the", "of", "a", "an", "did", "you", "use", "live", "web", "sources", "source", "separate", "confirmed", "facts", "from", "uncertainty", "cite", "urls", "and", "do", "not", "infer", "negative", "result", "missing", "evidence"]);
+    const compact = query.toLowerCase().split(/[^a-z0-9]+/).filter((term) => term.length >= 3 && !filler.has(term)).join(" ");
+    if (compact) variants.push(`${compact} football score`);
     variants.push(`${query} football result score`);
     variants.push(`${query} fixture result Premier League`);
   }
