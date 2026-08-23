@@ -83,7 +83,7 @@ export async function searchWeb(query: string) {
       const output: Array<{ title: string; url: string; source: string }> = [];
       const links = /<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
       let match: RegExpExecArray | null;
-      while ((match = links.exec(html)) && output.length < 10) {
+      while ((match = links.exec(html)) && output.length < 40) {
         let href = match[1];
         if (href.includes("uddg=")) {
           try { href = decodeURIComponent(new URL(href, "https://www.google.com").searchParams.get("uddg") || href); } catch { /* keep original */ }
@@ -104,7 +104,12 @@ export async function searchWeb(query: string) {
           }
         }
       }
-      const unique = output.filter((item, index, items) => items.findIndex((candidate) => candidate.url === item.url) === index);
+      const terms = value.toLowerCase().split(/[^a-z0-9]+/).filter((term) => term.length >= 3);
+      const unique = output.filter((item, index, items) => items.findIndex((candidate) => candidate.url === item.url) === index)
+        .map((item) => ({ item, score: terms.reduce((score, term) => score + (`${item.title} ${item.url} ${item.source}`.toLowerCase().includes(term) ? 1 : 0), 0) }))
+        .sort((a, b) => b.score - a.score)
+        .map(({ item }) => item)
+        .slice(0, 10);
       if (unique.length) return unique;
     } catch {
       // Fall through to the next search provider.
