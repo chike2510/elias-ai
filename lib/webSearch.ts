@@ -65,23 +65,26 @@ export async function searchWeb(query: string) {
   if (!value) return [];
   const encoded = encodeURIComponent(value.slice(0, 300));
   const searchUrls = [
-    `https://html.duckduckgo.com/html/?q=${encoded}`,
-    `https://www.google.com/search?q=${encoded}`,
-    `https://www.bing.com/search?q=${encoded}`,
+    { provider: "duckduckgo", url: `https://html.duckduckgo.com/html/?q=${encoded}` },
+    { provider: "google", url: `https://www.google.com/search?q=${encoded}` },
+    { provider: "bing", url: `https://www.bing.com/search?q=${encoded}&setlang=en` },
   ];
 
-  for (const url of searchUrls) {
+  for (const searchTarget of searchUrls) {
+    const { provider, url } = searchTarget;
     try {
       const response = await fetch(url, {
         headers: { "User-Agent": "Mozilla/5.0 (compatible; ELIAS research agent/1.0)", Accept: "text/html,application/xhtml+xml" },
         cache: "no-store",
-        redirect: "error",
+        redirect: "follow",
         signal: AbortSignal.timeout(SEARCH_TIMEOUT_MS),
       });
       if (!response.ok) continue;
       const html = await response.text();
       const output: Array<{ title: string; url: string; source: string }> = [];
-      const links = /<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+      const links = provider === "bing"
+        ? /<li[^>]+class=["'][^"']*b_algo[^"']*["'][\s\S]*?<h2[^>]*>\s*<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi
+        : /<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
       let match: RegExpExecArray | null;
       while ((match = links.exec(html)) && output.length < 40) {
         let href = match[1];
