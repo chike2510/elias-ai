@@ -86,19 +86,26 @@ function runtimeClock() {
   return `RUNTIME CURRENT TIME: ${now.toISOString()} (${now.toLocaleString("en-GB", { timeZone: "UTC", dateStyle: "full", timeStyle: "long" })}, UTC).`;
 }
 
+function isFootballQuery(query: string) {
+  return /\b(football|soccer|fixture|fixtures|match|matches|score|scored|won|win|lost|played|premier league|championship|manchester united|hull city|man utd|manutd)\b/i.test(query);
+}
+
+function isFootballEvidence(query: string, result: { title: string; url: string; source: string }) {
+  const text = `${result.title} ${result.url} ${result.source}`.toLowerCase();
+  const requestedEntity = /manchester\s+united|man\s*utd|manutd|hull\s+city/i.exec(query)?.[0];
+  const entityMatches = requestedEntity ? new RegExp(requestedEntity.replace(/\s+/g, "\\s+"), "i").test(text) : false;
+  return entityMatches && /football|soccer|premier league|championship|fixture|match|score|result|sportsmole|espn|skysports|11v11|soccerway|transfermarkt|worldfootball|reuters|bbc\.com\/sport|theguardian\.com\/football|foxsports\.com\/soccer/i.test(text);
+}
+
 function relevantResults(query: string, results: Array<{ title: string; url: string; source: string }>) {
   const stopWords = new Set(["the", "was", "played", "yesterday", "game", "match", "against", "what", "when", "did", "and", "for", "with", "this", "that", "from", "were", "have", "has"]);
   const terms = query.toLowerCase().split(/[^a-z0-9]+/).filter((term) => term.length >= 3 && !stopWords.has(term));
   const threshold = Math.max(1, Math.min(2, Math.ceil(terms.length * 0.15)));
   return results
     .map((result) => ({ result, score: terms.reduce((score, term) => score + (`${result.title} ${result.url} ${result.source}`.toLowerCase().includes(term) ? 1 : 0), 0) }))
-    .filter(({ score }) => score >= threshold)
+    .filter(({ result, score }) => score >= threshold && (!isFootballQuery(query) || isFootballEvidence(query, result)))
     .sort((a, b) => b.score - a.score)
     .map(({ result }) => result);
-}
-
-function isFootballQuery(query: string) {
-  return /\b(football|soccer|fixture|fixtures|match|matches|score|scored|won|win|lost|played|premier league|championship|manchester united|hull city|man utd|manutd)\b/i.test(query);
 }
 
 function searchVariants(query: string) {
@@ -160,17 +167,17 @@ function groundingPolicy(meta?: WebEvidenceMeta) {
     runtimeClock(),
     "LIVE EVIDENCE POLICY: Use supplied live evidence for current claims and cite its URLs.",
     "Never replace the runtime date with a remembered training-data date.",
-    meta && meta.status !== "searched" ? "Current verification was unavailable; explicitly say so and do not infer a current negative result from empty or irrelevant search results." : "If the evidence conflicts, report the conflict and identify the sources.",
+    meta && (meta.status !== "searched" || meta.fetchedSourceCount === 0) ? "Current verification was unavailable; explicitly say so and do not infer a current negative result from empty, irrelevant, or unfetched search results." : "If the evidence conflicts, report the conflict and identify the sources.",
   ].join("\n");
 }
 
 function groundingWarning(content: string, meta?: WebEvidenceMeta) {
-  if (!meta || meta.status !== "searched" || meta.resultCount === 0 || meta.sourceUrls.length === 0) return false;
+  if (!meta || meta.status !== "searched" || meta.resultCount === 0 || meta.fetchedSourceCount === 0 || meta.sourceUrls.length === 0) return false;
   return !meta.sourceUrls.some((url) => content.includes(url) || content.includes(url.replace(/^https?:\/\//, "")));
 }
 
 function needsGroundingRepair(content: string, evidence?: WebEvidenceResult | null) {
-  if (!evidence || evidence.meta.status !== "searched" || evidence.meta.resultCount === 0 || evidence.meta.sourceUrls.length === 0) return false;
+  if (!evidence || evidence.meta.status !== "searched" || evidence.meta.resultCount === 0 || evidence.meta.fetchedSourceCount === 0 || evidence.meta.sourceUrls.length === 0) return false;
   const lower = content.toLowerCase();
   const evidenceText = `${evidence.evidence} ${evidence.meta.sourceUrls.join(" ")}`.toLowerCase();
   const makesNegativeClaim = /no official|not found|no relevant results|could not verify|does not exist|is not scheduled/.test(lower);

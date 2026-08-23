@@ -3,6 +3,14 @@ import { lookup } from "node:dns/promises";
 const MAX_SOURCE_CHARS = 30_000;
 const SEARCH_TIMEOUT_MS = 5_000;
 
+function isFootballSearch(value: string) {
+  return /\b(football|soccer|fixture|fixtures|match|matches|score|scored|won|win|lost|played|premier league|championship|manchester united|hull city|man utd|manutd)\b/i.test(value);
+}
+
+function isSportsResult(value: { title: string; url: string; source: string }) {
+  return /\bfootball\b|\bsoccer\b|\bpremier\s+league\b|\bchampionship\b|\bfixture\b|\bmatch\b|\bscore\b|\bresult\b|sportsmole|espn|skysports|manutd|premierleague|11v11|soccerway|transfermarkt|worldfootball|reuters|bbc\.com\/sport|theguardian\.com\/football|foxsports\.com\/soccer/i.test(`${value.title} ${value.url} ${value.source}`);
+}
+
 function clean(value: string) {
   return value
     .replace(/<script[\s\S]*?<\/script>/gi, " ")
@@ -113,6 +121,9 @@ export async function searchWeb(query: string) {
         .sort((a, b) => b.score - a.score)
         .map(({ item }) => item)
         .slice(0, 10);
+      const filtered = isFootballSearch(value) ? unique.filter(isSportsResult) : unique;
+      if (filtered.length) return filtered;
+      if (isFootballSearch(value)) continue;
       if (unique.length) return unique;
     } catch {
       // Fall through to the next search provider.
