@@ -1,0 +1,7 @@
+# Football grounding incident — 2026-08-23
+
+The Elias screenshots show two contradictory responses about Hull City versus Manchester United on August 22, 2026. One response asserted that no match was played yesterday and cited an official EFL Championship schedule, while the later response said it could not confirm the user’s claim because the search returned no relevant results.
+
+A current live search on August 23, 2026 returned multiple result pages describing Hull City 2–0 Manchester United on August 22, 2026, including ESPN, FOX Sports, StatMuse, NBC Sports, and Hull City’s official fixtures page. ESPN access was blocked in the sandbox browser by policy, while the official Hull City page loaded without extractable text. The search evidence is therefore strong enough to reject the earlier “no match” conclusion, but Elias should still fetch and cite accessible source pages rather than treating search snippets or an empty relevance filter as final proof.
+
+The code issue is in `lib/eliasRuntime.ts`: search-result metadata is passed to the model as `Search-result metadata only`, no source URLs are fetched, and `relevantResults()` requires a percentage of all query terms to occur in title/URL/source. That percentage filter can discard valid sports result pages for natural-language queries. When it discards all results, the runtime returns `insufficient_relevance` and the model can still produce a negative answer despite the absence of evidence.
