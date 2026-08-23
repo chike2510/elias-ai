@@ -111,11 +111,13 @@ function relevantResults(query: string, results: Array<{ title: string; url: str
 function searchVariants(query: string) {
   const variants = [query];
   if (isFootballQuery(query)) {
-    const filler = new Set(["what", "was", "were", "the", "of", "a", "an", "did", "you", "use", "live", "web", "sources", "source", "separate", "confirmed", "facts", "from", "uncertainty", "cite", "urls", "and", "do", "not", "infer", "negative", "result", "missing", "evidence"]);
-    const compact = query.toLowerCase().split(/[^a-z0-9]+/).filter((term) => term.length >= 3 && !filler.has(term)).join(" ");
-    if (compact) variants.push(`${compact} football score`);
-    variants.push(`${query} football result score`);
-    variants.push(`${query} fixture result Premier League`);
+    const filler = new Set(["what", "was", "were", "the", "of", "a", "an", "did", "you", "use", "live", "web", "sources", "source", "search", "football", "only", "separate", "confirmed", "facts", "from", "uncertainty", "cite", "cited", "citation", "citations", "urls", "url", "and", "do", "not", "infer", "negative", "result", "exact", "latest", "update", "updates", "today", "yesterday", "give", "please", "current", "missing", "evidence"]);
+    const entities = query.toLowerCase().split(/[^a-z0-9]+/).filter((term) => term.length >= 3 && !filler.has(term)).join(" ");
+    if (entities) {
+      variants.length = 0;
+      variants.push(`${entities} football score result`);
+      variants.push(`${entities} latest football news match report`);
+    }
   }
   return [...new Set(variants)].map((value) => value.slice(0, 300));
 }
@@ -142,7 +144,7 @@ async function buildWebEvidence(messages: ChatInputMessage[], task: TaskType, al
       const meta: WebEvidenceMeta = { status: rawResults.length ? "insufficient_relevance" : "no_results", query, searchedAt, resultCount: 0, fetchedSourceCount: 0, sourceUrls: [], errors: [rawResults.length ? "Search returned no relevant results after retry queries." : "Search returned no results after retry queries."] };
       return { meta, evidence: `[LIVE WEB RESEARCH ${meta.status.toUpperCase()}]\nQuery: ${query}\n${meta.errors[0]}\nDo not present current claims as verified. Ask for clarification or retry with a narrower query.` };
     }
-    const fetched = await Promise.all(results.map(async (result) => {
+    const fetched = await Promise.all(results.slice(0, 3).map(async (result) => {
       try { return { ...result, content: await fetchUrl(result.url), error: undefined }; }
       catch (error) { return { ...result, content: "", error: error instanceof Error ? error.message : "Source could not be opened." }; }
     }));
