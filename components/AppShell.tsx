@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowLeft, Command, Folder, Home, LibraryBig, Menu, MessageSquare, Search, ShieldCheck, Sparkles, SquarePen } from "lucide-react";
+import { ArrowLeft, Command, Folder, Globe2, Home, LibraryBig, Menu, MessageSquare, Search, ShieldCheck, Sparkles, SquarePen } from "lucide-react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import HistoryDrawer from "@/components/HistoryDrawer";
@@ -11,6 +11,7 @@ const navigation = [
   { href: "/chat", label: "Chat", icon: MessageSquare },
   { href: "/projects", label: "Projects", icon: Folder },
   { href: "/files", label: "Library", icon: LibraryBig },
+  { href: "/browser", label: "Browser", icon: Globe2 },
 ];
 
 export default function AppShell({ children, title }: { children: React.ReactNode; title?: string }) {
@@ -68,7 +69,7 @@ export default function AppShell({ children, title }: { children: React.ReactNod
       </div>
 
       <HistoryDrawer open={historyOpen} onClose={() => setHistoryOpen(false)} />
-      {commandOpen ? <div className="command-overlay" role="presentation" onMouseDown={() => setCommandOpen(false)}><section className="command-palette" role="dialog" aria-modal="true" aria-label="Elias command palette" onMouseDown={(event) => event.stopPropagation()}><div className="command-palette-head"><Command size={16} /><strong>Command Elias</strong><button className="icon-btn" onClick={() => setCommandOpen(false)} aria-label="Close command palette">×</button></div><div className="command-list"><CommandLink href="/chat" label="New chat" icon={<MessageSquare size={15} />} onSelect={() => setCommandOpen(false)} /><CommandLink href="/search" label="Search" icon={<Search size={15} />} onSelect={() => setCommandOpen(false)} /><CommandLink href="/chat" label="Chat & tasks" icon={<MessageSquare size={15} />} onSelect={() => setCommandOpen(false)} /><CommandLink href="/approvals" label="Approvals" icon={<ShieldCheck size={15} />} onSelect={() => setCommandOpen(false)} /><CommandLink href="/profile" label="Settings" icon={<Sparkles size={15} />} onSelect={() => setCommandOpen(false)} /></div><small className="command-hint">Press Esc to close</small></section></div> : null}
+      {commandOpen ? <div className="command-overlay" role="presentation" onMouseDown={() => setCommandOpen(false)}><section className="command-palette" role="dialog" aria-modal="true" aria-label="Elias command palette" onMouseDown={(event) => event.stopPropagation()}><div className="command-palette-head"><Command size={16} /><strong>Command Elias</strong><button className="icon-btn" onClick={() => setCommandOpen(false)} aria-label="Close command palette">×</button></div><div className="command-list"><CommandLink href="/chat" label="New chat" icon={<MessageSquare size={15} />} onSelect={() => setCommandOpen(false)} /><CommandLink href="/search" label="Search" icon={<Search size={15} />} onSelect={() => setCommandOpen(false)} /><CommandLink href="/chat" label="Chat & tasks" icon={<MessageSquare size={15} />} onSelect={() => setCommandOpen(false)} /><CommandLink href="/browser" label="Browser workspace" icon={<Globe2 size={15} />} onSelect={() => setCommandOpen(false)} /><CommandLink href="/approvals" label="Approvals" icon={<ShieldCheck size={15} />} onSelect={() => setCommandOpen(false)} /><CommandLink href="/profile" label="Settings" icon={<Sparkles size={15} />} onSelect={() => setCommandOpen(false)} /></div><small className="command-hint">Press Esc to close</small></section></div> : null}
     </div>
   );
 }
