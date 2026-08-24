@@ -425,7 +425,7 @@ export default function ChatScreen() {
               <div className="chat-avatar">{message.role === "assistant" ? <Sparkles size={14} /> : "you"}</div>
               <div className="chat-message-body">
                 <span className="chat-role">{message.role === "assistant" ? `ELIAS${message.provider ? ` · ${message.provider}` : ""}` : "you"}</span>
-                {message.role === "assistant" ? <MarkdownMessage content={message.content} /> : <UserMessageContent content={message.content} />}
+                {message.role === "assistant" ? <MarkdownMessage content={message.content} taskId={activeTask?.id} /> : <UserMessageContent content={message.content} />}
                 {message.role === "assistant" && message.webEvidence ? <small className={`web-evidence-status ${message.webEvidence.status === "searched" ? "verified" : "warning"}`}>web search · {message.webEvidence.status === "searched" ? `${message.webEvidence.resultCount} results · ${message.webEvidence.fetchedSourceCount} sources fetched` : message.webEvidence.status.replaceAll("_", " ")}</small> : null}
                 {message.role === "assistant" ? (
                   <div className="message-actions">
