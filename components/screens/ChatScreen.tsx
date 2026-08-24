@@ -308,12 +308,19 @@ export default function ChatScreen() {
     if (!activeTask || taskBusy || ["completed", "cancelled"].includes(activeTask.status)) return;
     setTaskBusy(true);
     try {
-      const response = await fetch(`/api/tasks/${encodeURIComponent(activeTask.id)}/step`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ maxSteps: 12, task: activeTask }) });
-      const data = await readApiResponse<{ task: TaskRecord }>(response);
-      setActiveTask(data.task);
-      cacheTaskSnapshot(data.task);
+      let current = activeTask;
+      // One model/tool step per request keeps execution reliable on Vercel.
+      // Continue the loop in the browser so every result is immediately visible.
+      for (let step = 0; step < 12; step += 1) {
+        const response = await fetch(`/api/tasks/${encodeURIComponent(current.id)}/step`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ maxSteps: 1 }) });
+        const data = await readApiResponse<{ task: TaskRecord }>(response);
+        current = data.task;
+        setActiveTask(current);
+        cacheTaskSnapshot(current);
+        if (["completed", "failed", "cancelled", "waiting_approval", "paused"].includes(current.status)) break;
+      }
     } catch (error) {
-      setActiveTask((current) => current ? { ...current, error: error instanceof Error ? error.message : "Task execution failed." } : current);
+      setActiveTask((current) => current ? { ...current, status: "failed", error: error instanceof Error ? error.message : "Task execution failed." } : current);
     } finally { setTaskBusy(false); }
   }
 

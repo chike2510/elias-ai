@@ -1,6 +1,7 @@
 "use client";
 
-import { Check, Circle, ExternalLink, LoaderCircle, LockKeyhole, RotateCcw, X } from "lucide-react";
+import { Check, ChevronDown, Circle, ExternalLink, LoaderCircle, LockKeyhole, RotateCcw, X } from "lucide-react";
+import { useState } from "react";
 import type { TaskRecord, TaskPlanStep, TaskEvent } from "@/lib/task";
 
 type GoalProgressCardProps = {
@@ -29,20 +30,24 @@ export default function GoalProgressCard({ task, compact = false, onRetry }: Goa
   const active = task.plan.find((step) => step.status === "active");
   const progress = task.plan.length ? Math.round((completed / task.plan.length) * 100) : 0;
   const latest = task.events.at(-1);
+  const [expanded, setExpanded] = useState(false);
+  const isRunning = task.status === "running" || task.status === "planning" || task.status === "queued";
 
   return (
-    <section className={`goal-progress-card ${compact ? "compact" : ""}`} aria-label={`Goal progress: ${task.title}`}>
-      <header className="goal-progress-header">
-        <div>
-          <span className="eyebrow">GOAL PROGRESS</span>
-          <h3>{task.title}</h3>
-          <p>{active?.description || latest?.detail || `${completed} of ${task.plan.length} steps completed`}</p>
-        </div>
-        <strong className={`goal-progress-status ${task.status}`}>{task.status.replaceAll("_", " ")}</strong>
-      </header>
+    <section className={`goal-progress-card ${compact ? "compact" : ""} ${expanded ? "expanded" : "collapsed"}`} aria-label={`Goal progress: ${task.title}`}>
+      <button type="button" className="goal-progress-toggle" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
+        <span className="goal-progress-header">
+          <span>
+            <span className="eyebrow">GOAL PROGRESS</span>
+            <strong className="goal-progress-title">{task.title}</strong>
+            <span className="goal-progress-summary">{active?.description || latest?.detail || `${completed} of ${task.plan.length} steps completed`}</span>
+          </span>
+          <span className="goal-progress-header-right"><strong className={`goal-progress-status ${task.status}`}>{task.status.replaceAll("_", " ")}</strong><ChevronDown size={16} className={`goal-progress-chevron ${expanded ? "open" : ""}`} /></span>
+        </span>
+      </button>
       <div className="goal-progress-meter" aria-label={`${progress}% complete`}><span style={{ width: `${progress}%` }} /></div>
-      <div className="goal-progress-count">{completed}/{task.plan.length} steps · {progress}%</div>
-      <div className="goal-progress-tree">
+      <div className="goal-progress-count">{isRunning ? <LoaderCircle size={12} className="goal-progress-spinner" /> : null}{completed}/{task.plan.length} steps · {progress}%</div>
+      {expanded ? <div className="goal-progress-tree">
         {task.plan.map((step) => {
           const events = stepEvents(task, step.id);
           return <article className={`goal-step ${step.status}`} key={step.id}>
@@ -54,7 +59,7 @@ export default function GoalProgressCard({ task, compact = false, onRetry }: Goa
             </div>
           </article>;
         })}
-      </div>
+      </div> : null}
       {task.status === "waiting_approval" ? <div className="goal-approval-note"><LockKeyhole size={14} /> Waiting for your approval before continuing.</div> : null}
       {task.status === "failed" ? <div className="goal-failure-note"><X size={14} /> {task.error || "This task encountered an error."}{onRetry ? <button type="button" onClick={onRetry}><RotateCcw size={13} /> Retry</button> : null}</div> : null}
     </section>

@@ -442,3 +442,28 @@ html,body{background:var(--bg-deep);color:var(--text);font-family:var(--body)}bo
 .task-timeline-meta{margin-top:9px;padding-top:9px;border-top:1px solid var(--line-soft);color:var(--muted);font-size:10px;line-height:1.45;overflow-wrap:anywhere}
 .task-timeline-continue{margin-top:10px;padding:8px 11px;font-size:10px}
 @media(max-width:720px){.task-timeline-card{width:100%;padding:12px;border-radius:15px}.task-timeline-card .goal-progress-tree{max-height:210px}.task-timeline-message .chat-message-body{max-width:calc(100% - 33px)}}
+
+/* Foldable in-chat task progress */
+.goal-progress-toggle{display:block;width:100%;padding:0;border:0;background:transparent;color:inherit;text-align:left;cursor:pointer}
+.goal-progress-toggle:focus-visible{outline:2px solid #a78bfa;outline-offset:4px;border-radius:10px}
+.goal-progress-toggle:active{transform:scale(.99)}
+.goal-progress-toggle .goal-progress-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.goal-progress-toggle .goal-progress-header>span:first-child{min-width:0;display:flex;flex-direction:column;gap:4px}
+.goal-progress-title{display:block;font-size:14px;line-height:1.25;overflow-wrap:anywhere}
+.goal-progress-summary{display:block;color:#8a8694;font-size:10px;line-height:1.45;overflow-wrap:anywhere}
+.goal-progress-header-right{display:flex;align-items:center;gap:8px;flex:none}
+.goal-progress-chevron{color:#9c8be8;transition:transform 180ms cubic-bezier(.23,1,.32,1)}
+.goal-progress-chevron.open{transform:rotate(180deg)}
+.goal-progress-card.collapsed .goal-progress-meter{margin-top:11px}
+.goal-progress-card.collapsed .goal-progress-count{margin-bottom:0}
+.goal-progress-spinner,.goal-step-spin{animation:goal-spin .9s linear infinite;transform-origin:center}
+@keyframes goal-spin{to{transform:rotate(360deg)}}
+@media(max-width:560px){.goal-progress-toggle .goal-progress-header{gap:8px}.goal-progress-title{font-size:13px}.goal-progress-summary{font-size:9px}.goal-progress-header-right{gap:5px}.task-timeline-card .goal-progress-count{font-size:10px}}
+@media(prefers-reduced-motion:reduce){.goal-progress-chevron{transition:none}.goal-progress-spinner,.goal-step-spin{animation:none}}
+
+/* Make task-level busy states unmistakable without expanding the layout. */
+.task-timeline-continue:disabled{display:inline-flex;align-items:center;gap:7px;opacity:.9}
+.task-timeline-continue:disabled::before{content:"";width:11px;height:11px;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;animation:goal-spin .75s linear infinite}
+.task-timeline-card:has(.goal-progress-card.running) .goal-progress-status.running,.task-timeline-card:has(.goal-progress-card.queued) .goal-progress-status.queued{box-shadow:0 0 0 4px rgba(167,139,250,.08),0 0 16px rgba(167,139,250,.2)}
+@media(prefers-reduced-motion:reduce){.task-timeline-continue:disabled::before{animation:none}}
+

@@ -17,7 +17,10 @@ export async function POST(request: NextRequest, context: Context) {
       const candidate = body.task as TaskRecord;
       if (typeof candidate.objective === "string" && Array.isArray(candidate.plan) && Array.isArray(candidate.workspace) && Array.isArray(candidate.events) && Array.isArray(candidate.toolResults)) await restoreStoredTask(candidate);
     }
-    const maxSteps = typeof body.maxSteps === "number" ? Math.max(1, Math.min(12, Math.floor(body.maxSteps))) : 1;
+    // Keep each serverless invocation bounded. The chat client schedules the next
+    // queued step after this response, so one slow model/tool call cannot hold
+    // a Vercel function open through an entire multi-step task.
+    const maxSteps = typeof body.maxSteps === "number" ? Math.max(1, Math.min(1, Math.floor(body.maxSteps))) : 1;
     const task = await runTaskLoop(taskId, maxSteps);
     return jsonOk({ task });
   } catch (error) {

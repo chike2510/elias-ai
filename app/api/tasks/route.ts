@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
     const task = await createTaskRecord({ ...input, objective: body.objective.trim() });
     if (autoStart === true) {
       after(async () => {
-        try { await runTaskLoop(task.id, 6); } catch { /* task state records the failure for the Chat poller */ }
+        try { await runTaskLoop(task.id, 1); } catch { /* task state records the failure for the Chat poller */ }
       });
       return jsonOk({ task }, { status: 201 });
     }
