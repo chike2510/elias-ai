@@ -4,11 +4,11 @@ import { Check, Copy } from "lucide-react";
 import { useState } from "react";
 
 function InlineText({ text, taskId }: { text: string; taskId?: string }) {
-  const parts = text.split(/(\[[^\]]+\]\([^\)]+\)|\*\*[^*]+\*\*|https?:\/\/[^\s]+)/g);
+  const parts = text.split(/(\\?\[[^\]]+\\?\]\([^\)]+\)|\*\*[^*]+\*\*|https?:\/\/[^\s]+)/g);
   return (
     <>
       {parts.map((part, index) => {
-        const markdownLink = part.match(/^\[([^\]]+)\]\(([^\)]+)\)$/);
+        const markdownLink = part.match(/^\\?\[([^\]]+)\\?\]\(([^\)]+)\)$/);
         if (markdownLink) {
           const [, label, rawHref] = markdownLink;
           const href = rawHref.startsWith("/artifacts/") && taskId ? `/api/tasks/${encodeURIComponent(taskId)}/artifact/${rawHref.slice("/artifacts/".length)}` : rawHref;
