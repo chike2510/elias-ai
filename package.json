@@ -14,6 +14,7 @@
     "mammoth": "^1.9.1",
     "next": "latest",
     "pdf-parse": "^1.1.1",
+    "postgres": "^3.4.9",
     "react": "latest",
     "react-dom": "latest",
     "xlsx": "^0.18.5"

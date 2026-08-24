@@ -9,7 +9,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
   try {
     if (!extensionTokenFromRequest(_request)) return jsonError("Pair this extension with a signed-in Elias account first.", 401, "EXTENSION_AUTH_REQUIRED");
     const { taskId } = await params;
-    const snapshot = snapshotStoredTask(taskId);
+    const snapshot = await snapshotStoredTask(taskId);
     if (!snapshot) return jsonError("Task not found.", 404, "NOT_FOUND");
     return jsonOk({ taskId, task: snapshot.task, events: snapshot.events, approvals: snapshot.approvals, serverTime: new Date().toISOString() }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {

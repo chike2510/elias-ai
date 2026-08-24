@@ -9,7 +9,7 @@ export const runtime = "nodejs";
 export async function GET(_request: NextRequest, context: Context) {
   try {
     const { taskId } = await context.params;
-    const task = getTask(taskId);
+    const task = await getTask(taskId);
     if (!task) return jsonError("Task not found.", 404, "NOT_FOUND");
     return jsonOk({ task });
   } catch (error) {

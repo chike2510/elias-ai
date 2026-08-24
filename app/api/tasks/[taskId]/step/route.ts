@@ -15,7 +15,7 @@ export async function POST(request: NextRequest, context: Context) {
     const body: { maxSteps?: unknown; task?: unknown } = await readJsonRequest<{ maxSteps?: unknown; task?: unknown }>(request).catch(() => ({}) as { maxSteps?: unknown; task?: unknown });
     if (body.task && typeof body.task === "object" && (body.task as { id?: unknown }).id === taskId) {
       const candidate = body.task as TaskRecord;
-      if (typeof candidate.objective === "string" && Array.isArray(candidate.plan) && Array.isArray(candidate.workspace) && Array.isArray(candidate.events) && Array.isArray(candidate.toolResults)) restoreStoredTask(candidate);
+      if (typeof candidate.objective === "string" && Array.isArray(candidate.plan) && Array.isArray(candidate.workspace) && Array.isArray(candidate.events) && Array.isArray(candidate.toolResults)) await restoreStoredTask(candidate);
     }
     const maxSteps = typeof body.maxSteps === "number" ? Math.max(1, Math.min(12, Math.floor(body.maxSteps))) : 1;
     const task = await runTaskLoop(taskId, maxSteps);

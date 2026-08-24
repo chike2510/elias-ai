@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
     if (body.objective.length > 20_000) return jsonError("objective is too large", 413, "PAYLOAD_TOO_LARGE");
     if (body.workspace !== undefined && !validWorkspace(body.workspace)) return jsonError("workspace is invalid or too large", 413, "PAYLOAD_TOO_LARGE");
     const { autoStart, ...input } = body;
-    const task = createTaskRecord({ ...input, objective: body.objective.trim() });
+    const task = await createTaskRecord({ ...input, objective: body.objective.trim() });
     if (autoStart === true) {
       after(async () => {
         try { await runTaskLoop(task.id, 6); } catch { /* task state records the failure for the Chat poller */ }

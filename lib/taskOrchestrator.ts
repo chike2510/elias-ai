@@ -11,6 +11,7 @@ import {
 import {
   createStoredTask,
   createTaskCheckpoint,
+  restoreTaskCheckpoint,
   getStoredTask,
   grantTaskPermission,
   recordTaskEvent,
@@ -87,37 +88,37 @@ function applyAction(task: TaskRecord, action: AgentAction): { path?: string; ch
   return { path: to, changed: true, detail: `Renamed ${path} to ${to}.` };
 }
 
-export function createTaskRecord(input: CreateTaskInput) {
+export async function createTaskRecord(input: CreateTaskInput) {
   const kind = input.kind || inferTaskKind(input.objective);
   const task = createTask({ ...input, kind, taskType: input.taskType || inferTaskType(kind) });
-  return createStoredTask(task);
+  return await createStoredTask(task);
 }
 
-export function getTask(id: string) {
-  return getStoredTask(id);
+export async function getTask(id: string) {
+  return await getStoredTask(id);
 }
 
 export function listTasks(projectId?: string, conversationId?: string) {
   return import("@/lib/taskStore").then(({ listStoredTasks }) => listStoredTasks(projectId, conversationId));
 }
 
-export function updateTaskAction(id: string, action: "start" | "pause" | "cancel" | "approve" | "reject" | "restore_checkpoint", value?: string) {
-  if (action === "start") return setTaskStatus(id, "queued");
-  if (action === "pause") return setTaskStatus(id, "paused");
-  if (action === "cancel") return setTaskStatus(id, "cancelled");
+export async function updateTaskAction(id: string, action: "start" | "pause" | "cancel" | "approve" | "reject" | "restore_checkpoint", value?: string) {
+  if (action === "start") return await setTaskStatus(id, "queued");
+  if (action === "pause") return await setTaskStatus(id, "paused");
+  if (action === "cancel") return await setTaskStatus(id, "cancelled");
   if (action === "approve" || action === "reject") {
     if (!value) throw new Error("approvalId is required.");
-    return resolveTaskApproval(id, value, action === "approve");
+    return await resolveTaskApproval(id, value, action === "approve");
   }
   if (!value) throw new Error("checkpointId is required.");
-  return import("@/lib/taskStore").then(({ restoreTaskCheckpoint }) => restoreTaskCheckpoint(id, value));
+  return await restoreTaskCheckpoint(id, value);
 }
 
 async function executeRequest(task: TaskRecord, request: AgentRequest): Promise<ToolResult> {
   const startedAt = Date.now();
   const permission = permissionForRequest(request);
   if (!hasPermission(task, permission)) {
-    const approval = requestTaskApproval(task.id, permission, `ELIAS wants permission to ${permission === "network" ? "access public web sources" : permission === "execute" ? "run validation commands" : permission === "artifact" ? "create a downloadable artifact" : "modify the workspace"}.`);
+    const approval = await requestTaskApproval(task.id, permission, `ELIAS wants permission to ${permission === "network" ? "access public web sources" : permission === "execute" ? "run validation commands" : permission === "artifact" ? "create a downloadable artifact" : "modify the workspace"}.`);
     return { id: request.id, type: request.type, error: `Waiting for approval: ${approval.id}`, startedAt, completedAt: Date.now() };
   }
 
@@ -161,7 +162,7 @@ async function executeRequest(task: TaskRecord, request: AgentRequest): Promise<
   const encoding = binary ? "base64" as const : (request.encoding || "utf8") as "utf8" | "base64";
   const content = pdf ? textToPdf(request.content) : officeDoc ? await textToDocx(request.content) : officeSlides ? await textToPptx(request.content) : request.encoding === "base64" ? request.content : request.content;
   const type = request.mimeType || artifactMime(request.name);
-  updateStoredTask(task.id, (current) => {
+  await updateStoredTask(task.id, (current) => {
     current.artifacts.push({ id: artifactId, taskId: task.id, name: request.name, type, encoding, size: content.length, createdAt: Date.now(), preview: request.content.slice(0, 2_000), content });
   });
   return { id: request.id, type: request.type, result: { artifactId, name: request.name, type, encoding }, startedAt, completedAt: Date.now() };
@@ -184,91 +185,91 @@ async function createFallbackArtifact(task: TaskRecord, message: string) {
   const content = requested === "docx" ? await textToDocx(message) : requested === "pptx" ? await textToPptx(message) : isPdf ? textToPdf(message) : message;
   const encoding = isPdf || requested === "docx" || requested === "pptx" ? "base64" as const : "utf8" as const;
   const type = artifactMime(name);
-  updateStoredTask(task.id, (current) => {
+  await updateStoredTask(task.id, (current) => {
     current.artifacts.push({ id: artifactId, taskId: task.id, name, type, encoding, size: content.length, createdAt: Date.now(), preview: message.slice(0, 2_000), content });
   });
-  recordTaskEvent(task.id, { kind: "action", label: "Deliverable created", status: "completed", detail: `Created ${name} from the verified agent response.`, evidence: { type: "artifact", value: { artifactId, name } } });
+  await recordTaskEvent(task.id, { kind: "action", label: "Deliverable created", status: "completed", detail: `Created ${name} from the verified agent response.`, evidence: { type: "artifact", value: { artifactId, name } } });
   return artifactId;
 }
 
 export async function runTaskStep(id: string): Promise<TaskRecord> {
-  let task = getStoredTask(id);
+  let task = await getStoredTask(id);
   if (!task) throw new Error("Task not found.");
   if (["cancelled", "completed"].includes(task.status)) return task;
-  if (task.approvals.some((approval) => approval.status === "pending")) return setTaskStatus(id, "waiting_approval");
+  if (task.approvals.some((approval) => approval.status === "pending")) return await setTaskStatus(id, "waiting_approval");
 
-  setTaskStatus(id, "planning");
-  recordTaskEvent(id, { kind: "plan", label: "Task plan loaded", status: "completed", detail: `${task.plan.length} planned steps.` });
-  task = getStoredTask(id)!;
+  await setTaskStatus(id, "planning");
+  await recordTaskEvent(id, { kind: "plan", label: "Task plan loaded", status: "completed", detail: `${task.plan.length} planned steps.` });
+  task = (await getStoredTask(id))!;
   const currentStep = task.plan.find((step) => step.status === "pending" || step.status === "active") || task.plan.at(-1);
   if (currentStep) {
-    updateStoredTask(id, (current) => {
+    await updateStoredTask(id, (current) => {
       const step = current.plan.find((item) => item.id === currentStep.id);
       if (step) { step.status = "active"; step.updatedAt = Date.now(); }
       current.currentStepId = currentStep.id;
     });
   }
 
-  setTaskStatus(id, "running");
-  task = getStoredTask(id)!;
+  await setTaskStatus(id, "running");
+  task = (await getStoredTask(id))!;
   try {
     const output = await runAgentStep({ task: task.objective, taskType: task.taskType, preferredProvider: task.preferredProvider, preferredModel: task.preferredModel, files: task.workspace, messages: task.events.filter((event) => event.kind === "message").map((event) => ({ role: "assistant", content: event.detail || event.label })), toolResults: task.toolResults });
-    if (output.message) recordTaskEvent(id, { kind: "message", label: "Agent response", status: "completed", detail: output.message, stepId: currentStep?.id, evidence: { type: "text", value: output.message } });
+    if (output.message) await recordTaskEvent(id, { kind: "message", label: "Agent response", status: "completed", detail: output.message, stepId: currentStep?.id, evidence: { type: "text", value: output.message } });
 
     const results: ToolResult[] = [];
     for (const request of output.requests) {
-      recordTaskEvent(id, { kind: "tool", label: `Tool started: ${request.type}`, status: "started", detail: "Awaiting execution.", stepId: currentStep?.id, toolId: request.id });
-      const current = getStoredTask(id);
+      await recordTaskEvent(id, { kind: "tool", label: `Tool started: ${request.type}`, status: "started", detail: "Awaiting execution.", stepId: currentStep?.id, toolId: request.id });
+      const current = await getStoredTask(id);
       if (!current) throw new Error("Task disappeared during execution.");
       const result = await executeRequest(current, request);
       results.push(result);
-      recordToolResult(id, result);
-      recordTaskEvent(id, { kind: result.error ? "error" : "tool", label: result.error ? `Tool failed: ${request.type}` : `Tool completed: ${request.type}`, status: result.error ? "failed" : "completed", detail: result.error || "Evidence recorded.", stepId: currentStep?.id, toolId: request.id, evidence: { type: "json", value: result } });
+      await recordToolResult(id, result);
+      await recordTaskEvent(id, { kind: result.error ? "error" : "tool", label: result.error ? `Tool failed: ${request.type}` : `Tool completed: ${request.type}`, status: result.error ? "failed" : "completed", detail: result.error || "Evidence recorded.", stepId: currentStep?.id, toolId: request.id, evidence: { type: "json", value: result } });
     }
 
     if (output.actions.length) {
-      const currentForActions = getStoredTask(id)!;
+      const currentForActions = (await getStoredTask(id))!;
       if (!hasPermission(currentForActions, "write")) {
-        const approval = requestTaskApproval(id, "write", "ELIAS wants permission to modify files in the task workspace.");
-        recordTaskEvent(id, { kind: "tool", label: "Workspace changes waiting for approval", status: "started", detail: approval.question, stepId: currentStep?.id });
-        return setTaskStatus(id, "waiting_approval");
+        const approval = await requestTaskApproval(id, "write", "ELIAS wants permission to modify files in the task workspace.");
+        await recordTaskEvent(id, { kind: "tool", label: "Workspace changes waiting for approval", status: "started", detail: approval.question, stepId: currentStep?.id });
+        return await setTaskStatus(id, "waiting_approval");
       }
-      createTaskCheckpoint(id, "Before workspace mutation", "before_mutation", currentForActions.workspace);
+      await createTaskCheckpoint(id, "Before workspace mutation", "before_mutation", currentForActions.workspace);
       const actionResults: Array<{ changed: boolean; detail: string; path?: string }> = [];
-      updateStoredTask(id, (current) => {
+      await updateStoredTask(id, (current) => {
         for (const action of output.actions) actionResults.push(applyAction(current, action));
       });
       for (const result of actionResults) {
-        recordTaskEvent(id, { kind: result.changed ? "action" : "error", label: result.changed ? "Workspace changed" : "Workspace action rejected", status: result.changed ? "completed" : "failed", detail: result.detail, stepId: currentStep?.id, evidence: { type: result.changed ? "diff" : "text", value: result } });
+        await recordTaskEvent(id, { kind: result.changed ? "action" : "error", label: result.changed ? "Workspace changed" : "Workspace action rejected", status: result.changed ? "completed" : "failed", detail: result.detail, stepId: currentStep?.id, evidence: { type: result.changed ? "diff" : "text", value: result } });
       }
-      createTaskCheckpoint(id, "After workspace mutation", "after_mutation", getStoredTask(id)!.workspace);
+      await createTaskCheckpoint(id, "After workspace mutation", "after_mutation", (await getStoredTask(id))!.workspace);
     }
 
-    task = getStoredTask(id)!;
+    task = (await getStoredTask(id))!;
     if (!output.requests.length && !output.actions.length && output.done && output.message) {
       if (wantsDeliverable(task.objective) && providerRefusedArtifact(output.message)) {
-        recordTaskEvent(id, { kind: "error", label: "Provider returned no artifact", status: "failed", detail: "The selected provider returned a limitation message instead of a deliverable." });
-        return setTaskStatus(id, "failed", "The selected provider did not return a deliverable. Configure a provider that supports structured agent output and retry.");
+        await recordTaskEvent(id, { kind: "error", label: "Provider returned no artifact", status: "failed", detail: "The selected provider returned a limitation message instead of a deliverable." });
+        return await setTaskStatus(id, "failed", "The selected provider did not return a deliverable. Configure a provider that supports structured agent output and retry.");
       }
       await createFallbackArtifact(task, output.message);
     }
     if (task.approvals.some((approval) => approval.status === "pending")) return setTaskStatus(id, "waiting_approval");
-    if (currentStep) updateStoredTask(id, (current) => { const step = current.plan.find((item) => item.id === currentStep.id); if (step) { const producedEvidence = output.requests.length > 0 || output.actions.length > 0; step.status = output.done || producedEvidence ? "completed" : "active"; step.updatedAt = Date.now(); } });
-    const remainingSteps = getStoredTask(id)!.plan.some((step) => step.status === "pending" || step.status === "active");
+    if (currentStep) await updateStoredTask(id, (current) => { const step = current.plan.find((item) => item.id === currentStep.id); if (step) { const producedEvidence = output.requests.length > 0 || output.actions.length > 0; step.status = output.done || producedEvidence ? "completed" : "active"; step.updatedAt = Date.now(); } });
+    const remainingSteps = (await getStoredTask(id))!.plan.some((step) => step.status === "pending" || step.status === "active");
     if (output.done && !remainingSteps) {
-      recordTaskEvent(id, { kind: "validation", label: "Task ready for delivery", status: "completed", detail: "Agent returned done=true after all planned steps were completed." });
-      return setTaskStatus(id, "completed");
+      await recordTaskEvent(id, { kind: "validation", label: "Task ready for delivery", status: "completed", detail: "Agent returned done=true after all planned steps were completed." });
+      return await setTaskStatus(id, "completed");
     }
-    return setTaskStatus(id, "queued");
+    return await setTaskStatus(id, "queued");
   } catch (error) {
     const message = error instanceof Error ? error.message : "Task step failed.";
-    recordTaskEvent(id, { kind: "error", label: "Task step failed", status: "failed", detail: message, stepId: currentStep?.id });
-    return setTaskStatus(id, "failed", message);
+    await recordTaskEvent(id, { kind: "error", label: "Task step failed", status: "failed", detail: message, stepId: currentStep?.id });
+    return await setTaskStatus(id, "failed", message);
   }
 }
 
 export async function runTaskLoop(id: string, maxSteps = MAX_STEPS) {
-  let task = getStoredTask(id);
+  let task = await getStoredTask(id);
   if (!task) throw new Error("Task not found.");
   for (let step = 0; step < maxSteps; step += 1) {
     task = await runTaskStep(id);

@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 
 export async function GET(_request: NextRequest, context: Context) {
   const { taskId, artifactId } = await context.params;
-  const task = getTask(taskId);
+  const task = await getTask(taskId);
   const artifact = task?.artifacts.find((item) => item.id === artifactId);
   if (!artifact || artifact.content === undefined) return new Response("Artifact not found.", { status: 404 });
   const body = artifact.encoding === "base64" ? Buffer.from(artifact.content, "base64") : artifact.content;
