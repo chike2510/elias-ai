@@ -56,7 +56,7 @@ function shouldHandoffToTask(value: string, attachments: Attachment[]) {
 }
 
 function normalizeConversation(value: ConversationRecord): ConversationRecord {
-  const messages = Array.isArray(value.messages) ? value.messages.filter((message) => message && typeof message.content === "string").map((message) => ({ ...message, role: (message.role === "assistant" || message.role === "system" ? message.role : "user") as ConversationMessage["role"], content: message.content })) : [];
+  const messages = Array.isArray(value.messages) ? value.messages.filter((message) => message && typeof message.content === "string" && !/^I turned this into a live task inside this conversation\./.test(message.content.trim())).map((message) => ({ ...message, role: (message.role === "assistant" || message.role === "system" ? message.role : "user") as ConversationMessage["role"], content: message.content })) : [];
   return { ...value, id: value.id || makeId("chat"), title: value.title || "Conversation", messages };
 }
 
@@ -243,16 +243,7 @@ export default function ChatScreen() {
         });
         const taskData = await readApiResponse<{ task: TaskRecord }>(taskResponse);
         cacheTaskSnapshot(taskData.task);
-        const taskMessage: ConversationMessage = {
-          id: makeId("msg"),
-          role: "assistant",
-          content: `I turned this into a live task inside this conversation.\n\nStatus: **${taskData.task.status}**${taskData.task.error ? `\n\n${taskData.task.error}` : ""}`,
-          provider: "task orchestrator",
-          model: "task runtime",
-          status: "complete",
-          createdAt: Date.now(),
-        };
-        await persist({ ...optimistic, updatedAt: Date.now(), messages: [...optimistic.messages, taskMessage] });
+        await persist({ ...optimistic, updatedAt: Date.now(), messages: optimistic.messages });
         setActiveTask(taskData.task);
         return;
       }
