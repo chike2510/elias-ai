@@ -176,6 +176,13 @@ function providerRefusedArtifact(message: string) {
   return /do not have access|don't have access|cannot (create|generate|provide)|can't (create|generate|provide)|unable to (create|generate|provide)|text-based ai|only generate text/i.test(message);
 }
 
+function stripArtifactRefusal(message: string) {
+  return message
+    .replace(/^\s*[^\n]*(?:cannot|can't|unable to|do not have access|don't have access)[^\n]*\n*/i, "")
+    .replace(/^\s*However,?\s+(?:I can|here is|the following)[^\n]*\n*/i, "")
+    .trim();
+}
+
 async function createFallbackArtifact(task: TaskRecord, message: string) {
   if (!wantsDeliverable(task.objective) || !message.trim() || providerRefusedArtifact(message)) return null;
   const requested = task.objective.match(/\b(docx|pptx|pdf|html|css|tsx|ts|jsx|js|md)\b/i)?.[1]?.toLowerCase() || "md";
@@ -248,10 +255,15 @@ export async function runTaskStep(id: string): Promise<TaskRecord> {
     task = (await getStoredTask(id))!;
     if (!output.requests.length && !output.actions.length && output.done && output.message) {
       if (wantsDeliverable(task.objective) && providerRefusedArtifact(output.message)) {
-        await recordTaskEvent(id, { kind: "error", label: "Provider returned no artifact", status: "failed", detail: "The selected provider returned a limitation message instead of a deliverable." });
-        return await setTaskStatus(id, "failed", "The selected provider did not return a deliverable. Configure a provider that supports structured agent output and retry.");
+        const cleaned = stripArtifactRefusal(output.message);
+        const artifactId = await createFallbackArtifact(task, cleaned);
+        if (!artifactId) {
+          await recordTaskEvent(id, { kind: "error", label: "Provider returned no artifact", status: "failed", detail: "The selected provider returned no usable deliverable content." });
+          return await setTaskStatus(id, "failed", "The selected provider did not return usable deliverable content. Retry the task.");
+        }
+      } else {
+        await createFallbackArtifact(task, output.message);
       }
-      await createFallbackArtifact(task, output.message);
     }
     if (task.approvals.some((approval) => approval.status === "pending")) return setTaskStatus(id, "waiting_approval");
     if (currentStep) await updateStoredTask(id, (current) => { const step = current.plan.find((item) => item.id === currentStep.id); if (step) { const producedEvidence = output.requests.length > 0 || output.actions.length > 0; step.status = output.done || producedEvidence ? "completed" : "active"; step.updatedAt = Date.now(); } });

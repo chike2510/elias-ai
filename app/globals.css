@@ -483,3 +483,13 @@ html,body{background:var(--bg-deep);color:var(--text);font-family:var(--body)}bo
 .goal-step-event-text .markdown-text p{display:inline;margin:0}
 .goal-step-event-text .markdown-text a{font-weight:600}
 @media(max-width:720px){.goal-progress-card{max-width:100%;overflow:hidden}.goal-progress-card.compact .goal-progress-count{margin-bottom:10px}.goal-progress-card.compact .goal-progress-tree{max-height:44dvh;overflow:auto;padding-right:4px}}
+
+/* Mobile composer alignment: keep the field and action row on one centered content grid. */
+@media(max-width:720px){
+  .open-chat-shell .chat-composer{width:100%;margin-left:0;margin-right:0;padding:12px 12px calc(10px + env(safe-area-inset-bottom))}
+  .open-chat-shell .chat-composer textarea{display:block;width:100%;padding:0 2px;margin:0;}
+  .open-chat-shell .chat-composer-bar{width:100%;display:grid;grid-template-columns:minmax(0,1fr) 40px;align-items:center;gap:8px}
+  .open-chat-shell .composer-left{min-width:0;align-items:center}
+  .open-chat-shell .composer-utility{flex:none}
+  .open-chat-shell .chat-send{justify-self:end}
+}
