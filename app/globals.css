@@ -467,3 +467,19 @@ html,body{background:var(--bg-deep);color:var(--text);font-family:var(--body)}bo
 .task-timeline-card:has(.goal-progress-card.running) .goal-progress-status.running,.task-timeline-card:has(.goal-progress-card.queued) .goal-progress-status.queued{box-shadow:0 0 0 4px rgba(167,139,250,.08),0 0 16px rgba(167,139,250,.2)}
 @media(prefers-reduced-motion:reduce){.task-timeline-continue:disabled::before{animation:none}}
 
+
+/* Focused chat routes, including prompt handoffs from research, own the full mobile viewport. */
+@media(max-width:720px){
+  .open-chat-shell .screen.chat-screen{padding-left:14px;padding-right:14px;padding-bottom:14px;min-height:calc(100dvh - 68px)}
+  .open-chat-shell .chat-body{padding-left:0;padding-right:0;padding-bottom:10px}
+  .open-chat-shell .chat-composer{flex:none;z-index:4}
+  .open-chat-shell .task-timeline-card{max-width:100%;overflow:hidden}
+}
+.task-timeline-continue{min-height:38px}
+.task-timeline-continue:disabled{cursor:wait;opacity:.62}
+.task-timeline-continue:disabled::before{content:"";width:12px;height:12px;border:2px solid rgba(255,255,255,.38);border-top-color:#fff;border-radius:50%;animation:spin 1s linear infinite}
+.goal-step-event-text .markdown-message{display:inline}
+.goal-step-event-text .markdown-text{display:inline}
+.goal-step-event-text .markdown-text p{display:inline;margin:0}
+.goal-step-event-text .markdown-text a{font-weight:600}
+@media(max-width:720px){.goal-progress-card{max-width:100%;overflow:hidden}.goal-progress-card.compact .goal-progress-count{margin-bottom:10px}.goal-progress-card.compact .goal-progress-tree{max-height:44dvh;overflow:auto;padding-right:4px}}

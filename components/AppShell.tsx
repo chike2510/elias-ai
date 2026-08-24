@@ -17,7 +17,7 @@ const navigation = [
 export default function AppShell({ children, title }: { children: React.ReactNode; title?: string }) {
   const pathname = usePathname();
   const params = useSearchParams();
-  const openConversation = pathname === "/chat" && Boolean(params.get("id"));
+  const openConversation = pathname === "/chat" && Boolean(params.get("id") || params.get("prompt"));
   const [historyOpen, setHistoryOpen] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
   const [user, setUser] = useState<{ login?: string; name?: string; avatarUrl?: string } | null>(null);
