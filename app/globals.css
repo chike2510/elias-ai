@@ -493,3 +493,22 @@ html,body{background:var(--bg-deep);color:var(--text);font-family:var(--body)}bo
   .open-chat-shell .composer-utility{flex:none}
   .open-chat-shell .chat-send{justify-self:end}
 }
+
+/* Compact Tasks / Agent workspace navigation. */
+.workspace-mode-switch{display:inline-grid;grid-template-columns:1fr 1fr;gap:3px;margin-bottom:12px;padding:3px;border:1px solid #292631;border-radius:999px;background:#14131a}
+.workspace-mode-switch a{min-width:76px;padding:7px 14px;border-radius:999px;color:#8c8794;text-align:center;font-size:11px;font-weight:650}
+.workspace-mode-switch a.active{color:#f4f1f8;background:#35343a;box-shadow:0 2px 8px rgba(0,0,0,.24)}
+.task-workspace-header h1{max-width:calc(100vw - 70px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media(max-width:720px){
+  .task-workspace-screen{padding:10px 16px 96px}
+  .task-workspace-header{align-items:flex-end;gap:8px;padding:8px 0 12px}
+  .task-workspace-header h1{font-size:26px}
+  .task-header-actions .secondary{padding:8px 9px;font-size:9px}
+  .task-objective{margin-top:4px}
+  .task-grid{display:flex;flex-direction:column;gap:8px}
+  .task-grid .task-activity{order:2}
+  .task-grid .task-plan{order:1}
+  .delivery-grid{grid-template-columns:1fr;gap:12px}
+  .recent-task-list{grid-template-columns:1fr}
+  .recent-task-list button{min-height:48px}
+}

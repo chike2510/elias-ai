@@ -122,8 +122,8 @@ export default function TaskWorkspace() {
     <AppShell title="Tasks">
       <main className="screen task-workspace-screen">
         <header className="task-workspace-header">
-          <div><p className="eyebrow">TASK</p><h1>{task?.title || "New task"}</h1></div>
-          <div className="task-header-actions"><Link className="secondary" href="/chat">Back to chat</Link></div>
+          <div><div className="workspace-mode-switch" role="tablist" aria-label="Workspace mode"><Link href="/tasks" className="active" role="tab" aria-selected="true">Tasks</Link><Link href="/agent" role="tab" aria-selected="false">Agent</Link></div><p className="eyebrow">TASKS</p><h1>{task?.title || "Your work"}</h1></div>
+          <div className="task-header-actions"><Link className="secondary" href="/chat">New chat</Link></div>
         </header>
 
         <section className="task-objective panel">
