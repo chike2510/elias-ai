@@ -436,28 +436,9 @@ export default function ChatScreen() {
           ))}
 
           {busy ? <div className="chat-message assistant"><div className="chat-avatar"><LoaderCircle size={14} className="spin" /></div><div className="chat-message-body"><span className="chat-role">ELIAS</span>{taskMode && activeTask ? <LiveExecutionFeed task={activeTask} /> : taskMode ? <div className="chat-content typing-line">setting up the task…</div> : <div className="chat-content typing-line">thinking…</div>}</div></div> : null}
+          {activeTask ? <article className="chat-message assistant task-timeline-message"><div className="chat-avatar"><Sparkles size={14} /></div><div className="chat-message-body"><span className="chat-role">ELIAS · WORKING</span><div className="task-timeline-card"><GoalProgressCard task={activeTask} compact /><div className="task-timeline-meta">{activeTask.events.at(-1)?.detail || "Task state updates appear here as Elias works."}</div>{!['completed','cancelled','waiting_approval'].includes(activeTask.status) ? <button type="button" className="primary task-timeline-continue" disabled={taskBusy} onClick={() => void continueTask()}>{taskBusy ? "Working…" : "Continue task"}</button> : null}</div></div></article> : null}
           <div ref={bottomRef} />
         </div>
-
-        {activeTask ? (() => {
-          const taskPlan = Array.isArray(activeTask.plan) ? activeTask.plan : [];
-          const taskApprovals = Array.isArray(activeTask.approvals) ? activeTask.approvals : [];
-          const taskEvents = Array.isArray(activeTask.events) ? activeTask.events : [];
-          const taskArtifacts = Array.isArray(activeTask.artifacts) ? activeTask.artifacts : [];
-          const completedSteps = taskPlan.filter((step) => step.status === "completed").length;
-          const taskProgress = taskPlan.length ? Math.round((completedSteps / taskPlan.length) * 100) : 0;
-          const pendingApproval = taskApprovals.find((approval) => approval.status === "pending");
-          return <section className="inline-task-card" aria-label="Inline task workspace">
-            <div className="inline-task-head"><div><span className="chat-role">TASK</span><h2>{activeTask.title}</h2></div><span className={`inline-task-status ${activeTask.status}`}>{activeTask.status.replaceAll("_", " ")}</span></div>
-            <div className="inline-task-progress"><span><strong>{completedSteps}/{taskPlan.length || 0}</strong> steps</span><span>{taskProgress}%</span><i><b style={{ width: `${taskProgress}%` }} /></i></div>
-            {activeTask.error ? <div className="inline-task-error">{activeTask.error}</div> : null}
-            {pendingApproval ? <div className="inline-task-approval"><strong>Approval needed</strong><p>{pendingApproval.question}</p><div><button type="button" className="primary" disabled={taskBusy} onClick={() => void resolveTaskApproval(pendingApproval.id, "approve")}>approve</button><button type="button" className="secondary" disabled={taskBusy} onClick={() => void resolveTaskApproval(pendingApproval.id, "reject")}>reject</button></div></div> : null}
-            <GoalProgressCard task={activeTask} />
-            {taskEvents.length ? <div className="inline-task-activity"><span className="chat-role">LATEST ACTIVITY</span><p>{taskEvents.at(-1)?.detail || taskEvents.at(-1)?.label}</p></div> : null}
-            {taskArtifacts.length ? <div className="inline-task-outputs"><span className="chat-role">OUTPUTS</span>{taskArtifacts.map((artifact) => <a key={artifact.id} href={inlineArtifactHref(activeTask.id, artifact)} download={artifact.name}><FileText size={13} /><span>{artifact.name}</span><small>{artifact.type}</small></a>)}</div> : null}
-            <div className="inline-task-actions">{!["completed", "cancelled", "waiting_approval"].includes(activeTask.status) ? <button type="button" className="primary" disabled={taskBusy} onClick={() => void continueTask()}>{taskBusy ? "Working…" : "Continue"}</button> : null}{taskArtifacts.length ? <span className="inline-task-output">{taskArtifacts.length} output{taskArtifacts.length === 1 ? "" : "s"}</span> : null}<span className="secondary inline-task-detail">live in chat</span></div>
-          </section>;
-        })() : null}
 
         {attachments.length ? <div className="attachment-strip">{attachments.map((file, index) => <span className={`attachment-status ${file.status === "error" ? "attachment-error" : file.status === "ready" ? "attachment-ready" : ""}`} key={`${file.name}-${index}`}><span className="attachment-status-main"><FileText size={13} /><strong>{file.name}</strong><small>{file.status === "uploading" ? `Processing ${file.progress || 0}%` : file.status === "error" ? (file.error || "Failed") : "Ready"}</small></span>{file.status === "uploading" ? <i className="attachment-progress"><b style={{ width: `${file.progress || 0}%` }} /></i> : null}{file.status === "error" ? <button type="button" className="attachment-retry" onClick={() => { if (file.source) void addFiles([file.source]); }}>Retry</button> : null}<button type="button" onClick={() => setAttachments((current) => current.filter((_, itemIndex) => itemIndex !== index))} aria-label={`Remove ${file.name}`}><X size={12} /></button></span>)}</div> : null}
 

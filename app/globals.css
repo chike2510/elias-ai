@@ -430,3 +430,15 @@ html,body{background:var(--bg-deep);color:var(--text);font-family:var(--body)}bo
 .add-chat-models small{margin-top:3px;color:var(--soft);font-size:8px}
 .add-chat-models button.selected small{color:#bca8ef}
 @media(max-width:420px){.add-chat-models{grid-template-columns:1fr}.add-chat-models{max-height:165px}}
+
+/* Task progress is an assistant timeline message, not a detached panel */
+.task-timeline-message{align-items:flex-start}
+.task-timeline-card{width:min(100%,680px);padding:13px;border:1px solid rgba(154,108,255,.32);border-radius:16px;background:linear-gradient(145deg,rgba(28,22,43,.96),rgba(15,15,21,.98));box-shadow:0 12px 35px rgba(0,0,0,.18)}
+.task-timeline-card .goal-progress-card{padding:0;border:0;background:transparent;box-shadow:none}
+.task-timeline-card .goal-progress-header{padding:0 0 9px}
+.task-timeline-card .goal-progress-header h3{font-size:14px}
+.task-timeline-card .goal-progress-header p{font-size:10px}
+.task-timeline-card .goal-progress-tree{max-height:230px;overflow:auto}
+.task-timeline-meta{margin-top:9px;padding-top:9px;border-top:1px solid var(--line-soft);color:var(--muted);font-size:10px;line-height:1.45;overflow-wrap:anywhere}
+.task-timeline-continue{margin-top:10px;padding:8px 11px;font-size:10px}
+@media(max-width:720px){.task-timeline-card{width:100%;padding:12px;border-radius:15px}.task-timeline-card .goal-progress-tree{max-height:210px}.task-timeline-message .chat-message-body{max-width:calc(100% - 33px)}}
