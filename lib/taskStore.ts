@@ -49,7 +49,15 @@ function state(): StoreState {
 function persistLocal() { try { const filePath = storePath(); mkdirSync(dirname(filePath), { recursive: true }); writeFileSync(filePath, JSON.stringify([...state().tasks.values()]), "utf8"); } catch { /* local store is best effort */ } }
 function clone<T>(value: T): T { return structuredClone(value); }
 
-async function remoteGet(id: string) { await ensureSchema(); const rows = await db()<Array<{ task: TaskRecord }>>`select task from public.elias_task_records where id = ${id} limit 1`; return rows[0]?.task ? clone(rows[0].task) : undefined; }
+function decodeTask(value: unknown): TaskRecord | undefined {
+  const parsed = typeof value === "string" ? (() => { try { return JSON.parse(value) as unknown; } catch { return undefined; } })() : value;
+  if (!parsed || typeof parsed !== "object") return undefined;
+  const task = parsed as Partial<TaskRecord>;
+  if (typeof task.id !== "string" || !Array.isArray(task.plan) || !Array.isArray(task.events) || !Array.isArray(task.approvals) || !Array.isArray(task.artifacts) || !Array.isArray(task.workspace) || !Array.isArray(task.toolResults)) return undefined;
+  return clone(task as TaskRecord);
+}
+
+async function remoteGet(id: string) { await ensureSchema(); const rows = await db()<Array<{ task: unknown }>>`select task from public.elias_task_records where id = ${id} limit 1`; return rows[0] ? decodeTask(rows[0].task) : undefined; }
 async function remoteSave(task: TaskRecord) { await ensureSchema(); task.updatedAt = Date.now(); await db()`insert into public.elias_task_records (id, task, updated_at) values (${task.id}, ${JSON.stringify(task)}::jsonb, now()) on conflict (id) do update set task = excluded.task, updated_at = now()`; return clone(task); }
 
 export async function createStoredTask(task: TaskRecord) { return useRemoteStore() ? remoteSave(task) : localSave(task); }
@@ -65,7 +73,7 @@ export async function getStoredTask(id: string): Promise<TaskRecord | undefined>
 
 export async function listStoredTasks(projectId?: string, conversationId?: string) {
   let tasks: TaskRecord[];
-  if (useRemoteStore()) { await ensureSchema(); const rows = await db()<Array<{ task: TaskRecord }>>`select task from public.elias_task_records order by updated_at desc`; tasks = rows.map((row) => row.task); }
+  if (useRemoteStore()) { await ensureSchema(); const rows = await db()<Array<{ task: unknown }>>`select task from public.elias_task_records order by updated_at desc`; tasks = rows.map((row) => decodeTask(row.task)).filter((task): task is TaskRecord => Boolean(task)); }
   else { tasks = [...(await Promise.all([...state().tasks.keys()].map((id) => getStoredTask(id)))).filter((task): task is TaskRecord => Boolean(task))]; }
   return tasks.filter((task) => (!projectId || task.projectId === projectId) && (!conversationId || task.conversationId === conversationId)).sort((a, b) => b.updatedAt - a.updatedAt).map(clone);
 }
