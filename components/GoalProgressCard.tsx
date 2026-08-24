@@ -3,6 +3,7 @@
 import { Check, ChevronDown, Circle, ExternalLink, LoaderCircle, LockKeyhole, RotateCcw, X } from "lucide-react";
 import { useState } from "react";
 import type { TaskRecord, TaskPlanStep, TaskEvent } from "@/lib/task";
+import MarkdownMessage from "@/components/MarkdownMessage";
 
 type GoalProgressCardProps = {
   task: TaskRecord;
@@ -55,7 +56,7 @@ export default function GoalProgressCard({ task, compact = false, onRetry }: Goa
             <div className="goal-step-content">
               <div className="goal-step-title"><strong>{step.title}</strong>{step.requires ? <small>{step.requires}</small> : null}</div>
               {!compact ? <p>{step.description}</p> : null}
-              {events.length ? <div className="goal-step-events">{events.map((event) => <div className="goal-step-event" key={event.id}><span>{event.kind === "tool" ? "↗" : "•"}</span><span>{eventSummary(event)}</span>{event.evidence?.type === "url" && typeof event.evidence.value === "string" ? <a href={event.evidence.value} target="_blank" rel="noreferrer" aria-label="Open source"><ExternalLink size={12} /></a> : null}</div>)}</div> : null}
+              {events.length ? <div className="goal-step-events">{events.map((event) => <div className="goal-step-event" key={event.id}><span>{event.kind === "tool" ? "↗" : "•"}</span><span className="goal-step-event-text"><MarkdownMessage content={eventSummary(event)} taskId={task.id} /></span>{event.evidence?.type === "url" && typeof event.evidence.value === "string" ? <a href={event.evidence.value} target="_blank" rel="noreferrer" aria-label="Open source"><ExternalLink size={12} /></a> : null}</div>)}</div> : null}
             </div>
           </article>;
         })}
