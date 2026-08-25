@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowUpRight, Code2, FileText, Folder, Globe2, MessageSquare, Sparkles } from "lucide-react";
+import { ArrowUpRight, Code2, FileText, Folder, Globe2, ListChecks, MessageSquare, Sparkles } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import Composer from "@/components/Composer";
 
@@ -12,7 +12,8 @@ const actions = [
 ];
 
 const workspace = [
-  { href: "/chat", label: "Workspace", detail: "Chat, tasks, and live execution", icon: MessageSquare },
+  { href: "/chat", label: "Chat", detail: "Your conversations", icon: MessageSquare },
+  { href: "/tasks", label: "Tasks", detail: "Active work and history", icon: ListChecks },
   { href: "/projects", label: "Projects", detail: "Open a workspace", icon: Folder },
   { href: "/files", label: "Library", detail: "Your files", icon: FileText },
 ];
