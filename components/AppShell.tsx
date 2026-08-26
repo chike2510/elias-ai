@@ -83,7 +83,6 @@ export default function AppShell({ children, title }: { children: React.ReactNod
         {!isChatRoom ? <nav className="bottom-nav" aria-label="Mobile navigation">
           <Nav href="/" label="Home" icon={Home} active={pathname === "/"} />
           <Nav href="/projects" label="Projects" icon={Folder} active={pathname.startsWith("/projects")} />
-          <Link className="assistant-fab" href="/chat" aria-label="Open Chat"><Sparkles size={22} /></Link>
           <Nav href="/tasks" label="Tasks" icon={CheckSquare} active={pathname.startsWith("/tasks")} />
           <Nav href="/files" label="Files" icon={LibraryBig} active={pathname.startsWith("/files")} />
           <Nav href="/studio" label="Studio" icon={Mic2} active={pathname.startsWith("/studio")} />
