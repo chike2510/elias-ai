@@ -3,6 +3,7 @@ import { chooseProvider, completeWithProvider, pickModel, providerOrder } from "
 
 export type AgentInput = {
   task: string;
+  browserSessionId?: string;
   preferredProvider?: Parameters<typeof completeWithProvider>[0]["provider"];
   preferredModel?: string;
   taskType: TaskType;
@@ -43,6 +44,12 @@ Available requests:
 - run_validation with check: build, typecheck, lint, or test
 - search_web with query
 - fetch_url with URL
+- browser_navigate with a URL and optional linked sessionId
+- browser_click with a CSS selector and optional linked sessionId
+- browser_type with a CSS selector, text, and optional linked sessionId
+- browser_scroll with direction, amount, and optional linked sessionId
+- browser_screenshot with optional linked sessionId
+- browser_extract with optional selector and linked sessionId
 - create_artifact with name, content, optional mimeType, and encoding (use mimeType application/pdf for PDF deliverables; provide readable source text and let the host encode it)
 
 Available actions:
@@ -58,7 +65,7 @@ Rules:
 3. Preserve existing architecture unless the task requires change.
 4. Never claim that an operation happened unless the host returns a successful tool result.
 5. Use web tools when current external information matters.
-6. Do not request shell commands, package installs, builds, tests, lint, git, or arbitrary code execution; the current host exposes file and web tools only.
+6. Do not request shell commands, package installs, builds, tests, lint, git, or arbitrary code execution; the current host exposes file and web tools only. Browser click and typing requests are always approval-gated by the host.
 7. Return one JSON object with this shape when possible: {"message":"...","requests":[],"actions":[],"done":false}.
 8. The message is for the user; requests/actions are the executable protocol. Never put fake tool activity in the message.`;
 
@@ -105,12 +112,16 @@ function isRequest(value: unknown): value is AgentRequest {
   if (!value || typeof value !== "object") return false;
   const item = value as Record<string, unknown>;
   if (typeof item.type !== "string") return false;
-  if (["inspect_project", "list_files", "read_file", "search_files", "inspect_dependencies", "run_validation", "search_web", "fetch_url", "create_artifact"].includes(item.type)) {
+  if (["inspect_project", "list_files", "read_file", "search_files", "inspect_dependencies", "run_validation", "search_web", "fetch_url", "browser_navigate", "browser_click", "browser_type", "browser_scroll", "browser_screenshot", "browser_extract", "create_artifact"].includes(item.type)) {
     if (item.type === "read_file" && typeof item.path !== "string") return false;
     if (item.type === "search_files" && typeof item.query !== "string") return false;
     if (item.type === "run_validation" && !["build", "typecheck", "lint", "test"].includes(String(item.check))) return false;
     if (item.type === "search_web" && typeof item.query !== "string") return false;
     if (item.type === "fetch_url" && typeof item.url !== "string") return false;
+    if (item.type === "browser_navigate" && typeof item.url !== "string") return false;
+    if (item.type === "browser_click" && typeof item.selector !== "string") return false;
+    if (item.type === "browser_type" && (typeof item.selector !== "string" || typeof item.text !== "string")) return false;
+    if (item.type === "browser_scroll" && (!["up", "down"].includes(String(item.direction)))) return false;
     if (item.type === "create_artifact" && (typeof item.name !== "string" || typeof item.content !== "string" || (item.encoding !== undefined && !["utf8", "base64"].includes(String(item.encoding))))) return false;
     return true;
   }
@@ -159,6 +170,7 @@ async function call(provider: Parameters<typeof completeWithProvider>[0]["provid
           `TASK:\n${input.task}`,
           `WORKSPACE:\n${input.files.map((file) => `${file.path} (${file.content.length} chars)`).join("\n")}`,
           `TOOL RESULTS:\n${JSON.stringify(input.toolResults).slice(0, 90_000)}`,
+          `BROWSER SESSION:\n${input.browserSessionId || "No connected browser session. Request one only when the user has connected a browser."}`,
           `RECENT AGENT CONVERSATION:\n${input.messages.map((message) => `${message.role}: ${message.content}`).join("\n")}`,
         ].join("\n\n"),
       },

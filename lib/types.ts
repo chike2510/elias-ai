@@ -24,6 +24,12 @@ export type AgentRequest =
   | { id?: string; type: "run_validation"; check: "build" | "typecheck" | "lint" | "test" }
   | { id?: string; type: "search_web"; query: string }
   | { id?: string; type: "fetch_url"; url: string }
+  | { id?: string; type: "browser_navigate"; url: string; sessionId?: string }
+  | { id?: string; type: "browser_click"; selector: string; sessionId?: string }
+  | { id?: string; type: "browser_type"; selector: string; text: string; sessionId?: string }
+  | { id?: string; type: "browser_scroll"; direction: "up" | "down"; amount?: number; sessionId?: string }
+  | { id?: string; type: "browser_screenshot"; sessionId?: string }
+  | { id?: string; type: "browser_extract"; selector?: string; sessionId?: string }
   | { id?: string; type: "create_artifact"; name: string; content: string; mimeType?: string; encoding?: "utf8" | "base64" };
 
 export type AgentAction =

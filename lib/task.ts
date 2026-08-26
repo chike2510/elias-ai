@@ -88,6 +88,7 @@ export type TaskRecord = {
   status: TaskStatus;
   projectId?: string;
   conversationId?: string;
+  browserSessionId?: string;
   createdAt: number;
   updatedAt: number;
   startedAt?: number;
@@ -113,6 +114,7 @@ export type CreateTaskInput = {
   preferredModel?: string;
   projectId?: string;
   conversationId?: string;
+  browserSessionId?: string;
   workspace?: WorkspaceFile[];
   permissions?: Partial<Record<PermissionLevel, boolean>>;
 };
@@ -219,6 +221,7 @@ export function createTask(input: CreateTaskInput): TaskRecord {
     status: "queued",
     projectId: input.projectId,
     conversationId: input.conversationId,
+    browserSessionId: input.browserSessionId,
     createdAt: now,
     updatedAt: now,
     plan: buildPlan({ ...input, kind, taskType }, now),

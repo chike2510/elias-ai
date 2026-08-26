@@ -23,6 +23,7 @@ import {
 } from "@/lib/taskStore";
 import { runAgentStep } from "@/lib/agent";
 import { artifactMime, textToDocx, textToPdf, textToPptx } from "@/lib/artifacts";
+import { performBrowserAction } from "@/lib/browser/browserManager";
 
 const MAX_STEPS = 12;
 const MAX_FILE_CHARS = 1_000_000;
@@ -35,6 +36,9 @@ function safePath(value: string) {
 
 function hasPermission(task: TaskRecord, permission: PermissionLevel) {
   return task.permissions.some((item) => item.level === permission && item.granted);
+}
+function isBrowserRequest(request: AgentRequest): request is Extract<AgentRequest, { type: `browser_${string}` }> {
+  return request.type.startsWith("browser_");
 }
 
 function permissionForRequest(request: AgentRequest): PermissionLevel {
@@ -152,6 +156,17 @@ async function executeRequest(task: TaskRecord, request: AgentRequest): Promise<
       return { id: request.id, type: request.type, url: request.url, error: error instanceof Error ? error.message : "Source could not be opened.", startedAt, completedAt: Date.now() };
     }
   }
+  if (isBrowserRequest(request)) {
+    const sessionId = request.sessionId || task.browserSessionId;
+    if (!sessionId) return { id: request.id, type: request.type, error: "No connected browser session is linked to this task.", startedAt, completedAt: Date.now() };
+    const action = request.type === "browser_navigate" ? { type: "navigate" as const, url: request.url } : request.type === "browser_click" ? { type: "click" as const, selector: request.selector } : request.type === "browser_type" ? { type: "type" as const, selector: request.selector, text: request.text } : request.type === "browser_scroll" ? { type: "scroll" as const, direction: request.direction, amount: request.amount } : request.type === "browser_screenshot" ? { type: "screenshot" as const } : { type: "extract" as const, selector: request.selector };
+    try {
+      const result = await performBrowserAction(sessionId, action);
+      return { id: request.id, type: request.type, result: result.content || result.summary, url: request.type === "browser_navigate" ? request.url : undefined, startedAt, completedAt: Date.now() };
+    } catch (error) {
+      return { id: request.id, type: request.type, error: error instanceof Error ? error.message : "Browser action failed.", startedAt, completedAt: Date.now() };
+    }
+  }
 
   const artifactId = `artifact_${crypto.randomUUID()}`;
   const extension = request.name.split(".").pop()?.toLowerCase();
@@ -220,7 +235,7 @@ export async function runTaskStep(id: string): Promise<TaskRecord> {
   await setTaskStatus(id, "running");
   task = (await getStoredTask(id))!;
   try {
-    const output = await runAgentStep({ task: task.objective, taskType: task.taskType, preferredProvider: task.preferredProvider, preferredModel: task.preferredModel, files: task.workspace, messages: task.events.filter((event) => event.kind === "message").map((event) => ({ role: "assistant", content: event.detail || event.label })), toolResults: task.toolResults });
+    const output = await runAgentStep({ task: task.objective, browserSessionId: task.browserSessionId, taskType: task.taskType, preferredProvider: task.preferredProvider, preferredModel: task.preferredModel, files: task.workspace, messages: task.events.filter((event) => event.kind === "message").map((event) => ({ role: "assistant", content: event.detail || event.label })), toolResults: task.toolResults });
     if (output.message) await recordTaskEvent(id, { kind: "message", label: "Agent response", status: "completed", detail: output.message, stepId: currentStep?.id, evidence: { type: "text", value: output.message } });
 
     const results: ToolResult[] = [];
