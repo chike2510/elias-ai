@@ -22,7 +22,7 @@ export default function BrowserViewport({ initialUrl = "https://", prompt = "Rea
   async function request(path: string, init?: RequestInit) {
     const response = await fetch(path, { ...init, headers: { "content-type": "application/json", ...(init?.headers || {}) } });
     const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(payload.error || payload.message || "Browser request failed.");
+    if (!response.ok) { const apiError = typeof payload.error === "string" ? payload.error : payload.error?.message; throw new Error(apiError || payload.message || "Browser request failed."); }
     return payload;
   }
   async function load(id: string) {
