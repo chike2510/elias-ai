@@ -13,11 +13,19 @@ export function cacheTaskSnapshot(task: TaskRecord) {
   }
 }
 
+function normalizeCachedTask(value: unknown): TaskRecord | null {
+  if (!value || typeof value !== "object") return null;
+  const task = value as Partial<TaskRecord>;
+  if (typeof task.id !== "string" || typeof task.updatedAt !== "number") return null;
+  if (!Array.isArray(task.plan) || !Array.isArray(task.permissions) || !Array.isArray(task.approvals) || !Array.isArray(task.checkpoints) || !Array.isArray(task.events) || !Array.isArray(task.artifacts) || !Array.isArray(task.toolResults) || !Array.isArray(task.workspace)) return null;
+  return task as TaskRecord;
+}
+
 export function getCachedTaskSnapshot(id: string) {
   if (typeof window === "undefined") return null;
   try {
     const raw = window.localStorage.getItem(`${PREFIX}${id}`);
-    return raw ? JSON.parse(raw) as TaskRecord : null;
+    return raw ? normalizeCachedTask(JSON.parse(raw)) : null;
   } catch {
     return null;
   }
