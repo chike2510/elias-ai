@@ -133,6 +133,7 @@ button:disabled { cursor: not-allowed; opacity: .52; }
 .chat-composer > textarea { display: none; }
 .chat-composer-bar { min-height: 66px; display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 10px; border: 1px solid #30313d; border-radius: 22px; background: #15161e; }
 .composer-left { min-width: 0; flex: 1; display: flex; align-items: center; gap: 10px; }
+.chat-composer-input { min-width: 0; flex: 1; height: 42px; padding: 11px 0; border: 0; outline: 0; background: transparent; color: var(--m-text); font-size: 13px; resize: none; }
 .composer-plus-wrap { position: relative; }
 .composer-plus { width: 42px; height: 42px; display: grid; place-items: center; padding: 0; border: 1px solid #343543; border-radius: 50%; background: transparent; color: #ad8fff; }
 .composer-utility { width: 34px; height: 34px; display: grid; place-items: center; color: #b0adba; }
