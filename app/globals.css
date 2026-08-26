@@ -29,6 +29,7 @@ button, a { transition: transform .16s var(--m-ease), background .16s var(--m-ea
 button { cursor: pointer; }
 button:active, a:active { transform: scale(.97); }
 button:disabled { cursor: not-allowed; opacity: .52; }
+input[hidden], textarea[hidden], button[hidden] { display: none !important; }
 .auth-loading { min-height: 100dvh; display: grid; place-content: center; justify-items: center; gap: 12px; padding: 24px; background: var(--m-bg); color: var(--m-muted); font-size: 12px; text-align: center; }
 .auth-loading::before { content: ""; width: 44px; height: 44px; display: block; border: 1px solid #392b5d; border-radius: 14px; background: radial-gradient(circle at 50% 35%, rgba(145, 100, 255, .26), transparent 62%), #12101a; }
 .auth-loading svg { position: absolute; color: var(--m-purple-soft); }
