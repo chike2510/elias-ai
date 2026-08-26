@@ -29,6 +29,9 @@ button, a { transition: transform .16s var(--m-ease), background .16s var(--m-ea
 button { cursor: pointer; }
 button:active, a:active { transform: scale(.97); }
 button:disabled { cursor: not-allowed; opacity: .52; }
+.auth-loading { min-height: 100dvh; display: grid; place-content: center; justify-items: center; gap: 12px; padding: 24px; background: var(--m-bg); color: var(--m-muted); font-size: 12px; text-align: center; }
+.auth-loading::before { content: ""; width: 44px; height: 44px; display: block; border: 1px solid #392b5d; border-radius: 14px; background: radial-gradient(circle at 50% 35%, rgba(145, 100, 255, .26), transparent 62%), #12101a; }
+.auth-loading svg { position: absolute; color: var(--m-purple-soft); }
 
 .app-shell { width: 100%; min-height: 100dvh; margin: 0 auto; background: radial-gradient(600px 260px at 50% -5%, rgba(126, 78, 255, .12), transparent 70%), var(--m-bg); }
 .app-main { min-width: 0; min-height: 100dvh; }
@@ -403,11 +406,39 @@ button:disabled { cursor: not-allowed; opacity: .52; }
 
 /* Shared legacy destinations remain on the same visual primitives. */
 .connected-service-row, .connector-card, .connector-connected-card, .history-row, .document-list > div, .detail-list > div { border: 1px solid #2b2d38; border-radius: 14px; background: #111219; }
+.connected-service-row { display: flex; align-items: center; gap: 11px; min-width: 0; padding: 13px; }
+.connected-service-row > svg { flex: 0 0 auto; color: var(--m-soft); }
+.service-icon { width: 34px; height: 34px; flex: 0 0 34px; display: grid; place-items: center; border-radius: 10px; }
+.service-icon.github { background: #1b1b27; color: #d2c9e8; }
+.service-icon.local { background: #21193a; color: var(--m-purple-soft); }
+.project-copy { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 4px; }
+.project-copy strong, .project-copy small, .project-copy em { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-copy strong { color: var(--m-text); font-size: 12px; }
+.project-copy small { color: var(--m-muted); font-size: 10px; }
+.project-copy em { color: var(--m-soft); font-size: 9px; font-style: normal; }
 .history-row { display: flex; align-items: center; gap: 9px; padding: 10px; }
 .history-row small, .history-row strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .history-row strong { font-size: 11px; }
 .history-row small { margin-top: 3px; color: var(--m-soft); font-size: 9px; }
-.history-drawer, .drawer { background: #151621; }
+.history-drawer, .drawer { width: min(100%, 440px); max-height: calc(100dvh - 112px); overflow: auto; background: #151621; border: 1px solid #343444; border-radius: 20px; box-shadow: 0 20px 70px rgba(0, 0, 0, .45); }
+.history-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 20px 18px 14px; }
+.history-head h2 { margin: 5px 0 0; font-size: 22px; letter-spacing: -.04em; }
+.history-new, .history-search { margin: 0 18px 10px; }
+.history-new { display: flex; align-items: center; gap: 8px; padding: 11px 12px; border: 1px solid #4f3b82; border-radius: 11px; background: #21193a; color: #c9b7ff; font-size: 11px; }
+.history-search { display: flex; align-items: center; gap: 7px; padding: 9px 10px; border: 1px solid #30313d; border-radius: 10px; color: var(--m-soft); }
+.history-search input { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--m-text); font-size: 11px; }
+.history-list { display: flex; flex-direction: column; gap: 6px; padding: 4px 18px 18px; }
+.history-item { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 9px; border: 1px solid #292a36; border-radius: 11px; }
+.history-item > a { min-width: 0; flex: 1; display: flex; align-items: center; gap: 8px; }
+.history-icon { width: 28px; height: 28px; flex: 0 0 28px; display: grid; place-items: center; border-radius: 8px; background: #21193a; color: var(--m-purple-soft); }
+.history-copy { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.history-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.history-copy small { color: var(--m-soft); font-size: 9px; }
+.history-delete { width: 28px; height: 28px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--m-soft); }
+.history-delete:hover { background: #2a2028; color: #ff9da6; }
+.history-empty { display: grid; justify-items: center; gap: 7px; padding: 28px 12px; color: var(--m-soft); text-align: center; }
+.history-empty strong { color: var(--m-muted); font-size: 12px; }
+.history-empty small { font-size: 10px; line-height: 1.4; }
 .command-overlay, .history-overlay { position: fixed; inset: 0; z-index: 70; display: grid; place-items: start center; padding: 90px 20px 20px; background: rgba(0, 0, 0, .62); }
 .command-palette { width: min(100%, 430px); padding: 14px; border: 1px solid #343444; border-radius: 18px; background: #151621; box-shadow: 0 20px 70px rgba(0, 0, 0, .45); }
 .command-palette-head { display: flex; align-items: center; gap: 8px; padding-bottom: 10px; border-bottom: 1px solid #292a36; }
@@ -475,9 +506,21 @@ button:disabled { cursor: not-allowed; opacity: .52; }
   .task-objective-actions .primary { width: 100%; }
   .task-controls > * { min-width: 140px; }
   .workspace { display: block; }
+  .agent-workspace { padding-top: 20px; }
+  .agent-objective, .agent-source { padding: 14px; }
+  .agent-source-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); overflow: visible; }
+  .agent-source-actions button { min-width: 0; justify-content: center; }
+  .workspace-toolbar { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); overflow: visible; }
+  .workspace-toolbar > *, .workspace-toolbar button { min-width: 0; justify-content: center; }
+  .workspace-toolbar input[type="file"] { display: none !important; }
+  .workspace-files, .workspace-editor, .workspace-agent { width: 100%; }
+  .workspace-editor textarea { min-height: 300px; }
+  .agent-log { max-height: 260px; }
   .workspace-files { max-height: 210px; overflow: auto; margin-bottom: 12px; }
   .workspace-agent { margin-top: 12px; }
   .approval-actions > * { flex: 1; }
+  .history-overlay { place-items: start center; padding: 84px 12px 18px; }
+  .history-drawer { width: 100%; max-height: calc(100dvh - 108px); border-radius: 18px; }
   .agent-head { display: block; }
   .agent-state { margin-top: 10px; }
   .agent-objective-actions > div { width: 100%; justify-content: flex-end; }
