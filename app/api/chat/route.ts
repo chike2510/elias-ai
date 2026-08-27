@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { runElias } from "@/lib/eliasRuntime";
 import { getSession } from "@/lib/auth";
+import { getGitHubToken } from "@/lib/githubConnectionStore";
 import { jsonError, jsonOk, readJsonRequest } from "@/lib/http";
 import type { ProviderName, TaskType } from "@/lib/types";
 
@@ -19,10 +20,11 @@ async function loadRepositoryContext(query: string) {
   const fullName = repositoryFromQuery(query);
   if (!fullName) return null;
   const session = await getSession();
-  if (!session?.githubToken) return null;
+  const token = await getGitHubToken(session);
+  if (!token) return null;
   const [owner, repo] = fullName.split("/");
   if (!owner || !repo) return null;
-  const headers = { Accept: "application/vnd.github+json", Authorization: `Bearer ${session.githubToken}`, "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "ELIAS" };
+  const headers = { Accept: "application/vnd.github+json", Authorization: `Bearer ${token}`, "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "ELIAS" };
   const inventoryResponse = await fetch("https://api.github.com/user/repos?affiliation=owner,collaborator,organization_member&per_page=100&sort=updated", { headers, cache: "no-store" });
   if (!inventoryResponse.ok) return { fullName, error: `Connected GitHub could not list repositories (HTTP ${inventoryResponse.status}).` };
   const inventory = await inventoryResponse.json() as Array<{ full_name?: string; description?: string | null; default_branch?: string; language?: string | null; private?: boolean; stargazers_count?: number; open_issues_count?: number }>;

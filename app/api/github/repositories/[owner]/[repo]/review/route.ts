@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
+import { getGitHubToken } from "@/lib/githubConnectionStore";
 import { chooseProvider, completeWithProvider, pickModel } from "@/lib/providers";
 import type { ProviderName } from "@/lib/types";
 
@@ -20,7 +21,8 @@ function clampText(value: unknown, max: number) { return typeof value === "strin
 
 export async function POST(request: Request, { params }: { params: Promise<{ owner: string; repo: string }> }) {
   const session = await getSession();
-  if (!session?.githubToken) return NextResponse.json({ message: "Connect GitHub for this Elias account first." }, { status: 401 });
+  const token = await getGitHubToken(session);
+  if (!token) return NextResponse.json({ message: "Connect GitHub for this Elias account first." }, { status: 401 });
   let body: { paths?: unknown; diff?: unknown; branch?: unknown; provider?: unknown; model?: unknown; architecture?: unknown };
   try { body = await request.json() as typeof body; } catch { return NextResponse.json({ message: "Invalid review request." }, { status: 400 }); }
   const paths = Array.isArray(body.paths) ? body.paths.filter((value): value is string => typeof value === "string" && safePath(value)).slice(0, 8) : [];
@@ -28,7 +30,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ own
   if (!paths.length && !diff.trim()) return NextResponse.json({ message: "Select at least one source file or provide a diff." }, { status: 400 });
   const { owner, repo } = await params;
   const branch = typeof body.branch === "string" && safePath(body.branch) ? body.branch : "main";
-  const githubHeaders = { Accept: "application/vnd.github+json", Authorization: `Bearer ${session.githubToken}`, "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "ELIAS" };
+  const githubHeaders = { Accept: "application/vnd.github+json", Authorization: `Bearer ${token}`, "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "ELIAS" };
   const base = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
   const selectedFiles: Array<{ path: string; content: string }> = [];
   for (const path of paths) {

@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
+import { getGitHubToken } from "@/lib/githubConnectionStore";
 
 export async function GET(_: Request, { params }: { params: Promise<{ owner: string; repo: string }> }) {
   const session = await getSession();
-  if (!session?.githubToken) return NextResponse.json({ message: "Connect GitHub for this Elias account first." }, { status: 401 });
+  const token = await getGitHubToken(session);
+  if (!token) return NextResponse.json({ message: "Connect GitHub for this Elias account first." }, { status: 401 });
   const { owner, repo } = await params;
-  const headers = { Accept: "application/vnd.github+json", Authorization: `Bearer ${session.githubToken}`, "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "ELIAS" };
+  const headers = { Accept: "application/vnd.github+json", Authorization: `Bearer ${token}`, "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "ELIAS" };
   const base = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
   const [repositoryResponse, commitsResponse] = await Promise.all([
     fetch(base, { headers, cache: "no-store" }),

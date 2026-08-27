@@ -14,6 +14,7 @@ export default function ProjectsScreen() {
   const [query, setQuery] = useState("");
   const [githubLoading, setGithubLoading] = useState(true);
   const [githubConnected, setGithubConnected] = useState(false);
+  const [githubWriteReady, setGithubWriteReady] = useState(false);
   const [githubMessage, setGithubMessage] = useState("");
 
   async function refresh() {
@@ -21,12 +22,14 @@ export default function ProjectsScreen() {
     setGithubLoading(true);
     try {
       const response = await fetch("/api/github/repos", { cache: "no-store" });
-      const data = await response.json() as { connected?: boolean; repositories?: Repository[]; message?: string };
+      const data = await response.json() as { connected?: boolean; writeReady?: boolean; repositories?: Repository[]; message?: string };
       setGithubConnected(Boolean(data.connected));
+      setGithubWriteReady(Boolean(data.writeReady));
       setRepositories(Array.isArray(data.repositories) ? data.repositories : []);
       setGithubMessage(data.message || "");
     } catch {
       setGithubConnected(false);
+      setGithubWriteReady(false);
       setRepositories([]);
       setGithubMessage("Could not reach the GitHub repository service.");
     } finally {
@@ -55,7 +58,7 @@ export default function ProjectsScreen() {
           <button className="primary projects-new" onClick={() => void createProject()}><Plus size={15} /> New</button>
         </header>
         <div className="searchbox project-search"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search projects" /><span className="search-hint">{visibleRepositories.length + visibleProjects.length}</span></div>
-        <div className={`projects-source-status ${githubLoading ? "loading" : githubConnected ? "connected" : "disconnected"}`}><span>{githubLoading ? <LoaderCircle size={13} className="spin" /> : <span className="source-status-dot" />}{githubLoading ? "Checking GitHub repositories…" : githubConnected ? `GitHub connected · ${repositories.length} repos available` : (githubMessage || "GitHub is not connected")}</span>{!githubLoading && !githubConnected ? <Link href="/connectors/github">Connect GitHub</Link> : <Link href="/connectors/github">Manage</Link>}{!githubLoading ? <button type="button" aria-label="Refresh GitHub repositories" onClick={() => void refresh()}><RefreshCw size={13} /></button> : null}</div>
+        <div className={`projects-source-status ${githubLoading ? "loading" : githubConnected ? "connected" : "disconnected"}`}><span>{githubLoading ? <LoaderCircle size={13} className="spin" /> : <span className="source-status-dot" />}{githubLoading ? "Checking GitHub repositories…" : githubConnected ? `GitHub connected · ${repositories.length} repos · ${githubWriteReady ? "commits enabled" : "reconnect for commits"}` : (githubMessage || "GitHub is not connected")}</span>{!githubLoading && !githubConnected ? <Link href="/connectors/github">Connect GitHub</Link> : <Link href="/connectors/github">{githubConnected && !githubWriteReady ? "Reconnect" : "Manage"}</Link>}{!githubLoading ? <button type="button" aria-label="Refresh GitHub repositories" onClick={() => void refresh()}><RefreshCw size={13} /></button> : null}</div>
 
         {githubLoading ? <section className="empty-state panel project-loading-state"><LoaderCircle size={21} className="spin" /><b>Loading your projects</b><small>Checking local workspaces and connected GitHub repositories.</small></section> : hasProjects ? (
           <section className="project-list project-card-list" aria-label="Projects"><div className="workspace-section-label"><span>Your workspaces</span><small>{visibleRepositories.length + visibleProjects.length} available</small></div>

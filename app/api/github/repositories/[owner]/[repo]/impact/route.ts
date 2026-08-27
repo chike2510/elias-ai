@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
+import { getGitHubToken } from "@/lib/githubConnectionStore";
 
 export const runtime = "nodejs";
 
@@ -9,7 +10,7 @@ function diffPaths(diff: string) { return [...diff.matchAll(/^\+\+\+ b\/(.+)$/gm
 
 export async function POST(request: Request) {
   const session = await getSession();
-  if (!session?.githubToken) return NextResponse.json({ message: "Connect GitHub for this Elias account first." }, { status: 401 });
+  if (!await getGitHubToken(session)) return NextResponse.json({ message: "Connect GitHub for this Elias account first." }, { status: 401 });
   let body: { paths?: unknown; diff?: unknown; architecture?: unknown };
   try { body = await request.json() as typeof body; } catch { return NextResponse.json({ message: "Invalid impact request." }, { status: 400 }); }
   const architecture = body.architecture && typeof body.architecture === "object" ? body.architecture as Architecture : {};

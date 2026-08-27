@@ -1505,3 +1505,24 @@ input[hidden], textarea[hidden], button[hidden] { display: none !important; }
   .projects-source-status > span { flex: 1 1 180px; white-space: normal; line-height: 1.35; }
   .projects-source-status > a { margin-left: 0; }
 }
+
+/* Explicit GitHub workspace commit flow */
+.agent-github-commit { margin-top: 12px; padding: 14px; }
+.agent-github-commit-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.agent-github-commit-head > div { min-width: 0; display: flex; flex-direction: column; gap: 7px; }
+.agent-github-commit-head strong { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; }
+.agent-github-commit-head .icon-btn { width: 28px; height: 28px; }
+.agent-github-commit > p { margin: 11px 0 0; color: var(--m-muted); font-size: 10px; line-height: 1.5; }
+.agent-github-commit-fields { display: grid; grid-template-columns: 1.1fr .65fr 1.25fr; gap: 8px; margin-top: 13px; }
+.agent-github-commit-fields label { min-width: 0; display: flex; flex-direction: column; gap: 5px; color: var(--m-muted); font-size: 9px; }
+.agent-github-commit-fields input { width: 100%; min-width: 0; height: 35px; padding: 8px 9px; border: 1px solid #343540; border-radius: 9px; outline: 0; background: #0c0d11; color: var(--m-text); font-size: 10px; }
+.agent-github-commit-fields input:focus { border-color: #7653bd; box-shadow: 0 0 0 3px rgba(118, 83, 189, .12); }
+.agent-github-commit-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 13px; }
+.agent-github-commit-actions .primary, .agent-github-commit-actions .secondary { min-height: 34px; padding: 8px 11px; font-size: 10px; }
+.agent-github-utility { border-color: #55437c; background: #19152a; color: #c8b4ff; }
+.agent-github-utility:hover { border-color: #9b79ec; background: #221a39; }
+@media (max-width: 700px) {
+  .agent-github-commit-fields { grid-template-columns: 1fr; }
+  .agent-github-commit-actions { display: grid; grid-template-columns: 1fr 1.4fr; }
+  .agent-github-commit-actions > * { width: 100%; }
+}

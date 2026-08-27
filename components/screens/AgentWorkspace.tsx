@@ -2,7 +2,7 @@
 
 import JSZip from "jszip";
 import Link from "next/link";
-import { Archive, Camera, FileCode2, FilePlus2, Folder, Globe2, Link2, ListChecks, LoaderCircle, Mic, Search, Send, Sparkles, Upload } from "lucide-react";
+import { Archive, Camera, FileCode2, FilePlus2, Folder, GitCommitHorizontal, Github, Globe2, Link2, ListChecks, LoaderCircle, Mic, Search, Send, Sparkles, Upload } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import AppShell from "@/components/AppShell";
 import { readApiResponse } from "@/lib/clientApi";
@@ -48,6 +48,12 @@ export default function AgentWorkspace({ initialProjectId }: { initialProjectId?
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("ready");
   const [activePane, setActivePane] = useState<"files" | "preview" | "agent">("files");
+  const [githubCommitOpen, setGithubCommitOpen] = useState(false);
+  const [githubRepo, setGithubRepo] = useState("");
+  const [githubBranch, setGithubBranch] = useState("main");
+  const [githubCommitMessage, setGithubCommitMessage] = useState("Update from Elias");
+  const [githubCommitBusy, setGithubCommitBusy] = useState(false);
+  const [githubCommitError, setGithubCommitError] = useState("");
   const workspaceRef = useRef<FileItem[]>([]);
   const zipInput = useRef<HTMLInputElement>(null);
   const filesInput = useRef<HTMLInputElement>(null);
@@ -238,6 +244,25 @@ export default function AgentWorkspace({ initialProjectId }: { initialProjectId?
     }
   }
 
+  async function commitWorkspaceToGitHub() {
+    const target = githubRepo.trim().replace(/^https?:\/\/github\.com\//i, "").replace(/\.git$/i, "").replace(/^\/+|\/+$/g, "");
+    const [owner, repo] = target.split("/");
+    if (!owner || !repo || target.split("/").length !== 2) { setGithubCommitError("Enter a repository as owner/name or a GitHub repository URL."); return; }
+    if (!workspaceRef.current.length) { setGithubCommitError("Add at least one workspace file before committing."); return; }
+    setGithubCommitBusy(true); setGithubCommitError(""); setStatus("preparing GitHub approval");
+    const payload = { action: "commit_files", owner, repo, branch: githubBranch.trim() || "main", message: githubCommitMessage.trim() || "Update from Elias", files: workspaceRef.current.map(({ path, content }) => ({ path, content })) };
+    try {
+      const proposal = await readApiResponse<{ proposalId: string; expiresAt: number }>(await fetch("/api/github/actions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, phase: "prepare" }) }));
+      const approved = window.confirm(`Approve this real GitHub write?\n\nRepository: ${owner}/${repo}\nBranch: ${payload.branch}\nFiles: ${payload.files.length}\nCommit message: ${payload.message}\n\nThe approval expires in ${Math.max(1, Math.ceil((proposal.expiresAt - Date.now()) / 60_000))} minutes and is bound to these exact file contents.`);
+      if (!approved) { setStatus("GitHub commit not approved"); return; }
+      setStatus("committing to GitHub");
+      const result = await readApiResponse<{ message?: string; commitSha?: string; url?: string }>(await fetch("/api/github/actions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, phase: "execute", proposalId: proposal.proposalId, confirm: "CONFIRM_GITHUB_COMMIT_FILES" }) }));
+      setMessages((current) => [...current, { role: "tool", text: result.url ? `${result.message || "GitHub commit completed."} ${result.url}` : result.message || `Committed ${workspaceRef.current.length} files to ${owner}/${repo}.` }]);
+      setStatus("committed to GitHub"); setGithubCommitOpen(false);
+    } catch (error) { setGithubCommitError(error instanceof Error ? error.message : "GitHub commit failed."); setStatus("GitHub commit failed"); }
+    finally { setGithubCommitBusy(false); }
+  }
+
   async function downloadZip() {
     const zip = new JSZip();
     workspaceRef.current.forEach((file) => zip.file(file.path, file.content));
@@ -309,7 +334,10 @@ export default function AgentWorkspace({ initialProjectId }: { initialProjectId?
 
         <section className="agent-progress-strip"><span><ListChecks size={14} /> {busy ? "Agent activity" : "Plan"}</span><small>{files.length} workspace files · {status}</small><span className={`agent-progress-dot ${busy ? "working" : ""}`} /></section>
 
+        {githubCommitOpen ? <section className="agent-github-commit panel" aria-label="Commit workspace to GitHub"><div className="agent-github-commit-head"><div><span className="eyebrow">GITHUB WRITE</span><strong><Github size={15} /> Commit workspace changes</strong></div><button type="button" className="icon-btn" aria-label="Close GitHub commit form" onClick={() => { setGithubCommitOpen(false); setGithubCommitError(""); }}>×</button></div><p>Send the current {files.length} workspace file{files.length === 1 ? "" : "s"} to a connected repository. Elias will show a final confirmation before GitHub changes.</p><div className="agent-github-commit-fields"><label>Repository<input value={githubRepo} onChange={(event) => setGithubRepo(event.target.value)} placeholder="owner/repository" /></label><label>Branch<input value={githubBranch} onChange={(event) => setGithubBranch(event.target.value)} placeholder="main" /></label><label>Commit message<input value={githubCommitMessage} onChange={(event) => setGithubCommitMessage(event.target.value)} placeholder="Update from Elias" /></label></div>{githubCommitError ? <p className="connector-help upload-error">{githubCommitError}</p> : null}<div className="agent-github-commit-actions"><button type="button" className="secondary" onClick={() => setGithubCommitOpen(false)}>Cancel</button><button type="button" className="primary" disabled={githubCommitBusy} onClick={() => void commitWorkspaceToGitHub()}>{githubCommitBusy ? <LoaderCircle className="spin" size={14} /> : <GitCommitHorizontal size={14} />}{githubCommitBusy ? "Committing…" : "Review and commit"}</button></div></section> : null}
+
         <div className="agent-utility-row" aria-label="Workspace actions">
+          <button type="button" className="agent-utility-button agent-github-utility" onClick={() => { setGithubCommitOpen(true); setGithubCommitError(""); }}><GitCommitHorizontal size={14} /> Commit to GitHub</button>
           <button type="button" className="agent-utility-button" onClick={() => zipInput.current?.click()}><Archive size={14} /> Import ZIP</button>
           <button type="button" className="agent-utility-button" onClick={() => filesInput.current?.click()}><Upload size={14} /> Add files</button>
           <button type="button" className="agent-utility-button" onClick={() => void downloadZip()}><Archive size={14} /> Export ZIP</button>

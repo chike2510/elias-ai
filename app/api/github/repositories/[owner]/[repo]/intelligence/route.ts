@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { posix } from "node:path";
 import { getSession } from "@/lib/auth";
+import { getGitHubToken } from "@/lib/githubConnectionStore";
 
 type TreeEntry = { path: string; type: "blob" | "tree"; size?: number; sha: string };
 type Finding = { id: string; severity: "critical" | "warning" | "info"; title: string; detail: string; evidence: string[]; path?: string };
@@ -19,9 +20,10 @@ function resolveImport(from: string, target: string, knownPaths: Set<string>) {
 
 export async function GET(_: Request, { params }: { params: Promise<{ owner: string; repo: string }> }) {
   const session = await getSession();
-  if (!session?.githubToken) return NextResponse.json({ message: "Connect GitHub for this Elias account first." }, { status: 401 });
+  const token = await getGitHubToken(session);
+  if (!token) return NextResponse.json({ message: "Connect GitHub for this Elias account first." }, { status: 401 });
   const { owner, repo } = await params;
-  const headers = headersFor(session.githubToken);
+  const headers = headersFor(token);
   const base = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
   const repositoryResponse = await fetch(base, { headers, cache: "no-store" });
   if (!repositoryResponse.ok) return NextResponse.json({ message: `GitHub repository request failed (${repositoryResponse.status}).` }, { status: repositoryResponse.status });
