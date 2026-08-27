@@ -1,5 +1,5 @@
-import DesignSourcesScreen from "@/components/screens/DesignSourcesScreen";
+import { redirect } from "next/navigation";
 
 export default function DesignSourcesPage() {
-  return <DesignSourcesScreen />;
+  redirect("/skills");
 }
