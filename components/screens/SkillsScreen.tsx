@@ -18,36 +18,36 @@ export default function SkillsScreen() {
 
   function toggle(skill: SkillDefinition) { setSkills((current) => current.map((item) => item.id === skill.id ? { ...item, status: item.status === "enabled" ? "disabled" : "enabled" } : item)); }
 
-  return <AppShell title="Skills"><main className="screen skills-screen">
-    <header className="skills-header">
-      <div className="skills-header-copy">
+  return <AppShell title="Skills"><main className="screen skills-screen workspace-destination">
+    <header className="screen-header skills-header">
+      <div className="skills-header-copy screen-header-copy">
         <Link href="/profile" className="skills-back"><ArrowLeft size={16} /> Profile</Link>
-        <p className="eyebrow">ELIAS CAPABILITY LAYER</p>
+        <span className="eyebrow">CAPABILITY LAYER</span>
         <h1>Skills</h1>
-        <p>Equip Elias with focused capabilities. Each skill adds a clear operating mode, tools, and permissions to the same agent.</p>
+        <p className="screen-description">Equip Elias with focused capabilities, tools, and permissions.</p>
       </div>
       <Link className="skills-evaluation-link" href="/improvements"><Filter size={16} /><span>Evaluations</span><ChevronRight size={15} /></Link>
     </header>
 
-    <section className="skills-summary" aria-label="Skill summary">
+    <section className="skills-summary quiet-card" aria-label="Skill summary">
       <div><strong>{skills.length}</strong><span>available</span></div>
       <div><strong>{enabledCount}</strong><span>enabled</span></div>
       <div><strong>{approvalCount}</strong><span>needs review</span></div>
     </section>
 
-    <div className="skills-toolbar">
+    <div className="skills-toolbar workspace-toolbar-row">
       <label className="searchbox skills-search"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search skills, tools, or capability" /></label>
       <div className="skill-filter-row" role="tablist" aria-label="Filter skills">{([['all', 'All'], ['official', 'Official'], ['community', 'Community']] as const).map(([value, label]) => <button type="button" role="tab" aria-selected={filter === value} className={filter === value ? "active" : ""} onClick={() => setFilter(value)} key={value}>{label}</button>)}</div>
     </div>
 
     <div className="skills-results-head"><span>{visible.length} {visible.length === 1 ? "skill" : "skills"}</span><small>Choose a capability to inspect its tools and permissions.</small></div>
-    <section className="skill-list" aria-label="Available skills">{visible.map((skill) => <article className={`skill-card ${skill.status}`} key={skill.id}>
+    <section className="skill-list" aria-label="Available skills">{visible.map((skill) => <article className={`skill-card quiet-card ${skill.status}`} key={skill.id}>
       <div className="skill-card-head"><div className="skill-title-wrap"><span className="skill-icon"><Sparkles size={17} /></span><div><h2>{skill.name}</h2><span className={`skill-badge ${skill.category}`}>{skill.category === "official" ? "Official" : "Community"}</span></div></div><button type="button" className={`skill-toggle ${skill.status === "enabled" ? "on" : ""}`} aria-label={`${skill.status === "enabled" ? "Disable" : "Enable"} ${skill.name}`} onClick={() => toggle(skill)}><span /></button></div>
       <p className="skill-description">{skill.description}</p>
       <div className="skill-meta"><span><ShieldCheck size={12} /> {statusLabel(skill.status)}</span><span><Users size={12} /> {skill.contributors.length} contributor{skill.contributors.length === 1 ? "" : "s"}</span><span><Wrench size={12} /> {skill.tools.length} tools</span></div>
       <div className="skill-footer"><small>{skill.version} · Updated {skill.updatedAt}</small><span>{skill.permissions.length} permissions</span><ChevronRight size={15} /></div>
       {skill.status === "needs_approval" ? <button type="button" className="secondary skill-approval" onClick={() => toggle(skill)}><Check size={13} /> Approve and enable</button> : null}
     </article>)}</section>
-    {!visible.length ? <div className="empty-projects panel"><Sparkles size={20} /><b>No skills found</b><small>Try another search or filter.</small></div> : null}
+    {!visible.length ? <div className="empty-state panel"><Sparkles size={20} /><b>No skills found</b><small>Try another search or filter.</small></div> : null}
   </main></AppShell>;
 }

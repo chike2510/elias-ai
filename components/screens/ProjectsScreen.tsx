@@ -37,15 +37,15 @@ export default function ProjectsScreen() {
 
   return (
     <AppShell title="Projects">
-      <main className="screen projects-screen">
-        <header className="compact-destination-header projects-heading">
-          <div><span className="eyebrow">WORKSPACE</span><h1>Projects</h1></div>
+      <main className="screen projects-screen workspace-destination">
+        <header className="screen-header projects-heading">
+          <div className="screen-header-copy"><span className="eyebrow">WORKSPACE</span><h1>Projects</h1><p className="screen-description">Connect a repository or open a local workspace.</p></div>
           <button className="primary projects-new" onClick={() => void createProject()}><Plus size={15} /> New</button>
         </header>
-        <div className="searchbox project-search"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search projects" /></div>
+        <div className="searchbox project-search"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search projects" /><span className="search-hint">{visibleRepositories.length + visibleProjects.length}</span></div>
 
         {hasProjects ? (
-          <section className="project-list project-card-list" aria-label="Projects">
+          <section className="project-list project-card-list" aria-label="Projects"><div className="workspace-section-label"><span>Your workspaces</span><small>{visibleRepositories.length + visibleProjects.length} available</small></div>
             {visibleRepositories.map((repo) => {
               const [owner, name] = repo.fullName.split("/");
               return <Link href={`/repositories/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`} key={`github-${repo.id}`} className="project-card">
@@ -60,7 +60,7 @@ export default function ProjectsScreen() {
               <div className="project-card-meta"><span><FileText size={14} /> {project.description ? "project" : "1 file"}</span><span>local</span><b>ready</b><ArrowUpRight size={15} /></div>
             </Link>)}
           </section>
-        ) : <section className="empty-projects panel"><Folder size={22} /><b>{query ? "No matches" : "No projects yet"}</b><small>{query ? "Try another search." : "Connect GitHub or create a workspace."}</small><div className="empty-project-actions"><Link className="secondary" href="/connectors/github">Connect GitHub</Link><button className="secondary" onClick={() => void createProject()}>Create workspace</button></div></section>}
+        ) : <section className="empty-state panel"><Folder size={22} /><b>{query ? "No matches" : "No projects yet"}</b><small>{query ? "Try another search." : "Connect GitHub or create a workspace."}</small><div className="empty-project-actions"><Link className="secondary" href="/connectors/github">Connect GitHub</Link><button className="secondary" onClick={() => void createProject()}>Create workspace</button></div></section>}
       </main>
     </AppShell>
   );
