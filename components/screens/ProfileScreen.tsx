@@ -20,7 +20,7 @@ export default function ProfileScreen() {
   async function logout() { await fetch("/api/auth/logout", { method: "POST" }); window.location.href = "/login"; }
   const initial = (user.name || user.login || "C").slice(0, 1).toUpperCase();
   const connected = user.githubConnected || user.vercelConnected ? "Connected services" : "No services connected";
-  const displayName = user.name || user.login || "Your account";
+  const displayName = user.name || user.login || "Profile";
 
   return <AppShell title="Profile"><main className="screen profile-screen settings-screen workspace-destination">
     <header className="screen-header profile-titlebar"><div className="screen-header-copy"><span className="eyebrow">ACCOUNT</span><h1>Profile</h1><p className="screen-description">Manage your account, connections, and Elias preferences.</p></div><Link href="/" className="back" aria-label="Back to home"><ArrowLeft size={18} /></Link></header>

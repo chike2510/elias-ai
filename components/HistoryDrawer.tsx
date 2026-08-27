@@ -16,7 +16,7 @@ const items = [
   { href: "/profile", label: "Customize", icon: Settings2 },
 ];
 
-export default function HistoryDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
+export default function HistoryDrawer({ open, onClose, user }: { open: boolean; onClose: () => void; user?: { login?: string; name?: string } | null }) {
   const [conversations, setConversations] = useState<ConversationRecord[]>([]);
   const [query, setQuery] = useState("");
   useEffect(() => { if (open) void refresh(); }, [open]);
@@ -30,6 +30,6 @@ export default function HistoryDrawer({ open, onClose }: { open: boolean; onClos
     <div className="drawer-section-head"><span>Conversations</span><Link href="/chat" onClick={onClose} aria-label="New conversation"><Plus size={15} /></Link></div>
     <div className="history-search drawer-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search conversations" /></div>
     <div className="history-list drawer-history-list">{filtered.length ? filtered.slice(0, 30).map((item) => <div className="history-item" key={item.id}><Link href={`/chat?id=${encodeURIComponent(item.id)}`} onClick={onClose}><span className="history-icon"><MessageSquare size={14} /></span><span className="history-copy"><strong>{item.title || "Untitled conversation"}</strong><small>{new Date(item.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })} · {item.messages.length} messages</small></span></Link><button className="history-delete" title="Delete conversation" onClick={() => void remove(item.id)}><Trash2 size={13} /></button></div>) : <div className="history-empty"><Clock3 size={21} /><strong>No conversations yet</strong><small>Start a conversation and it will appear here.</small></div>}</div>
-    <div className="drawer-account"><span className="profile-avatar">?</span><span><strong>Your account</strong><small>Open profile and settings</small></span><Link href="/profile" onClick={onClose}><Settings2 size={15} /></Link></div>
+    <div className="drawer-account"><span className="profile-avatar">{user?.login?.slice(0, 1).toUpperCase() || user?.name?.slice(0, 1).toUpperCase() || "?"}</span><span><strong>{user?.name || user?.login || "Profile"}</strong><small>{user?.login ? `@${user.login}` : "Account"}</small></span><Link href="/profile" onClick={onClose} aria-label="Open profile and settings"><Settings2 size={15} /></Link></div>
   </aside></div>;
 }
