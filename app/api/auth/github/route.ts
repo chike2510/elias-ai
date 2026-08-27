@@ -10,7 +10,9 @@ export async function GET(request: Request) {
   const url = new URL("https://github.com/login/oauth/authorize");
   url.searchParams.set("client_id", process.env.GITHUB_CLIENT_ID!);
   url.searchParams.set("redirect_uri", oauthRedirectUri(request, "github"));
-  url.searchParams.set("scope", "read:user user:email");
+  // Repository access is required for Projects to list repositories and for explicitly approved GitHub actions.
+  // GitHub will show the user the requested permissions during reconnect.
+  url.searchParams.set("scope", "read:user user:email repo");
   url.searchParams.set("state", state);
   return NextResponse.redirect(url);
 }

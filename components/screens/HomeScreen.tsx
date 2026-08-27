@@ -17,6 +17,5 @@ export default function HomeScreen() {
     <section className="clean-home-welcome"><div className="clean-home-mark"><Sparkles size={26} /></div><h1>What are we working on?</h1><p>Ask Elias anything or describe an outcome.</p></section>
     <Composer onSubmit={(value) => { window.location.href = `/chat?prompt=${encodeURIComponent(value)}`; }} />
     <nav className="clean-prompt-row" aria-label="Suggested prompts">{prompts.map(({ href, label, icon: Icon }) => <Link key={label} href={href}><Icon size={15} /><span>{label}</span></Link>)}</nav>
-    <p className="clean-home-note">Your chats, projects, files, and tasks stay connected in the navigation drawer.</p>
   </main></AppShell>;
 }

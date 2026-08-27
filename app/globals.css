@@ -1477,3 +1477,31 @@ input[hidden], textarea[hidden], button[hidden] { display: none !important; }
   .agent-utility-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .agent-utility-button { min-height: 38px; }
 }
+
+/* Agent tab empty state correction */
+.agent-empty { min-height: 220px; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 9px; padding: 24px 16px; color: #c9c1d4; }
+.agent-empty > svg { width: 30px; height: 30px; color: #c2a6ff; }
+.agent-empty b { display: block; color: #eee9f3; font-size: 15px; line-height: 1.25; letter-spacing: -.02em; }
+.agent-empty small { display: block; max-width: 280px; color: #8d8796; font-size: 10px; line-height: 1.55; }
+@media (max-width: 700px) {
+  .agent-empty { min-height: 190px; padding: 22px 14px; }
+  .agent-empty b { font-size: 14px; }
+}
+
+/* Projects GitHub source status */
+.projects-source-status { min-height: 34px; display: flex; align-items: center; gap: 9px; margin: -9px 0 17px; padding: 7px 10px; border: 1px solid #2b2d37; border-radius: 9px; background: #111219; color: #8f8998; font-size: 9px; }
+.projects-source-status > span { min-width: 0; display: inline-flex; align-items: center; gap: 7px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.projects-source-status > a { margin-left: auto; color: #b9a1ff; font-size: 9px; white-space: nowrap; }
+.projects-source-status > button { width: 24px; height: 24px; display: grid; place-items: center; border: 1px solid #383946; border-radius: 7px; background: #171820; color: #aaa0b8; }
+.projects-source-status.connected { border-color: rgba(113, 189, 131, .28); color: #97bca0; }
+.projects-source-status.loading { color: #bfa8f5; }
+.projects-source-status.disconnected { border-color: rgba(229, 104, 119, .26); color: #d9a2aa; }
+.source-status-dot { width: 7px; height: 7px; flex: 0 0 7px; border-radius: 50%; background: #ef7b88; }
+.projects-source-status.connected .source-status-dot { background: #71bd83; box-shadow: 0 0 0 3px rgba(113,189,131,.08); }
+.project-loading-state { min-height: 180px; }
+.project-loading-state b, .project-loading-state small { display: block; }
+@media (max-width: 700px) {
+  .projects-source-status { align-items: flex-start; flex-wrap: wrap; margin-top: -7px; }
+  .projects-source-status > span { flex: 1 1 180px; white-space: normal; line-height: 1.35; }
+  .projects-source-status > a { margin-left: 0; }
+}
