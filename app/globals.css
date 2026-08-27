@@ -1526,3 +1526,39 @@ input[hidden], textarea[hidden], button[hidden] { display: none !important; }
   .agent-github-commit-actions { display: grid; grid-template-columns: 1fr 1.4fr; }
   .agent-github-commit-actions > * { width: 100%; }
 }
+
+
+/* Persistent browser activity inside the focused conversation */
+.chat-execution-stack { width: 100%; max-width: 680px; display: flex; flex-direction: column; gap: 8px; margin: 0 auto; }
+.chat-execution-stack > .step-tracker-collapsed { width: 100%; }
+.browser-activity-card { min-width: 0; display: flex; align-items: flex-start; gap: 10px; padding: 11px 12px; border: 1px solid #3c354e; border-radius: 14px; background: linear-gradient(110deg, #171421, #12131a); }
+.browser-activity-card.active { border-color: #4b3b69; }
+.browser-activity-card.waiting { border-color: rgba(231, 180, 61, .55); background: rgba(70, 51, 12, .18); }
+.browser-activity-card.complete { border-color: rgba(107, 211, 109, .35); background: rgba(23, 55, 35, .18); }
+.browser-activity-card.failed { border-color: rgba(239, 98, 110, .55); background: rgba(65, 22, 30, .18); }
+.browser-activity-icon { width: 27px; height: 27px; flex: 0 0 27px; display: grid; place-items: center; border: 1px solid #4e416b; border-radius: 9px; color: #bba5f8; }
+.browser-activity-card.waiting .browser-activity-icon { border-color: #70572f; color: #f0c35f; }
+.browser-activity-card.complete .browser-activity-icon { border-color: #386047; color: var(--m-green); }
+.browser-activity-card.failed .browser-activity-icon { border-color: #633b44; color: #ec909a; }
+.browser-activity-copy { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 3px; }
+.browser-activity-copy strong { overflow: hidden; color: #e6e1ed; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.browser-activity-copy > span { overflow: hidden; color: #9d98a8; font-size: 10px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+.browser-activity-copy small { display: inline-flex; align-items: center; gap: 4px; color: #777180; font-size: 8px; }
+.browser-activity-live { flex: 0 0 auto; padding-top: 2px; color: #b49bf1; font-size: 8px; text-transform: uppercase; letter-spacing: .08em; }
+.browser-activity-card.waiting .browser-activity-live { color: #f0c35f; }
+.browser-activity-card.complete .browser-activity-live { color: var(--m-green); }
+.browser-activity-card.failed .browser-activity-live { color: #ec909a; }
+.chat-execution-stack .task-timeline-message { width: 100%; }
+.chat-execution-stack .task-timeline-message .chat-message-body { width: 100%; max-width: none; }
+.chat-execution-stack .live-execution-feed { margin: 0 12px 10px; }
+
+@media (max-width: 700px) {
+  .chat-execution-stack { gap: 7px; }
+  .browser-activity-card { padding: 10px; }
+  .browser-activity-copy > span { max-width: 48vw; }
+  .browser-activity-live { font-size: 7px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .browser-activity-card .spin { animation: none; }
+}

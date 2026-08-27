@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { ArrowUp, Check, ChevronRight, Copy, FileClock, FileText, FolderPlus, Link2, ListChecks, LoaderCircle, Mic, Paperclip, Plus, Puzzle, Sparkles, WandSparkles, X } from "lucide-react";
+import { AlertCircle, ArrowUp, Check, CheckCircle2, ChevronRight, Copy, FileClock, FileText, FolderPlus, Globe2, Link2, ListChecks, LoaderCircle, Mic, Paperclip, Plus, Puzzle, Sparkles, WandSparkles, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import AppShell from "@/components/AppShell";
 import StepTracker, { type Step } from "@/components/StepTracker";
@@ -87,6 +87,34 @@ function trackerStatusForTask(status: TaskRecord["status"]): "in-progress" | "co
 
 function trackerStepsForTask(task: TaskRecord): Step[] {
   return task.plan.map((step) => ({ id: step.id, label: step.title, icon: trackerIconForStep(`${step.title} ${step.description}`), status: step.status === "completed" ? "complete" : step.status === "failed" ? "error" : "pending" }));
+}
+
+function browserActionLabel(value: string) {
+  const action = value.toLowerCase().replaceAll("_", " ");
+  if (action.includes("navigate") || action.includes("open")) return "Opening browser";
+  if (action.includes("extract") || action.includes("read")) return "Reading the page";
+  if (action.includes("screenshot")) return "Capturing the browser view";
+  if (action.includes("scroll")) return "Scrolling the page";
+  if (action.includes("click")) return "Waiting for click approval";
+  if (action.includes("type")) return "Waiting for input approval";
+  return "Working in the browser";
+}
+
+function browserActivityForTask(task: TaskRecord) {
+  const browserEvents = task.events.filter((event) => /browser|page|web source/i.test(`${event.label} ${event.detail}`));
+  const browserResults = task.toolResults.filter((result) => result.type.startsWith("browser_"));
+  const latest = browserEvents.at(-1);
+  const latestResult = browserResults.at(-1);
+  if (!latest && !latestResult && !task.browserSessionId) return null;
+  const rawAction = latest?.label || latestResult?.type || "browser";
+  const failed = task.status === "failed" || latest?.status === "failed" || Boolean(latestResult?.error);
+  const waiting = task.status === "waiting_approval" || /approval|waiting_for_user/i.test(`${latest?.label} ${latest?.detail}`);
+  const complete = task.status === "completed" || latest?.status === "completed";
+  const label = failed ? "Browser work failed" : waiting ? "Waiting for your approval" : complete ? "Browser work complete" : browserActionLabel(rawAction);
+  const detail = latest?.detail && latest.detail !== "Awaiting execution." && latest.detail !== "Evidence recorded."
+    ? latest.detail
+    : latestResult?.error || (typeof latestResult?.result === "string" ? latestResult.result : latestResult?.url) || "Browser activity stays attached to this conversation.";
+  return { label, detail: String(detail).replace(/\s+/g, " ").slice(0, 220), failed, waiting, complete };
 }
 
 export default function ChatScreen() {
@@ -418,8 +446,11 @@ export default function ChatScreen() {
           {messages.map((message) => <article key={message.id} className={`chat-message ${message.role} ${message.status === "error" ? "error" : ""}`}><div className="chat-avatar">{message.role === "assistant" ? <Sparkles size={14} /> : "you"}</div><div className="chat-message-body"><span className="chat-role">{message.role === "assistant" ? `ELIAS${message.provider ? ` · ${message.provider}` : ""}` : "you"}</span>{message.role === "assistant" ? <MarkdownMessage content={message.content} taskId={activeTask?.id} /> : <UserMessageContent content={message.content} />}{message.role === "assistant" && message.webEvidence ? <small className={`web-evidence-status ${message.webEvidence.status === "searched" ? "verified" : "warning"}`}>web search · {message.webEvidence.status === "searched" ? `${message.webEvidence.resultCount} results · ${message.webEvidence.fetchedSourceCount} sources fetched` : message.webEvidence.status.replaceAll("_", " ")}</small> : null}{message.role === "assistant" ? <div className="message-actions"><button type="button" onClick={() => { void navigator.clipboard?.writeText(message.content); setCopied(message.id); window.setTimeout(() => setCopied(null), 1400); }}>{copied === message.id ? <Check size={13} /> : <Copy size={13} />} {copied === message.id ? "copied" : "copy"}</button>{message.status === "error" && lastUser ? <button type="button" onClick={() => void sendMessage(lastUser.content, true)}><LoaderCircle size={13} /> retry</button> : null}</div> : null}{message.role === "assistant" && message.status !== "error" && message.content.length > 1200 && /\b(tsx|jsx|html|css|javascript|typescript|python|java|sql)\b/i.test(message.content) ? <Link href={`/agent?fromChat=${encodeURIComponent(conversation?.id ?? "")}`} className="chat-agent-action"><WandSparkles size={14} /> continue in coding workspace</Link> : null}</div></article>)}
 
           {busy ? <div className="chat-message assistant"><div className="chat-avatar"><LoaderCircle size={14} className="spin" /></div><div className="chat-message-body"><span className="chat-role">ELIAS</span>{taskMode && activeTask ? <LiveExecutionFeed task={activeTask} /> : taskMode ? <div className="chat-content typing-line">setting up the task…</div> : <div className="chat-content typing-line">thinking…</div>}</div></div> : null}
-          {activeTask ? <StepTracker summary={activeTask.events.at(-1)?.detail || activeTask.events.at(-1)?.label || activeTask.title || "Elias is working through the request."} steps={trackerStepsForTask(activeTask)} status={trackerStatusForTask(activeTask.status)} /> : null}
-          {activeTask ? <article className="chat-message assistant task-timeline-message"><div className="chat-avatar"><Sparkles size={14} /></div><div className="chat-message-body"><span className="chat-role">ELIAS · WORKING</span><details className="task-timeline-card"><summary><span><strong>{activeTask.title || "Active task"}</strong><small>{activeTask.status.replaceAll("_", " ")} · {activeTask.plan.filter((step) => step.status === "completed").length}/{activeTask.plan.length || 0} steps</small></span><ChevronRight size={16} /></summary><GoalProgressCard task={activeTask} compact />{activeTask.artifacts.length ? <div className="chat-inline-artifacts">{activeTask.artifacts.slice(-4).reverse().map((artifact) => <ArtifactCard key={artifact.id} artifact={artifact} href={inlineArtifactHref(activeTask.id, artifact)} compact taskLabel="This task" onPreview={() => setArtifactPreview(artifact)} onDownload={() => { const anchor = document.createElement("a"); anchor.href = inlineArtifactHref(activeTask.id, artifact); anchor.download = artifact.name; anchor.click(); }} />)}</div> : null}<div className="task-timeline-meta">{activeTask.events.at(-1)?.detail || "Task state updates appear here as Elias works."}</div>{!['completed','cancelled','waiting_approval'].includes(activeTask.status) ? <button type="button" className="primary task-timeline-continue" disabled={taskBusy} onClick={() => void continueTask()}>{taskBusy ? "Working…" : "Continue task"}</button> : null}</details></div></article> : null}
+          {activeTask ? <section className="chat-execution-stack" aria-live="polite">
+            {browserActivityForTask(activeTask) ? <BrowserActivityCard task={activeTask} /> : null}
+            <StepTracker summary={activeTask.events.at(-1)?.detail || activeTask.events.at(-1)?.label || activeTask.title || "Elias is working through the request."} steps={trackerStepsForTask(activeTask)} status={trackerStatusForTask(activeTask.status)} />
+            <article className="chat-message assistant task-timeline-message"><div className="chat-avatar"><Sparkles size={14} /></div><div className="chat-message-body"><span className="chat-role">ELIAS · WORKING</span><details className="task-timeline-card"><summary><span><strong>{activeTask.title || "Active task"}</strong><small>{activeTask.status.replaceAll("_", " ")} · {activeTask.plan.filter((step) => step.status === "completed").length}/{activeTask.plan.length || 0} steps</small></span><ChevronRight size={16} /></summary><GoalProgressCard task={activeTask} compact /><LiveExecutionFeed task={activeTask} />{activeTask.artifacts.length ? <div className="chat-inline-artifacts">{activeTask.artifacts.slice(-4).reverse().map((artifact) => <ArtifactCard key={artifact.id} artifact={artifact} href={inlineArtifactHref(activeTask.id, artifact)} compact taskLabel="This task" onPreview={() => setArtifactPreview(artifact)} onDownload={() => { const anchor = document.createElement("a"); anchor.href = inlineArtifactHref(activeTask.id, artifact); anchor.download = artifact.name; anchor.click(); }} />)}</div> : null}<div className="task-timeline-meta">{activeTask.events.at(-1)?.detail || "Task state updates appear here as Elias works."}</div>{!['completed','cancelled','waiting_approval'].includes(activeTask.status) ? <button type="button" className="primary task-timeline-continue" disabled={taskBusy} onClick={() => void continueTask()}>{taskBusy ? "Working…" : "Continue task"}</button> : null}</details></div></article>
+          </section> : null}
           <div ref={bottomRef} />
         </div>
 
@@ -447,6 +478,13 @@ function formatToolOutput(value: unknown) {
   if (value === undefined || value === null) return "No output returned";
   if (typeof value === "string") return value;
   try { return JSON.stringify(value, null, 2); } catch { return String(value); }
+}
+
+function BrowserActivityCard({ task }: { task: TaskRecord }) {
+  const activity = browserActivityForTask(task);
+  if (!activity) return null;
+  const icon = activity.failed ? <AlertCircle size={15} /> : activity.complete ? <CheckCircle2 size={15} /> : <LoaderCircle size={15} className="spin" />;
+  return <section className={`browser-activity-card ${activity.failed ? "failed" : activity.waiting ? "waiting" : activity.complete ? "complete" : "active"}`}><div className="browser-activity-icon">{icon}</div><div className="browser-activity-copy"><strong>{activity.label}</strong><span>{activity.detail}</span><small><Globe2 size={11} /> Browser activity · {task.browserSessionId ? "session linked" : "task linked"}</small></div><span className="browser-activity-live">{activity.failed ? "Error" : activity.complete ? "Done" : activity.waiting ? "Approval" : "Live"}</span></section>;
 }
 
 function LiveExecutionFeed({ task }: { task: TaskRecord }) {
