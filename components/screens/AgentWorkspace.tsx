@@ -2,7 +2,7 @@
 
 import JSZip from "jszip";
 import Link from "next/link";
-import { Archive, Camera, CheckCircle2, FileCode2, FilePlus2, Folder, FolderPlus, Link2, ListChecks, LoaderCircle, Mic, Paperclip, Search, Send, Sparkles, Upload } from "lucide-react";
+import { Archive, Camera, FileCode2, FilePlus2, Folder, Globe2, Link2, ListChecks, LoaderCircle, Mic, Search, Send, Sparkles, Upload } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import AppShell from "@/components/AppShell";
 import { readApiResponse } from "@/lib/clientApi";
@@ -47,6 +47,7 @@ export default function AgentWorkspace({ initialProjectId }: { initialProjectId?
   const [messages, setMessages] = useState<LogItem[]>([]);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("ready");
+  const [activePane, setActivePane] = useState<"files" | "preview" | "agent">("files");
   const workspaceRef = useRef<FileItem[]>([]);
   const zipInput = useRef<HTMLInputElement>(null);
   const filesInput = useRef<HTMLInputElement>(null);
@@ -248,18 +249,74 @@ export default function AgentWorkspace({ initialProjectId }: { initialProjectId?
     setStatus("ZIP exported");
   }
 
+  const activity = messages.slice(-4);
+
   return (
     <AppShell title={projectName}>
-      <main className="screen agent-workspace workspace-destination">
-        <header className="screen-header agent-head"><div className="screen-header-copy"><span className="eyebrow">CODE WORKSPACE</span><h1>{projectName}</h1><p className="screen-description">Inspect, research, modify, and package with Elias.</p></div><span className={`agent-state ${status}`}><Sparkles size={13} />{status}</span></header>
-        <section className="agent-objective panel quiet-card"><div className="agent-objective-label"><Sparkles size={15} /> What should Elias do?</div><textarea value={task} onChange={(event) => setTask(event.target.value)} rows={3} placeholder="Audit this project, fix the highest-risk issues, and create a verified deliverable." /><div className="agent-objective-actions"><span className="agent-mode-chip"><Sparkles size={12} /> multi-model</span><div><Link href="/projects" className="secondary"><Link2 size={14} /> Connect project</Link><button type="button" className="primary" disabled={busy || !task.trim()} onClick={() => void run()}>{busy ? <LoaderCircle size={14} className="spin" /> : <Send size={14} />}{busy ? "working…" : "start task"}</button></div></div></section>
-        <section className="agent-source panel quiet-card"><div className="agent-source-heading"><div><span className="eyebrow">workspace</span><h2><Folder size={17} /> {projectName}</h2><small><CheckCircle2 size={12} /> Local workspace ready</small></div><Link href="/projects" className="secondary"><Link2 size={14} /> connect</Link></div></section>
-        <div className="agent-progress-strip"><span><ListChecks size={14} /> Plan</span><small>{files.length} workspace files · {status}</small><span className="agent-progress-dot" /></div>
-        <div className="workspace-toolbar"><button type="button" onClick={() => zipInput.current?.click()}><Archive size={14} /> import ZIP</button><button type="button" onClick={() => filesInput.current?.click()}><Upload size={14} /> add files</button><button type="button" onClick={() => cameraInput.current?.click()}><Camera size={14} /> photo</button><button type="button" onClick={() => void downloadZip()}><Archive size={14} /> export ZIP</button><button type="button" onClick={() => void openTaskWorkspace()}><Sparkles size={14} /> open in chat</button><Link href="/chat"><Mic size={14} /> chat</Link><input ref={zipInput} hidden type="file" accept=".zip" onChange={(event) => { const file = event.target.files?.[0]; if (file) void addZip(file); event.currentTarget.value = ""; }} /><input ref={filesInput} hidden type="file" multiple onChange={(event) => { void addLoose(event.target.files); event.currentTarget.value = ""; }} /><input ref={cameraInput} hidden type="file" accept="image/*" capture="environment" onChange={(event) => { const file = event.target.files?.[0]; if (file) setMessages((current) => [...current, { role: "tool", text: `received ${file.name}; image analysis is not configured in this deployment` }]); event.currentTarget.value = ""; }} /></div>
-        <div className="workspace">
-          <aside className="workspace-files"><div className="workspace-pane-title"><span>files · {files.length}</span><button type="button" onClick={() => filesInput.current?.click()}><FilePlus2 size={14} /></button></div><div className="file-search"><Search size={13} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="find file" /></div><div className="file-tree">{visible.map((file) => <button type="button" key={file.key} className={file.path === active ? "selected" : ""} onClick={() => setActive(file.path)}><FileCode2 size={13} /><span>{file.path}</span></button>)}</div></aside>
-          <section className="workspace-editor"><div className="editor-top"><span>{current?.path || "no file selected"}</span><span>{current?.content.length || 0} chars</span></div><textarea spellCheck={false} value={current?.content || ""} onChange={(event) => { if (!current) return; setFiles((old) => old.map((file) => file.path === current.path ? { ...file, content: event.target.value, updatedAt: Date.now() } : file)); }} /></section>
-          <aside className="workspace-agent"><div className="workspace-pane-title"><span><Sparkles size={14} /> ELIAS</span><span className="tiny-live">real tools</span></div><div className="agent-log">{messages.length ? messages.map((message, index) => <div className={`log ${message.role}`} key={`${message.role}-${index}`}><small>{message.role === "assistant" ? "ELIAS" : message.role === "tool" ? "TOOL" : message.role === "error" ? "ERROR" : "YOU"}</small><p>{message.text}</p></div>) : <div className="agent-empty"><Sparkles size={24} /><b>give ELIAS a real task</b><small>Import your codebase, then ask it to inspect, research, edit and iterate.</small></div>}</div><div className="agent-input"><textarea rows={3} value={task} onChange={(event) => setTask(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void run(); } }} placeholder="e.g. refactor the auth flow across the project…" /><div><Link href="/studio?mode=voice" title="voice"><Mic size={15} /></Link><button type="button" className="agent-send" disabled={busy || !task.trim()} onClick={() => void run()}>{busy ? <LoaderCircle size={16} className="spin" /> : <Send size={16} />}</button></div></div></aside>
+      <main className="screen agent-workspace workspace-destination agent-workbench">
+        <header className="screen-header agent-head">
+          <div className="screen-header-copy">
+            <span className="eyebrow">CODE WORKSPACE</span>
+            <h1>{projectName}</h1>
+            <p className="screen-description">Inspect, understand, change, and verify a project with Elias.</p>
+          </div>
+          <span className={`agent-state ${busy ? "working" : "ready"}`}><Sparkles size={13} /> {busy ? "working" : "ready"}</span>
+        </header>
+
+        <section className="agent-objective panel quiet-card">
+          <div className="agent-objective-top">
+            <div className="agent-objective-label"><Sparkles size={15} /> <span>What should Elias do?</span></div>
+            <span className="agent-mode-chip"><Sparkles size={12} /> multi-model</span>
+          </div>
+          <textarea value={task} onChange={(event) => setTask(event.target.value)} rows={3} placeholder="Review this project, fix the highest-risk issue, and show me the diff." />
+          <div className="agent-objective-footer">
+            <span className="agent-context-chip"><Folder size={14} /> {projectName} · {files.length} files</span>
+            <div className="agent-objective-actions">
+              <Link href="/projects" className="agent-secondary-action"><Link2 size={14} /> Connect project</Link>
+              <button type="button" className="primary agent-start-button" disabled={busy || !task.trim()} onClick={() => void run()}>{busy ? <LoaderCircle size={14} className="spin" /> : <Send size={14} />}{busy ? "Working…" : "Start task"}</button>
+            </div>
+          </div>
+        </section>
+
+        <section className="agent-workbench-card quiet-card" aria-label="Project workbench">
+          <nav className="agent-workbench-tabs" aria-label="Workbench views">
+            <button type="button" className={activePane === "files" ? "active" : ""} onClick={() => setActivePane("files")}><FileCode2 size={15} /> Files</button>
+            <button type="button" className={activePane === "preview" ? "active" : ""} onClick={() => setActivePane("preview")}><Globe2 size={15} /> Preview</button>
+            <button type="button" className={activePane === "agent" ? "active" : ""} onClick={() => setActivePane("agent")}><Sparkles size={15} /> Agent</button>
+          </nav>
+          <div className="agent-workbench-body" data-pane={activePane}>
+            <section className="agent-files-panel" data-panel="files">
+              <div className="agent-panel-heading"><span>Files <small>· {files.length}</small></span><button type="button" aria-label="Add files" onClick={() => filesInput.current?.click()}><FilePlus2 size={14} /></button></div>
+              <div className="agent-file-search"><Search size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Find a file" /></div>
+              <div className="agent-file-list">{visible.map((file) => <button type="button" key={file.key} className={file.path === active ? "selected" : ""} onClick={() => { setActive(file.path); setActivePane("files"); }}><FileCode2 size={14} /><span>{file.path}</span><small>{file.content.length > 1000 ? `${Math.round(file.content.length / 1000)}k` : `${file.content.length}b`}</small></button>)}</div>
+              {!visible.length ? <div className="agent-panel-empty"><Search size={20} /><span>No matching files.</span></div> : null}
+            </section>
+
+            <section className="agent-editor-panel" data-panel="preview">
+              <div className="agent-editor-heading"><span><FileCode2 size={14} /> {current?.path || "No file selected"}</span><span>{current?.content.length || 0} chars</span></div>
+              <div className="agent-editor-view" data-view="editor"><textarea spellCheck={false} value={current?.content || ""} onChange={(event) => { if (!current) return; setFiles((old) => old.map((file) => file.path === current.path ? { ...file, content: event.target.value, updatedAt: Date.now() } : file)); }} /></div>
+              <div className="agent-preview-view" data-view="preview"><div className="agent-preview-label">Read-only preview</div><pre>{current?.content || "Select a file to preview it."}</pre></div>
+              <button type="button" className="agent-editor-link" onClick={() => setActivePane("files")}>Open full editor <span>↗</span></button>
+            </section>
+
+            <section className="agent-agent-panel" data-panel="agent">
+              <div className="agent-panel-heading"><span><Sparkles size={14} /> Agent activity</span><span className="tiny-live">{messages.length ? `${messages.length} events` : "ready"}</span></div>
+              <div className="agent-log">{activity.length ? activity.map((message, index) => <div className={`log ${message.role}`} key={`${message.role}-${index}`}><small>{message.role === "assistant" ? "ELIAS" : message.role === "tool" ? "TOOL" : message.role === "error" ? "ERROR" : "YOU"}</small><p>{message.text}</p></div>) : <div className="agent-empty"><Sparkles size={24} /><b>Give Elias a real task</b><small>Import your codebase, then ask Elias to inspect, research, edit, and iterate.</small></div>}</div>
+              <div className="agent-input"><textarea rows={2} value={task} onChange={(event) => setTask(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void run(); } }} placeholder="Ask Elias about this project…" /><div><Link href="/studio?mode=voice" aria-label="Voice"><Mic size={15} /></Link><button type="button" className="agent-send" disabled={busy || !task.trim()} onClick={() => void run()}>{busy ? <LoaderCircle size={16} className="spin" /> : <Send size={16} />}</button></div></div>
+            </section>
+          </div>
+        </section>
+
+        <section className="agent-progress-strip"><span><ListChecks size={14} /> {busy ? "Agent activity" : "Plan"}</span><small>{files.length} workspace files · {status}</small><span className={`agent-progress-dot ${busy ? "working" : ""}`} /></section>
+
+        <div className="agent-utility-row" aria-label="Workspace actions">
+          <button type="button" className="agent-utility-button" onClick={() => zipInput.current?.click()}><Archive size={14} /> Import ZIP</button>
+          <button type="button" className="agent-utility-button" onClick={() => filesInput.current?.click()}><Upload size={14} /> Add files</button>
+          <button type="button" className="agent-utility-button" onClick={() => void downloadZip()}><Archive size={14} /> Export ZIP</button>
+          <button type="button" className="agent-utility-button" onClick={() => void openTaskWorkspace()}><Sparkles size={14} /> Open in Chat</button>
+          <input ref={zipInput} hidden type="file" accept=".zip" onChange={(event) => { const file = event.target.files?.[0]; if (file) void addZip(file); event.currentTarget.value = ""; }} />
+          <input ref={filesInput} hidden type="file" multiple onChange={(event) => { void addLoose(event.target.files); event.currentTarget.value = ""; }} />
+          <input ref={cameraInput} hidden type="file" accept="image/*" capture="environment" onChange={(event) => { const file = event.target.files?.[0]; if (file) setMessages((current) => [...current, { role: "tool", text: `received ${file.name}; image analysis is not configured in this deployment` }]); event.currentTarget.value = ""; }} />
         </div>
       </main>
     </AppShell>
