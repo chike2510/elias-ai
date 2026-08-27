@@ -1242,3 +1242,61 @@ input[hidden], textarea[hidden], button[hidden] { display: none !important; }
   .search-screen .search-empty strong { font-size: 11px; }
   .search-screen .search-empty small { font-size: 9px; }
 }
+
+/* Polished artifact workspace */
+.artifact-library-list { display: grid; gap: 8px; margin-top: 16px; }
+.artifact-card { min-width: 0; display: flex; align-items: center; gap: 11px; padding: 13px; border: 1px solid #2b2d37; border-radius: 14px; background: #111219; box-shadow: none; transition: border-color .16s ease, background .16s ease, transform .16s ease; }
+.artifact-card:hover { border-color: #5a4877; background: #171520; transform: translateY(-1px); }
+.artifact-card-compact { padding: 8px 10px; border-radius: 10px; }
+.artifact-card-icon { width: 40px; height: 40px; flex: 0 0 40px; display: grid; place-items: center; position: relative; border: 1px solid #4a3c68; border-radius: 11px; background: #211a35; color: #c1a5ff; }
+.artifact-card-compact .artifact-card-icon { width: 30px; height: 30px; flex-basis: 30px; border-radius: 8px; }
+.artifact-card-icon small { position: absolute; right: -5px; bottom: -5px; padding: 2px 4px; border: 1px solid #4a3c68; border-radius: 4px; background: #161221; color: #c8b2f7; font-size: 6px; letter-spacing: .04em; }
+.artifact-card-copy { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 4px; }
+.artifact-card-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #ece7f2; font-size: 12px; font-weight: 620; }
+.artifact-card-compact .artifact-card-copy strong { font-size: 10px; }
+.artifact-card-copy > small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #888291; font-size: 9px; }
+.artifact-card-copy > span { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; color: #aaa3b3; font-size: 10px; line-height: 1.4; }
+.artifact-card-actions { min-width: 0; flex: 0 0 auto; display: flex; align-items: center; gap: 5px; }
+.artifact-card-action, .artifact-icon-action { display: inline-flex; align-items: center; gap: 4px; min-height: 28px; padding: 6px 7px; border: 1px solid #3b3947; border-radius: 8px; background: transparent; color: #c7b3ed; font-size: 9px; }
+.artifact-card-action:hover, .artifact-icon-action:hover { border-color: #735a9c; background: #251d33; color: #f0eafa; }
+.artifact-icon-action { width: 28px; justify-content: center; padding: 0; }
+.artifact-ready-icon { display: grid; place-items: center; color: #79c28a; }
+.artifact-card-status { display: inline-flex; align-items: center; gap: 5px; color: #d5ac73; font-size: 8px; }
+.artifact-card-status.error { color: #eb919a; }
+.artifact-status-dot { width: 6px; height: 6px; border-radius: 50%; background: #d5ac73; box-shadow: 0 0 0 3px rgba(213,172,115,.12); }
+.artifact-preview-backdrop { position: fixed; inset: 0; z-index: 120; display: grid; place-items: center; padding: 20px; background: rgba(3,4,7,.72); backdrop-filter: blur(6px); }
+.artifact-preview-sheet { width: min(760px, 100%); max-height: min(760px, calc(100dvh - 40px)); display: flex; flex-direction: column; overflow: hidden; border: 1px solid #3b3947; border-radius: 17px; background: #111219; box-shadow: 0 26px 80px rgba(0,0,0,.5); }
+.artifact-preview-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 17px 18px 13px; border-bottom: 1px solid #292a34; }
+.artifact-preview-head > div { min-width: 0; }
+.artifact-preview-head .eyebrow { color: #a991e7; font-size: 9px; }
+.artifact-preview-head h2 { overflow: hidden; margin: 7px 0 4px; color: #f0ecf4; font-size: 17px; font-weight: 620; text-overflow: ellipsis; white-space: nowrap; }
+.artifact-preview-head p { margin: 0; color: #85818e; font-size: 9px; }
+.artifact-preview-body { min-height: 180px; flex: 1; overflow: auto; padding: 18px; background: #0d0e13; }
+.artifact-preview-body pre { margin: 0; color: #d6d0df; font: 12px/1.65 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.artifact-preview-body img { display: block; max-width: 100%; height: auto; margin: 0 auto; border-radius: 9px; }
+.artifact-preview-body iframe { display: block; width: 100%; height: 470px; border: 0; border-radius: 7px; background: #fff; }
+.artifact-preview-unavailable { display: grid; place-items: center; gap: 9px; min-height: 180px; text-align: center; }
+.artifact-preview-large-icon { width: 42px; height: 42px; display: grid; place-items: center; border: 1px solid #4a3c68; border-radius: 13px; background: #211a35; color: #bba0f4; }
+.artifact-preview-unavailable strong { color: #eee9f3; font-size: 14px; }
+.artifact-preview-unavailable p { max-width: 320px; margin: 0; color: #85818e; font-size: 10px; line-height: 1.5; }
+.artifact-preview-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 18px; border-top: 1px solid #292a34; }
+.artifact-preview-foot > span { min-width: 0; overflow: hidden; color: #85818e; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.artifact-preview-foot > div { display: flex; gap: 6px; flex: 0 0 auto; }
+.artifact-open-action, .artifact-download-action { min-height: 30px; display: inline-flex; align-items: center; gap: 5px; padding: 7px 9px; border-radius: 8px; font-size: 9px; }
+.artifact-download-action { border: 1px solid #7259a0; background: #3a2860; color: #f1eafe; }
+@media (max-width: 700px) {
+  .artifact-card { align-items: flex-start; padding: 11px; }
+  .artifact-card-actions { margin-left: auto; }
+  .artifact-card-action { min-height: 27px; padding: 5px 6px; }
+  .artifact-ready-icon { display: none; }
+  .artifact-card-copy > span { display: none; }
+  .artifact-preview-backdrop { align-items: end; padding: 0; }
+  .artifact-preview-sheet { width: 100%; max-height: calc(100dvh - 22px); border-radius: 17px 17px 0 0; }
+  .artifact-preview-head { padding: 15px 15px 12px; }
+  .artifact-preview-body { padding: 14px; }
+  .artifact-preview-body iframe { height: 58dvh; }
+  .artifact-preview-foot { padding: 10px 15px calc(10px + env(safe-area-inset-bottom)); }
+  .artifact-preview-foot > span { display: none; }
+  .artifact-preview-foot > div { width: 100%; }
+  .artifact-open-action, .artifact-download-action { flex: 1; justify-content: center; }
+}
