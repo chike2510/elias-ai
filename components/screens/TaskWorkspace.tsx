@@ -5,6 +5,7 @@ import { Check, ChevronRight, CircleAlert, ClipboardCheck, FileArchive, LoaderCi
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import AppShell from "@/components/AppShell";
+import StepTracker, { type Step } from "@/components/StepTracker";
 import { readApiResponse } from "@/lib/clientApi";
 import { cacheTaskSnapshot, getCachedTaskSnapshot, listCachedTaskSnapshots } from "@/lib/clientTask";
 import type { TaskArtifactRef, TaskRecord, TaskStatus } from "@/lib/task";
@@ -17,6 +18,20 @@ function artifactHref(taskId: string, artifact: TaskArtifactRef) {
     return `data:${artifact.type},${encodeURIComponent(artifact.content)}`;
   }
   return `/api/tasks/${encodeURIComponent(taskId)}/artifact/${encodeURIComponent(artifact.id)}`;
+}
+
+function trackerIconForStep(title: string): Step["icon"] {
+  const value = title.toLowerCase();
+  if (/search|research|read|source|evidence|inspect|discover/.test(value)) return "search";
+  if (/file|artifact|document|pdf|docx|slide|deliver|package|export|create/.test(value)) return "file";
+  if (/check|verify|review|validate|test|sanity|confirm/.test(value)) return "check";
+  return "edit";
+}
+
+function trackerStatusForTask(status: TaskStatus): "in-progress" | "complete" | "interrupted" {
+  if (status === "completed") return "complete";
+  if (status === "failed" || status === "cancelled") return "interrupted";
+  return "in-progress";
 }
 
 export default function TaskWorkspace() {
@@ -102,6 +117,7 @@ export default function TaskWorkspace() {
       {!task ? <section className="task-start-guide panel quiet-card"><div className="task-start-mark"><Sparkles size={25} /></div><h2>What do you want done?</h2><p>Give Elias the outcome. It will create the steps.</p><textarea className="task-start-input" value={objective} onChange={(event) => setObjective(event.target.value)} rows={3} placeholder="Describe the outcome…" /><button type="button" className="primary task-start-button" disabled={!objective.trim() || busy} onClick={() => void create()}>{busy ? <LoaderCircle size={15} className="spin" /> : <Send size={15} />} {busy ? "Working" : "Start task"}</button><div className="task-examples"><button type="button" onClick={() => setObjective("Audit this project, explain the highest-risk issues, and create a prioritized fix plan.")}>Audit a project <ChevronRight size={14} /></button><button type="button" onClick={() => setObjective("Research the current best practices for Next.js App Router caching and cite primary sources.")}>Research with evidence <ChevronRight size={14} /></button><button type="button" onClick={() => setObjective("Create a technical architecture document for a reliable autonomous coding agent.")}>Create a deliverable <ChevronRight size={14} /></button></div></section> : <>
         <section className="task-focus-card panel quiet-card">
           <div className="task-focus-head"><div><h2>{task.title || "Untitled task"}</h2><small>{task.kind} · {task.workspace.length} files</small></div><span className={`task-state-pill ${task.status}`}>{statusLabel(task.status)}</span></div>
+          <StepTracker summary={task.events.at(-1)?.detail || task.events.at(-1)?.label || task.title || "Elias is working through the request."} steps={task.plan.map((step) => ({ id: step.id, label: step.title, icon: trackerIconForStep(`${step.title} ${step.description}`), status: step.status === "completed" ? "complete" : step.status === "failed" ? "error" : "pending" }))} status={trackerStatusForTask(task.status)} />
           <div className="task-focus-progress-label"><strong>{progress}% complete</strong><span>{progress}%</span></div>
           <div className="task-progress task-focus-meter"><i style={{ width: `${progress}%` }} /></div>
           <div className="task-mock-timeline">{task.plan.map((step, index) => { const active = step.status === "active"; const complete = step.status === "completed"; return <div className={`task-mock-step ${complete ? "completed" : active ? "active" : "pending"}`} key={step.id}><span className="task-mock-marker">{complete ? <Check size={14} /> : active ? <span /> : index + 1}</span><div><strong>{index + 1}. {step.title}</strong><small>{complete ? "Complete" : active ? "In progress" : "Pending"}</small></div><time>{active || complete ? time(task.updatedAt) : "—"}</time></div>; })}</div>

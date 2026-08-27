@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { ArrowUp, Check, ChevronRight, Copy, FileClock, FileText, FolderPlus, Link2, ListChecks, LoaderCircle, Mic, Paperclip, Plus, Puzzle, Sparkles, WandSparkles, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import AppShell from "@/components/AppShell";
+import StepTracker, { type Step } from "@/components/StepTracker";
 import ArtifactCard from "@/components/artifacts/ArtifactCard";
 import ArtifactPreviewSheet from "@/components/artifacts/ArtifactPreviewSheet";
 import GoalProgressCard from "@/components/GoalProgressCard";
@@ -68,6 +69,24 @@ function inlineArtifactHref(taskId: string, artifact: TaskRecord["artifacts"][nu
     return `data:${artifact.type},${encodeURIComponent(artifact.content)}`;
   }
   return `/api/tasks/${encodeURIComponent(taskId)}/artifact/${encodeURIComponent(artifact.id)}`;
+}
+
+function trackerIconForStep(title: string): Step["icon"] {
+  const value = title.toLowerCase();
+  if (/search|research|read|source|evidence|inspect|discover/.test(value)) return "search";
+  if (/file|artifact|document|pdf|docx|slide|deliver|package|export|create/.test(value)) return "file";
+  if (/check|verify|review|validate|test|sanity|confirm/.test(value)) return "check";
+  return "edit";
+}
+
+function trackerStatusForTask(status: TaskRecord["status"]): "in-progress" | "complete" | "interrupted" {
+  if (status === "completed") return "complete";
+  if (status === "failed" || status === "cancelled") return "interrupted";
+  return "in-progress";
+}
+
+function trackerStepsForTask(task: TaskRecord): Step[] {
+  return task.plan.map((step) => ({ id: step.id, label: step.title, icon: trackerIconForStep(`${step.title} ${step.description}`), status: step.status === "completed" ? "complete" : step.status === "failed" ? "error" : "pending" }));
 }
 
 export default function ChatScreen() {
@@ -400,7 +419,7 @@ export default function ChatScreen() {
           {messages.map((message) => <article key={message.id} className={`chat-message ${message.role} ${message.status === "error" ? "error" : ""}`}><div className="chat-avatar">{message.role === "assistant" ? <Sparkles size={14} /> : "you"}</div><div className="chat-message-body"><span className="chat-role">{message.role === "assistant" ? `ELIAS${message.provider ? ` · ${message.provider}` : ""}` : "you"}</span>{message.role === "assistant" ? <MarkdownMessage content={message.content} taskId={activeTask?.id} /> : <UserMessageContent content={message.content} />}{message.role === "assistant" && message.webEvidence ? <small className={`web-evidence-status ${message.webEvidence.status === "searched" ? "verified" : "warning"}`}>web search · {message.webEvidence.status === "searched" ? `${message.webEvidence.resultCount} results · ${message.webEvidence.fetchedSourceCount} sources fetched` : message.webEvidence.status.replaceAll("_", " ")}</small> : null}{message.role === "assistant" ? <div className="message-actions"><button type="button" onClick={() => { void navigator.clipboard?.writeText(message.content); setCopied(message.id); window.setTimeout(() => setCopied(null), 1400); }}>{copied === message.id ? <Check size={13} /> : <Copy size={13} />} {copied === message.id ? "copied" : "copy"}</button>{message.status === "error" && lastUser ? <button type="button" onClick={() => void sendMessage(lastUser.content, true)}><LoaderCircle size={13} /> retry</button> : null}</div> : null}{message.role === "assistant" && message.status !== "error" && message.content.length > 1200 && /\b(tsx|jsx|html|css|javascript|typescript|python|java|sql)\b/i.test(message.content) ? <Link href={`/agent?fromChat=${encodeURIComponent(conversation?.id ?? "")}`} className="chat-agent-action"><WandSparkles size={14} /> continue in coding workspace</Link> : null}</div></article>)}
 
           {busy ? <div className="chat-message assistant"><div className="chat-avatar"><LoaderCircle size={14} className="spin" /></div><div className="chat-message-body"><span className="chat-role">ELIAS</span>{taskMode && activeTask ? <LiveExecutionFeed task={activeTask} /> : taskMode ? <div className="chat-content typing-line">setting up the task…</div> : <div className="chat-content typing-line">thinking…</div>}</div></div> : null}
-          {activeTask ? <details className="chat-thought-process"><summary><span className={`thought-dot ${activeTask.status}`} /><strong>Thought process</strong><ChevronRight size={14} /></summary><div className="thought-process-detail">{activeTask.events.at(-1)?.detail || activeTask.events.at(-1)?.label || "Elias is organizing the next step."}</div></details> : null}
+          {activeTask ? <StepTracker summary={activeTask.events.at(-1)?.detail || activeTask.events.at(-1)?.label || activeTask.title || "Elias is working through the request."} steps={trackerStepsForTask(activeTask)} status={trackerStatusForTask(activeTask.status)} /> : null}
           {activeTask ? <article className="chat-message assistant task-timeline-message"><div className="chat-avatar"><Sparkles size={14} /></div><div className="chat-message-body"><span className="chat-role">ELIAS · WORKING</span><details className="task-timeline-card"><summary><span><strong>{activeTask.title || "Active task"}</strong><small>{activeTask.status.replaceAll("_", " ")} · {activeTask.plan.filter((step) => step.status === "completed").length}/{activeTask.plan.length || 0} steps</small></span><ChevronRight size={16} /></summary><GoalProgressCard task={activeTask} compact />{activeTask.artifacts.length ? <div className="chat-inline-artifacts">{activeTask.artifacts.slice(-4).reverse().map((artifact) => <ArtifactCard key={artifact.id} artifact={artifact} href={inlineArtifactHref(activeTask.id, artifact)} compact taskLabel="This task" onPreview={() => setArtifactPreview(artifact)} onDownload={() => { const anchor = document.createElement("a"); anchor.href = inlineArtifactHref(activeTask.id, artifact); anchor.download = artifact.name; anchor.click(); }} />)}</div> : null}<div className="task-timeline-meta">{activeTask.events.at(-1)?.detail || "Task state updates appear here as Elias works."}</div>{!['completed','cancelled','waiting_approval'].includes(activeTask.status) ? <button type="button" className="primary task-timeline-continue" disabled={taskBusy} onClick={() => void continueTask()}>{taskBusy ? "Working…" : "Continue task"}</button> : null}</details></div></article> : null}
           <div ref={bottomRef} />
         </div>
