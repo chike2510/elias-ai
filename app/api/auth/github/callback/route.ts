@@ -15,7 +15,8 @@ export async function GET(request: Request) {
   jar.set("elias_oauth_state", "", { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/", maxAge: 0 });
   if (!code || !state || !savedState || state !== savedState) return NextResponse.redirect(new URL("/login?error=oauth_state", request.url));
 
-  const tokenResponse = await fetch("https://github.com/login/oauth/access_token", { method: "POST", headers: { Accept: "application/json", "Content-Type": "application/json" }, body: JSON.stringify({ client_id: process.env.GITHUB_CLIENT_ID, client_secret: process.env.GITHUB_CLIENT_SECRET, code, state }) });
+  const callbackUrl = `${url.origin}/api/auth/github/callback`;
+  const tokenResponse = await fetch("https://github.com/login/oauth/access_token", { method: "POST", headers: { Accept: "application/json", "Content-Type": "application/json" }, body: JSON.stringify({ client_id: process.env.GITHUB_CLIENT_ID, client_secret: process.env.GITHUB_CLIENT_SECRET, code, redirect_uri: callbackUrl, state }) });
   const tokenData = await tokenResponse.json() as { access_token?: string; error?: string };
   if (!tokenResponse.ok || !tokenData.access_token) return NextResponse.redirect(new URL(`/login?error=${encodeURIComponent(tokenData.error || "github_token_exchange")}`, request.url));
 

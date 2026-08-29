@@ -13,9 +13,13 @@ export async function GET(request: Request) {
   const savedState = jar.get("elias_github_connect_state")?.value;
   jar.set("elias_github_connect_state", "", { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/", maxAge: 0 });
   if (!code || !state || !savedState || state !== savedState) return NextResponse.redirect(new URL("/projects?error=github_connection_state", request.url));
-  const tokenResponse = await fetch("https://github.com/login/oauth/access_token", { method: "POST", headers: { Accept: "application/json", "Content-Type": "application/json" }, body: JSON.stringify({ client_id: process.env.GITHUB_CLIENT_ID, client_secret: process.env.GITHUB_CLIENT_SECRET, code, state }) });
-  const tokenData = await tokenResponse.json() as { access_token?: string; scope?: string };
-  if (!tokenResponse.ok || !tokenData.access_token) return NextResponse.redirect(new URL("/projects?error=github_connection_failed", request.url));
+  const callbackUrl = `${url.origin}/api/connect/github/callback`;
+  const tokenResponse = await fetch("https://github.com/login/oauth/access_token", { method: "POST", headers: { Accept: "application/json", "Content-Type": "application/json" }, body: JSON.stringify({ client_id: process.env.GITHUB_CLIENT_ID, client_secret: process.env.GITHUB_CLIENT_SECRET, code, redirect_uri: callbackUrl, state }) });
+  const tokenData = await tokenResponse.json() as { access_token?: string; scope?: string; error?: string; error_description?: string };
+  if (!tokenResponse.ok || !tokenData.access_token) {
+    const reason = tokenData.error_description || tokenData.error || "github_connection_failed";
+    return NextResponse.redirect(new URL(`/projects?error=${encodeURIComponent(reason)}`, request.url));
+  }
   const grantedScopes = tokenData.scope?.split(",").map((scope) => scope.trim()).filter(Boolean) || ["repo", "read:org"];
   await saveGitHubConnection({ userId: session.userId, login: session.login, name: session.name, email: session.email, avatarUrl: session.avatarUrl, token: tokenData.access_token, scopes: grantedScopes, connectedAt: session.createdAt, updatedAt: Date.now() }).catch(() => undefined);
   // Keep an encrypted session fallback when POSTGRES_URL is not configured on Vercel.
