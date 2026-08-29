@@ -35,8 +35,7 @@ export async function GET(request: Request) {
   const previous = await getSession();
   const userId = `github_${profile.id}`;
   const createdAt = previous?.createdAt || Date.now();
-  await saveGitHubConnection({ userId, login: profile.login, name: profile.name || undefined, email, avatarUrl: profile.avatar_url, token: tokenData.access_token, scopes: ["repo", "read:user", "user:email"], connectedAt: createdAt, updatedAt: Date.now() });
-  const { githubToken: _legacyGithubToken, ...previousWithoutGithubToken } = previous || {};
-  await setSession({ ...previousWithoutGithubToken, userId, login: profile.login, name: profile.name || undefined, email, avatarUrl: profile.avatar_url, githubConnected: true, createdAt });
+  await saveGitHubConnection({ userId, login: profile.login, name: profile.name || undefined, email, avatarUrl: profile.avatar_url, token: tokenData.access_token, scopes: ["repo", "read:user", "user:email"], connectedAt: createdAt, updatedAt: Date.now() }).catch(() => undefined);
+  await setSession({ ...(previous || {}), userId, login: profile.login, name: profile.name || undefined, email, avatarUrl: profile.avatar_url, githubToken: tokenData.access_token, githubConnected: true, createdAt });
   return NextResponse.redirect(new URL("/", request.url));
 }

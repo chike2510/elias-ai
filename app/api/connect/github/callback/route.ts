@@ -17,8 +17,8 @@ export async function GET(request: Request) {
   const tokenData = await tokenResponse.json() as { access_token?: string; scope?: string };
   if (!tokenResponse.ok || !tokenData.access_token) return NextResponse.redirect(new URL("/projects?error=github_connection_failed", request.url));
   const grantedScopes = tokenData.scope?.split(",").map((scope) => scope.trim()).filter(Boolean) || ["repo", "read:org"];
-  await saveGitHubConnection({ userId: session.userId, login: session.login, name: session.name, email: session.email, avatarUrl: session.avatarUrl, token: tokenData.access_token, scopes: grantedScopes, connectedAt: session.createdAt, updatedAt: Date.now() });
-  const { githubToken: _legacyGithubToken, ...sessionWithoutGithubToken } = session;
-  await setSession({ ...sessionWithoutGithubToken, githubConnected: true });
+  await saveGitHubConnection({ userId: session.userId, login: session.login, name: session.name, email: session.email, avatarUrl: session.avatarUrl, token: tokenData.access_token, scopes: grantedScopes, connectedAt: session.createdAt, updatedAt: Date.now() }).catch(() => undefined);
+  // Keep an encrypted session fallback when POSTGRES_URL is not configured on Vercel.
+  await setSession({ ...session, githubToken: tokenData.access_token, githubConnected: true });
   return NextResponse.redirect(new URL("/projects?connected=github", request.url));
 }

@@ -14,7 +14,7 @@ export async function GET() {
           name: session.name,
           email: session.email,
           avatarUrl: session.avatarUrl,
-          githubConnected: Boolean(session.githubConnected || githubConnection),
+          githubConnected: Boolean(session.githubConnected || session.githubToken || githubConnection),
           vercelConnected: Boolean(session.vercelConnected),
           vercelAccount: session.vercelConnected ? { teamId: session.vercelTeamId } : null,
           vercelMcpConfigured: vercelMcpConfigured(),

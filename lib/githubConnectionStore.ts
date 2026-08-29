@@ -116,9 +116,9 @@ export async function deleteGitHubConnection(userId: string) {
 
 export async function getGitHubToken(session: EliasSession | null) {
   if (!session) return undefined;
-  const stored = await getGitHubConnection(session.userId);
+  const stored = await getGitHubConnection(session.userId).catch(() => undefined);
   if (stored?.token) return stored.token;
   if (!session.githubToken) return undefined;
-  await saveGitHubConnection({ userId: session.userId, login: session.login, name: session.name, email: session.email, avatarUrl: session.avatarUrl, token: session.githubToken, scopes: ["legacy-session"], connectedAt: session.createdAt, updatedAt: Date.now() });
+  await saveGitHubConnection({ userId: session.userId, login: session.login, name: session.name, email: session.email, avatarUrl: session.avatarUrl, token: session.githubToken, scopes: ["legacy-session"], connectedAt: session.createdAt, updatedAt: Date.now() }).catch(() => undefined);
   return session.githubToken;
 }
