@@ -5,7 +5,7 @@ import { ArrowLeft, CheckCircle2, ExternalLink, Github, Link2, LoaderCircle, Sea
 import { useEffect, useState } from "react";
 import AppShell from "@/components/AppShell";
 
-type Repo = { id: number; fullName: string; name: string; private: boolean; description: string; url: string; defaultBranch: string; language: string };
+type Repo = { id: number; fullName: string; name: string; private: boolean; description: string; url: string; defaultBranch: string; language: string; canWrite?: boolean };
 
 export default function GitHubConnectorScreen() {
   const [connected, setConnected] = useState(false);

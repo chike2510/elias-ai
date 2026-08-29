@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import AppShell from "@/components/AppShell";
 import { makeId, getProjects, saveProject, type ProjectRecord } from "@/lib/persistence";
 
-type Repository = { id: number; fullName: string; description: string; private: boolean; url: string; language: string };
+type Repository = { id: number; fullName: string; description: string; private: boolean; url: string; language: string; canWrite?: boolean };
 
 export default function ProjectsScreen() {
   const [projects, setProjects] = useState<ProjectRecord[]>([]);

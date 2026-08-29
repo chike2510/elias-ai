@@ -44,10 +44,15 @@ function refName(value: string | undefined, label: string) {
   return result;
 }
 
-async function githubScopes(token: string) {
+async function githubWriteAccess(token: string, owner: string, repo: string) {
   const response = await fetch(`${API}/user`, { headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${token}`, "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "ELIAS" }, cache: "no-store" });
-  if (!response.ok) return [];
-  return response.headers.get("x-oauth-scopes")?.split(",").map((scope) => scope.trim()).filter(Boolean) || [];
+  if (!response.ok) return false;
+  const scopes = response.headers.get("x-oauth-scopes")?.split(",").map((scope) => scope.trim()).filter(Boolean) || [];
+  if (scopes.includes("repo")) return true;
+  const repository = await fetch(`${API}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`, { headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${token}`, "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "ELIAS" }, cache: "no-store" });
+  if (!repository.ok) return false;
+  const data = await repository.json() as { permissions?: { push?: boolean; admin?: boolean } };
+  return Boolean(data.permissions?.push || data.permissions?.admin);
 }
 
 function payloadForHash(input: ActionRequest) {
@@ -120,8 +125,8 @@ export async function POST(request: Request) {
   try { input = await request.json() as ActionRequest; } catch { return fail("Invalid JSON request."); }
   const action = input.action;
   if (!action) return fail("A GitHub write action is required.");
-  const scopes = await githubScopes(token);
-  if (!scopes.includes("repo")) return fail("GitHub is connected, but this authorization does not grant repository write access. Reconnect GitHub and approve repository access before committing.", 403);
+  const { owner, repo } = repoParts(input);
+  if (!(await githubWriteAccess(token, owner, repo))) return fail("GitHub is connected, but this authorization does not grant write access to the selected repository. Reconnect GitHub and approve repository write access before committing.", 403);
 
   let claimedProposalId: string | undefined;
   try {
@@ -143,7 +148,6 @@ export async function POST(request: Request) {
     };
 
 
-    const { owner, repo } = repoParts(input);
     if (action === "create_branch") {
       const base = refName(input.base || "main", "Base branch");
       const branch = refName(input.branch, "New branch");
