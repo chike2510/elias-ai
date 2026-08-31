@@ -8,10 +8,10 @@ export async function GET(request: Request) {
   if (!githubConfigured()) return NextResponse.redirect(new URL("/projects?error=github_not_configured", request.url));
   const state = crypto.randomUUID();
   const jar = await cookies();
-  jar.set("elias_github_connect_state", state, { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/", maxAge: 600 });
+  jar.set("elias_oauth_state", `connect:${state}`, { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/", maxAge: 600 });
   const url = new URL("https://github.com/login/oauth/authorize");
   url.searchParams.set("client_id", process.env.GITHUB_CLIENT_ID!);
-  url.searchParams.set("redirect_uri", `${new URL(request.url).origin}/api/connect/github/callback`);
+  url.searchParams.set("redirect_uri", oauthRedirectUri(request, "github"));
   url.searchParams.set("scope", "repo read:org");
   url.searchParams.set("state", state);
   return NextResponse.redirect(url);
