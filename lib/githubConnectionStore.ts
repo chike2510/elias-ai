@@ -118,5 +118,8 @@ export async function deleteGitHubConnection(userId: string) {
 export async function getGitHubToken(session: EliasSession | null) {
   if (!session) return undefined;
   const stored = await getGitHubConnection(session.userId).catch(() => undefined);
-  return stored?.token;
+  if (stored?.token) return stored.token;
+  // Vercel deployments without POSTGRES_URL can still keep the separately-authorized
+  // repository token in the encrypted Elias session cookie. Login never sets this marker.
+  return session.githubTokenType === "repository" ? session.githubToken : undefined;
 }

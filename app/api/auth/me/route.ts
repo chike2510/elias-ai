@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
-import { getGitHubConnection } from "@/lib/githubConnectionStore";
+import { getGitHubToken } from "@/lib/githubConnectionStore";
 import { vercelMcpConfigured } from "@/lib/vercelMcp";
 
 export async function GET() {
   const session = await getSession();
-  const githubConnection = session ? await getGitHubConnection(session.userId).catch(() => undefined) : undefined;
+  const githubToken = session ? await getGitHubToken(session).catch(() => undefined) : undefined;
   return NextResponse.json({
     user: session
       ? {
@@ -14,7 +14,7 @@ export async function GET() {
           name: session.name,
           email: session.email,
           avatarUrl: session.avatarUrl,
-          githubConnected: Boolean(githubConnection),
+          githubConnected: Boolean(githubToken),
           vercelConnected: Boolean(session.vercelConnected),
           vercelAccount: session.vercelConnected ? { teamId: session.vercelTeamId } : null,
           vercelMcpConfigured: vercelMcpConfigured(),

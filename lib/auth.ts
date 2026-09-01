@@ -7,7 +7,9 @@ export type EliasSession = {
   name?: string;
   email?: string;
   avatarUrl?: string;
+  /** Legacy field retained only for repository-connector fallback storage. Login never writes it. */
   githubToken?: string;
+  githubTokenType?: "repository";
   githubConnected?: boolean;
   vercelApiToken?: string;
   vercelConnected?: boolean;

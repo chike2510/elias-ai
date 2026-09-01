@@ -1658,3 +1658,140 @@ input[hidden], textarea[hidden], button[hidden] { display: none !important; }
   .legal-lede { font-size: 12px; }
   .legal-body { font-size: 12px; line-height: 1.65; }
 }
+
+
+/* Balanced desktop and mobile layout refinements */
+.app-main { flex: 1 1 auto; }
+
+.connectors-screen,
+.connector-detail-screen {
+  width: min(100%, 1080px);
+  padding: clamp(24px, 4vw, 52px) clamp(16px, 4vw, 56px) 72px;
+}
+.connectors-screen .mobile-screen-heading,
+.connector-detail-screen .mobile-screen-heading {
+  margin-bottom: clamp(22px, 3vw, 34px);
+}
+.connectors-screen .mobile-screen-heading h1,
+.connector-detail-screen .mobile-screen-heading h1 {
+  color: #f1eef5;
+  font-size: clamp(25px, 2.1vw, 34px);
+  text-transform: none;
+}
+.connector-search { min-height: 44px; }
+.connector-tabs { gap: 8px; margin-bottom: 18px; }
+.connector-tabs button { min-height: 36px; padding: 8px 14px; font-size: 11px; }
+.connector-list { grid-template-columns: repeat(auto-fit, minmax(min(100%, 350px), 1fr)); gap: 12px; }
+.connector-card { min-height: 78px; padding: 16px 17px; gap: 13px; }
+.connector-card-icon { width: 42px; height: 42px; flex-basis: 42px; border-radius: 12px; }
+.connector-card-copy { gap: 5px; }
+.connector-card-copy strong { font-size: 14px; }
+.connector-card-copy > small { font-size: 11px; line-height: 1.45; }
+.connector-card-copy em { font-size: 10px; }
+.connector-registry-note { margin-top: 18px; font-size: 10px; }
+.connector-hero-card { min-height: 178px; padding: 28px 24px; }
+.connector-hero-icon { width: 58px; height: 58px; border-radius: 16px; }
+.connector-hero-card h2 { font-size: 23px; }
+.connector-hero-card p { max-width: 500px; font-size: 12px; }
+.detail-list { gap: 8px; }
+.detail-list > div { min-height: 48px; padding: 13px 15px; }
+.detail-list span { font-size: 10px; }
+.detail-list strong { font-size: 11px; }
+.connector-auth-card, .repos-panel, .tools-panel { padding: 18px; }
+.auth-heading strong, .connected-heading strong { font-size: 13px; }
+.auth-heading small, .connected-heading small { font-size: 10px; }
+.connector-cta, .connector-disconnect, .connector-reconnect { min-height: 40px; }
+.connector-help { font-size: 10px; }
+.connector-links { gap: 12px 18px; }
+.connector-links a { font-size: 10px; }
+.repo-list { grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)); gap: 10px; }
+.repo-row { min-height: 64px; padding: 12px; gap: 11px; }
+.repo-row strong { font-size: 11px; }
+.repo-row small, .repo-row em { font-size: 9px; }
+
+.workspace-destination {
+  width: min(100%, 1080px);
+  padding: clamp(28px, 4vw, 52px) clamp(16px, 4vw, 56px) 72px;
+}
+.projects-screen { max-width: 1080px; }
+.projects-heading { margin-bottom: 22px; }
+.projects-heading .primary { min-height: 40px; padding: 10px 15px; font-size: 11px; }
+.project-search { min-height: 44px; margin-bottom: 20px; }
+.project-card-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)); gap: 12px; }
+.project-card { min-height: 132px; padding: 17px; border-radius: 15px; }
+.project-card-top { gap: 12px; }
+.project-card-copy strong { font-size: 14px; }
+.project-card-copy small { font-size: 11px; line-height: 1.45; }
+.project-card-divider { margin: 15px 0 11px; }
+.project-card-meta { gap: 10px; font-size: 10px; }
+.projects-source-status { min-height: 42px; margin: -7px 0 20px; padding: 9px 12px; font-size: 10px; }
+.projects-source-status > a { font-size: 10px; }
+.projects-source-status > button { width: 28px; height: 28px; }
+.empty-state { min-height: 220px; padding: 32px; }
+.empty-state b { font-size: 15px; }
+.empty-state small { max-width: 460px; font-size: 11px; }
+
+@media (min-width: 701px) {
+  .clean-app-shell { width: 100%; max-width: 1440px; }
+  .clean-sidebar { width: 248px; flex-basis: 248px; padding: 24px 17px 18px; }
+  .clean-topbar { padding-left: clamp(24px, 4vw, 56px); padding-right: clamp(24px, 4vw, 56px); }
+  .connector-detail-screen { display: grid; grid-template-columns: minmax(0, 1.08fr) minmax(320px, .92fr); align-items: start; gap: 18px; }
+  .connector-detail-screen > .mobile-screen-heading,
+  .connector-detail-screen > .connector-auth-card,
+  .connector-detail-screen > .repos-panel,
+  .connector-detail-screen > .connector-links { grid-column: 1 / -1; }
+  .connector-detail-screen > .mobile-screen-heading { margin-bottom: 4px; }
+  .connector-detail-screen > .detail-list { margin-top: 0; }
+  .connector-detail-screen > .connector-auth-card,
+  .connector-detail-screen > .repos-panel,
+  .connector-detail-screen > .connector-links { margin-top: 0; }
+  .connector-detail-screen > .repos-panel { padding: 20px; }
+  .connector-detail-screen > .connector-links { padding: 0 4px 8px; }
+  .connector-detail-screen .repo-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .connectors-screen .connector-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .projects-source-status > span { flex: 1 1 auto; }
+}
+
+@media (max-width: 700px) {
+  .connectors-screen,
+  .connector-detail-screen,
+  .workspace-destination { padding: 22px 16px 54px; }
+  .connectors-screen .mobile-screen-heading,
+  .connector-detail-screen .mobile-screen-heading { margin-bottom: 24px; }
+  .connector-list, .project-card-list, .repo-list { grid-template-columns: 1fr; }
+  .connector-card { min-height: 72px; padding: 14px; }
+  .connector-card-copy strong { font-size: 13px; }
+  .connector-card-copy > small { font-size: 10px; }
+  .connector-hero-card { min-height: 0; padding: 22px 18px; }
+  .connector-hero-card h2 { font-size: 21px; }
+  .connector-hero-card p { font-size: 11px; }
+  .connector-auth-card, .repos-panel, .tools-panel { padding: 15px; }
+  .repo-row { min-height: 60px; }
+  .projects-heading { align-items: flex-start; gap: 12px; }
+  .projects-heading .screen-header-copy h1 { font-size: clamp(27px, 8vw, 32px); }
+  .projects-heading .primary { min-width: 76px; }
+  .project-card { min-height: 0; }
+  .projects-source-status { margin-top: -6px; }
+  .projects-source-status > span { flex: 1 1 100%; }
+  .projects-source-status > a { margin-left: 0; }
+  .empty-state { min-height: 210px; padding: 26px 18px; }
+}
+
+@media (min-width: 1180px) {
+  .connector-detail-screen .repo-list { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+.connector-notice {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 11px 13px;
+  border: 1px solid rgba(113, 189, 131, .32);
+  border-radius: 10px;
+  background: rgba(35, 75, 47, .18);
+  color: #a8d5af;
+  font-size: 10px;
+  line-height: 1.45;
+}
+@media (max-width: 700px) {
+  .connector-notice { font-size: 9px; }
+}

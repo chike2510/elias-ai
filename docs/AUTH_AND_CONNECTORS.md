@@ -18,7 +18,7 @@ VERCEL_MCP_TOKEN=<bridge-secret-if-using-an-external-MCP-client>
 VERCEL_API_TOKEN=<not-used-as-a-shared-production-secret>
 ```
 
-`ELIAS_SESSION_SECRET` encrypts the HttpOnly Elias session cookie. Repository OAuth tokens are encrypted and stored in the server-side GitHub connection store; the login OAuth token is used only during sign-in to read the GitHub profile and email, and is not stored as repository access.
+`ELIAS_SESSION_SECRET` encrypts the HttpOnly Elias session cookie. Repository OAuth tokens are encrypted and stored in the server-side GitHub connection store when durable storage is available; a repository-only token is also retained in the encrypted session as a fallback for deployments without `POSTGRES_URL`. The login OAuth token is used only during sign-in to read the GitHub profile and email, and is never treated as repository access.
 
 ## GitHub OAuth App
 
