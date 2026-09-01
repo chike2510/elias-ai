@@ -71,8 +71,25 @@ export function oauthRedirectUri(request: Request, provider: "github" | "vercel"
   return `${origin}/api/auth/${provider}/callback`;
 }
 
-export function githubConfigured() {
-  return Boolean(process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET);
+export type GitHubOAuthFlow = "login" | "connect";
+
+export function githubLoginConfigured() {
+  return Boolean(process.env.GITHUB_LOGIN_CLIENT_ID && process.env.GITHUB_LOGIN_CLIENT_SECRET);
+}
+
+export function githubRepositoryConfigured() {
+  return Boolean(process.env.GITHUB_REPO_CLIENT_ID && process.env.GITHUB_REPO_CLIENT_SECRET);
+}
+
+export function githubConfigured(flow: GitHubOAuthFlow = "login") {
+  return flow === "login" ? githubLoginConfigured() : githubRepositoryConfigured();
+}
+
+export function githubOAuthCredentials(flow: GitHubOAuthFlow) {
+  if (!githubConfigured(flow)) return undefined;
+  return flow === "login"
+    ? { clientId: process.env.GITHUB_LOGIN_CLIENT_ID!, clientSecret: process.env.GITHUB_LOGIN_CLIENT_SECRET! }
+    : { clientId: process.env.GITHUB_REPO_CLIENT_ID!, clientSecret: process.env.GITHUB_REPO_CLIENT_SECRET! };
 }
 
 export function publicOrigin(request: Request) {

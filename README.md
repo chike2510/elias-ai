@@ -22,7 +22,7 @@ Validation commands are implemented in `lib/execution.ts` but are disabled by de
 
 ## Environment configuration
 
-Set only the provider keys you actually use on the server. Keys are never read by client-side code.
+Set only the provider keys you actually use on the server. Keys are never read by client-side code. `GITHUB_LOGIN_CLIENT_ID` and `GITHUB_LOGIN_CLIENT_SECRET` are used only for Elias account sign-in; `GITHUB_REPO_CLIENT_ID` and `GITHUB_REPO_CLIENT_SECRET` are used only for the separate repository connector flow.
 
 ```text
 QWEN_API_KEY=
@@ -31,6 +31,10 @@ GROQ_API_KEY=
 OPENROUTER_API_KEY=
 CEREBRAS_API_KEY=
 MISTRAL_API_KEY=
+GITHUB_LOGIN_CLIENT_ID=
+GITHUB_LOGIN_CLIENT_SECRET=
+GITHUB_REPO_CLIENT_ID=
+GITHUB_REPO_CLIENT_SECRET=
 GITHUB_TOKEN=
 
 # Optional local/trusted-worker task persistence.

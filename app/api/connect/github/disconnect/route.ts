@@ -8,6 +8,6 @@ export async function POST() {
 
   await deleteGitHubConnection(session.userId).catch(() => undefined);
   const { githubToken: _githubToken, githubConnected: _githubConnected, ...rest } = session;
-  await setSession({ ...rest, githubConnected: false });
+  await setSession(rest);
   return NextResponse.json({ connected: false });
 }

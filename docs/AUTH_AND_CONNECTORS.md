@@ -7,8 +7,10 @@ Elias now uses GitHub OAuth for account creation and sign-in. GitHub repository 
 Configure these values in the local `.env.local` file and in the Vercel project environment settings. Do not commit secrets.
 
 ```text
-GITHUB_CLIENT_ID=...
-GITHUB_CLIENT_SECRET=...
+GITHUB_LOGIN_CLIENT_ID=...
+GITHUB_LOGIN_CLIENT_SECRET=...
+GITHUB_REPO_CLIENT_ID=...
+GITHUB_REPO_CLIENT_SECRET=...
 ELIAS_SESSION_SECRET=use-a-long-random-value-at-least-32-characters
 VERCEL_MCP_URL=https://elias-ai-chi.vercel.app/api/mcp/vercel
 # Optional service configuration; user credentials are collected per Elias account.
@@ -16,7 +18,7 @@ VERCEL_MCP_TOKEN=<bridge-secret-if-using-an-external-MCP-client>
 VERCEL_API_TOKEN=<not-used-as-a-shared-production-secret>
 ```
 
-`ELIAS_SESSION_SECRET` encrypts the HttpOnly Elias session cookie. The current prototype stores the authorized provider tokens inside that encrypted cookie so the connector flow works without introducing a database. For production scale, move user and connector records into a server-side database and store only an opaque session identifier in the cookie.
+`ELIAS_SESSION_SECRET` encrypts the HttpOnly Elias session cookie. Repository OAuth tokens are encrypted and stored in the server-side GitHub connection store; the login OAuth token is used only during sign-in to read the GitHub profile and email, and is not stored as repository access.
 
 ## GitHub OAuth App
 
@@ -26,13 +28,13 @@ Create a GitHub OAuth App under **Settings → Developer settings → OAuth Apps
 https://YOUR-ELIAS-DOMAIN/api/auth/github/callback
 ```
 
-The same OAuth App is used when the user later chooses **+ add → Connect GitHub**. That second flow requests repository access and returns through:
+Create a second GitHub OAuth App for repository access. The login flow uses `GITHUB_LOGIN_CLIENT_ID` and `GITHUB_LOGIN_CLIENT_SECRET`; the **+ add → Connect GitHub** flow uses `GITHUB_REPO_CLIENT_ID` and `GITHUB_REPO_CLIENT_SECRET`. Both OAuth Apps must register the shared callback URL because the callback handler selects the client credentials from the signed OAuth state:
 
 ```text
-https://YOUR-ELIAS-DOMAIN/api/connect/github/callback
+https://YOUR-ELIAS-DOMAIN/api/auth/github/callback
 ```
 
-The initial sign-in requests only `read:user user:email`. The separate repository connection requests `repo read:org`. This separation means account identity is not automatically treated as permission to read or modify repositories.
+The login flow requests only `read:user user:email`. The repository connection requests `repo read:org`. The repository token is kept in the separate encrypted GitHub connection store and is the only GitHub credential used by repository reads and writes. Account identity is therefore not automatically treated as permission to read or modify repositories. Existing users should reconnect GitHub after deploying this change so their repository token is saved under the new repository flow.
 
 ## Model providers
 

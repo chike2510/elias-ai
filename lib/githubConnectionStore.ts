@@ -12,6 +12,7 @@ export type GitHubConnection = {
   avatarUrl?: string;
   token: string;
   scopes: string[];
+  connectionType: "repository";
   connectedAt: number;
   updatedAt: number;
 };
@@ -78,7 +79,7 @@ function fromStored(value: unknown): GitHubConnection | undefined {
   if (!value || typeof value !== "object") return undefined;
   const item = value as Partial<StoredGitHubConnection>;
   const token = typeof item.tokenCiphertext === "string" ? decryptToken(item.tokenCiphertext) : undefined;
-  if (!token || typeof item.userId !== "string" || typeof item.login !== "string" || !Array.isArray(item.scopes)) return undefined;
+  if (!token || typeof item.userId !== "string" || typeof item.login !== "string" || !Array.isArray(item.scopes) || item.connectionType !== "repository") return undefined;
   return clone({ ...item, token } as GitHubConnection);
 }
 
@@ -117,8 +118,5 @@ export async function deleteGitHubConnection(userId: string) {
 export async function getGitHubToken(session: EliasSession | null) {
   if (!session) return undefined;
   const stored = await getGitHubConnection(session.userId).catch(() => undefined);
-  if (stored?.token) return stored.token;
-  if (!session.githubToken) return undefined;
-  await saveGitHubConnection({ userId: session.userId, login: session.login, name: session.name, email: session.email, avatarUrl: session.avatarUrl, token: session.githubToken, scopes: ["legacy-session"], connectedAt: session.createdAt, updatedAt: Date.now() }).catch(() => undefined);
-  return session.githubToken;
+  return stored?.token;
 }
