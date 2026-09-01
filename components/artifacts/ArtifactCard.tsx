@@ -59,6 +59,11 @@ function labelFor(kind: string) {
   return ({ pdf: "PDF", doc: "DOC", slides: "SLIDES", code: "CODE", image: "IMAGE", archive: "ARCHIVE", text: "TEXT", file: "FILE" } as Record<string, string>)[kind] || "FILE";
 }
 
+function fileTypeLabel(name: string, kind: string) {
+  const extension = artifactExtension(name);
+  return ({ tsx: "TSX", ts: "TS", jsx: "JSX", js: "JS", css: "CSS", html: "HTML", json: "JSON", md: "MD", txt: "TXT", py: "PY", pdf: "PDF", docx: "DOCX", pptx: "PPTX" } as Record<string, string>)[extension] || labelFor(kind);
+}
+
 function formatSize(size?: number) {
   if (!size || size < 1) return "";
   if (size < 1024) return `${size} B`;
@@ -68,14 +73,15 @@ function formatSize(size?: number) {
 
 export default function ArtifactCard({ artifact, href, compact = false, status = "ready", taskLabel, onPreview, onDownload }: ArtifactCardProps) {
   const kind = artifactKind(artifact.name, artifact.type);
-  const metadata = [labelFor(kind), artifact.pageCount ? `${artifact.pageCount} pages` : "", artifact.chunks?.length ? `${artifact.chunks.length} chunks` : "", formatSize(artifact.size)].filter(Boolean).join(" · ");
+  const typeLabel = fileTypeLabel(artifact.name, kind);
+  const metadata = [typeLabel, artifact.pageCount ? `${artifact.pageCount} pages` : "", artifact.chunks?.length ? `${artifact.chunks.length} chunks` : "", formatSize(artifact.size)].filter(Boolean).join(" · ");
   const canPreview = Boolean(onPreview && (artifact.text !== undefined || artifact.preview !== undefined || artifact.content !== undefined || artifact.blob));
   const actionLabel = canPreview ? "Preview" : href ? "Open" : "Download";
   const action = onPreview || onDownload;
   const actionContent: ReactNode = action ? <button type="button" className="artifact-card-action" onClick={onPreview || onDownload}>{actionLabel}<ArrowUpRight size={12} /></button> : href ? <a className="artifact-card-action" href={href} target="_blank" rel="noreferrer" download={href.startsWith("/api/") || href.startsWith("data:")}>{actionLabel}<ArrowUpRight size={12} /></a> : null;
 
   return <article className={`artifact-card artifact-card-${kind} artifact-status-${status} ${compact ? "artifact-card-compact" : ""}`}>
-    <span className="artifact-card-icon">{iconFor(kind)}<small>{labelFor(kind)}</small></span>
+    <span className="artifact-card-icon">{iconFor(kind)}<small>{typeLabel}</small></span>
     <span className="artifact-card-copy"><strong title={artifact.name}>{artifact.name}</strong><small>{metadata || "Generated artifact"}{taskLabel ? ` · ${taskLabel}` : ""}</small>{artifact.summary && !compact ? <span>{artifact.summary}</span> : null}</span>
     <span className="artifact-card-actions">{status === "working" ? <span className="artifact-card-status"><span className="artifact-status-dot" />Preparing</span> : status === "error" ? <span className="artifact-card-status error">Unavailable</span> : <><span className="artifact-ready-icon"><CheckCircle2 size={13} /></span>{actionContent}{onDownload && onPreview ? <button type="button" className="artifact-icon-action" onClick={onDownload} aria-label={`Download ${artifact.name}`}><ArrowDownToLine size={14} /></button> : null}</>}</span>
   </article>;

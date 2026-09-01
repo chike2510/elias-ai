@@ -34,7 +34,8 @@ export default function AppShell({ children, title }: { children: React.ReactNod
   }, []);
   async function logout() { await fetch("/api/auth/logout", { method: "POST" }); window.location.href = "/login"; }
 
-  return <div className={`app-shell clean-app-shell ${pathname === "/chat" ? "open-chat-shell" : ""}`}>
+  const surface = pathname.split("/").filter(Boolean)[0] || "home";
+  return <div className={`app-shell clean-app-shell surface-${surface} ${pathname === "/chat" ? "open-chat-shell" : ""}`}>
     <aside className="desktop-sidebar clean-sidebar">
       <Link href="/" className="brand clean-brand"><span className="brand-mark"><img src="/branding/elias-logo.png" alt="" /></span><span className="brand-wordmark">ELIAS</span></Link>
       <button className="clean-new-button" type="button" onClick={() => { window.location.href = "/chat"; }}><SquarePen size={15} /> New conversation</button>

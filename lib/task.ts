@@ -149,6 +149,7 @@ export function inferTaskType(kind: TaskKind): TaskType {
   if (kind === "code") return "code";
   if (kind === "research") return "research";
   if (kind === "study") return "study";
+  if (kind === "media") return "media";
   return "general";
 }
 
@@ -186,6 +187,14 @@ export function buildPlan(input: CreateTaskInput, now = Date.now()): TaskPlanSte
           ["read", "Read and compare evidence", "Open relevant sources and record evidence excerpts.", "network"],
           ["synthesize", "Synthesize the findings", "Separate sourced facts, inferences, and recommendations."],
           ["deliver", "Prepare the research artifact", "Create a readable report with source references."],
+        ]
+      : kind === "media"
+      ? [
+          ["understand", "Understand the generation brief", "Clarify the asset type, style, dimensions, and delivery requirements."],
+          ["permission", "Confirm generation permission", "Confirm that the requested generation and external provider use are allowed."],
+          ["submit", "Submit the generation job", "Send the prompt and bounded generation parameters to the selected provider.", "network"],
+          ["poll", "Monitor generation status", "Poll the asynchronous job until it completes or reports a failure.", "network"],
+          ["deliver", "Deliver the generated asset", "Store the completed asset in the task artifact pipeline."],
         ]
       : [
           ["understand", "Understand the objective", "Clarify the requested outcome and constraints."],

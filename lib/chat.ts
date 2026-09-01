@@ -55,6 +55,7 @@ export async function runChat({ messages, task, provider: requestedProvider, mod
         model,
         content: response.text,
         finishReason: response.finishReason,
+        fallbackProviders: errors.map((item) => item.split(":")[0]).filter(Boolean),
       };
     } catch (error) {
       errors.push(`${provider}: ${error instanceof Error ? error.message : "request failed"}`);

@@ -22,7 +22,7 @@ import {
   updateStoredTask,
 } from "@/lib/taskStore";
 import { runAgentStep } from "@/lib/agent";
-import { artifactMime, textToDocx, textToPdf, textToPptx } from "@/lib/artifacts";
+import { artifactMime, formatTextArtifact, textToDocx, textToPdf, textToPptx } from "@/lib/artifacts";
 import { performBrowserAction } from "@/lib/browser/browserManager";
 
 const MAX_STEPS = 12;
@@ -175,7 +175,7 @@ async function executeRequest(task: TaskRecord, request: AgentRequest): Promise<
   const pdf = extension === "pdf" || request.mimeType === "application/pdf";
   const binary = pdf || officeDoc || officeSlides;
   const encoding = binary ? "base64" as const : (request.encoding || "utf8") as "utf8" | "base64";
-  const content = pdf ? textToPdf(request.content) : officeDoc ? await textToDocx(request.content) : officeSlides ? await textToPptx(request.content) : request.encoding === "base64" ? request.content : request.content;
+  const content = pdf ? await textToPdf(request.content) : officeDoc ? await textToDocx(request.content) : officeSlides ? await textToPptx(request.content) : request.encoding === "base64" ? request.content : await formatTextArtifact(request.name, request.content);
   const type = request.mimeType || artifactMime(request.name);
   await updateStoredTask(task.id, (current) => {
     current.artifacts.push({ id: artifactId, taskId: task.id, name: request.name, type, encoding, size: content.length, createdAt: Date.now(), preview: request.content.slice(0, 2_000), content });
@@ -204,7 +204,7 @@ async function createFallbackArtifact(task: TaskRecord, message: string) {
   const artifactId = `artifact_${crypto.randomUUID()}`;
   const name = `elias-deliverable.${requested}`;
   const isPdf = requested === "pdf";
-  const content = requested === "docx" ? await textToDocx(message) : requested === "pptx" ? await textToPptx(message) : isPdf ? textToPdf(message) : message;
+  const content = requested === "docx" ? await textToDocx(message) : requested === "pptx" ? await textToPptx(message) : isPdf ? await textToPdf(message) : await formatTextArtifact(name, message);
   const encoding = isPdf || requested === "docx" || requested === "pptx" ? "base64" as const : "utf8" as const;
   const type = artifactMime(name);
   await updateStoredTask(task.id, (current) => {
