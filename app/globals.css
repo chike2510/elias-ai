@@ -2168,3 +2168,20 @@ input[hidden], textarea[hidden], button[hidden] { display: none !important; }
   .studio-generation-success { align-items: flex-start; flex-wrap: wrap; }
   .studio-generation-success .secondary { margin-left: 25px; }
 }
+
+/* Structural label/description spacing for approval and memory surfaces */
+.approval-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.approval-metric { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.approval-metric b { display: block; line-height: 1; }
+.approval-metric span { display: block; color: #8e8998; font-size: 9px; line-height: 1.35; }
+.approval-inbox-main { min-width: 0; }
+.approval-risk { display: inline-flex; align-items: center; gap: 5px; }
+.approval-question { display: block; margin-top: 10px; line-height: 1.35; }
+.memory-stat-copy, .memory-empty-copy { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.memory-stat-copy strong, .memory-empty-copy strong { display: block; line-height: 1.25; }
+.memory-stat-copy small, .memory-empty-copy small { display: block; color: #8e8998; line-height: 1.45; }
+@media (max-width: 560px) {
+  .approval-metrics { gap: 7px; }
+  .approval-metric span { font-size: 8px; }
+  .approval-question { margin-top: 9px; }
+}

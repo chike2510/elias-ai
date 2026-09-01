@@ -24,6 +24,8 @@ import {
 import { runAgentStep } from "@/lib/agent";
 import { artifactMime, formatTextArtifact, textToDocx, textToPdf, textToPptx } from "@/lib/artifacts";
 import { performBrowserAction } from "@/lib/browser/browserManager";
+import { getSession } from "@/lib/auth";
+import { getGitHubToken } from "@/lib/githubConnectionStore";
 
 const MAX_STEPS = 12;
 const MAX_FILE_CHARS = 1_000_000;
@@ -39,6 +41,54 @@ function hasPermission(task: TaskRecord, permission: PermissionLevel) {
 }
 function isBrowserRequest(request: AgentRequest): request is Extract<AgentRequest, { type: `browser_${string}` }> {
   return request.type.startsWith("browser_");
+}
+
+function repositoryReference(objective: string) {
+  const url = objective.match(/github\.com[/:]([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)/i);
+  if (url) return { owner: url[1], repo: url[2].replace(/\.git$/i, "") };
+  const pair = objective.match(/(?:repository|repo)\s+(?:called\s+|named\s+)?([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)/i);
+  return pair ? { owner: pair[1], repo: pair[2] } : undefined;
+}
+
+function referencesRepository(objective: string) {
+  return /\b(?:github|repository|repo|codebase|code base)\b/i.test(objective);
+}
+
+const TEXT_FILE = /\.(?:md|mdx|txt|json|ya?ml|toml|ini|env(?:\.example)?|js|jsx|ts|tsx|mjs|cjs|css|scss|html|xml|svg|py|rb|go|rs|java|kt|swift|php|sql|sh|bash|zsh|dockerfile|gitignore)$/i;
+
+async function hydrateRepositoryWorkspace(task: TaskRecord) {
+  if (task.workspace.length || !referencesRepository(task.objective)) return false;
+  const reference = repositoryReference(task.objective);
+  if (!reference) throw new Error("This task references a repository, but no GitHub owner/repository was specified. Open the repository workspace and use Ask Elias, or include a URL such as https://github.com/owner/repo.");
+  const token = await getGitHubToken(await getSession());
+  if (!token) throw new Error(`GitHub is not connected for ${reference.owner}/${reference.repo}. Connect GitHub before asking Elias to analyze a repository.`);
+  const headers = { Accept: "application/vnd.github+json", Authorization: `Bearer ${token}`, "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "ELIAS" };
+  const base = `https://api.github.com/repos/${encodeURIComponent(reference.owner)}/${encodeURIComponent(reference.repo)}`;
+  const repoResponse = await fetch(base, { headers, cache: "no-store", signal: AbortSignal.timeout(15_000) });
+  if (!repoResponse.ok) throw new Error(`GitHub repository lookup failed for ${reference.owner}/${reference.repo} (${repoResponse.status}).`);
+  const repo = await repoResponse.json() as { default_branch?: string };
+  const branch = repo.default_branch || "main";
+  const treeResponse = await fetch(`${base}/git/trees/${encodeURIComponent(branch)}?recursive=1`, { headers, cache: "no-store", signal: AbortSignal.timeout(20_000) });
+  if (!treeResponse.ok) throw new Error(`GitHub file tree lookup failed for ${reference.owner}/${reference.repo} (${treeResponse.status}).`);
+  const tree = await treeResponse.json() as { truncated?: boolean; tree?: Array<{ path?: string; type?: string; size?: number }> };
+  const paths = (tree.tree || []).filter((item) => item.type === "blob" && typeof item.path === "string" && TEXT_FILE.test(item.path) && (item.size || 0) <= 180_000).map((item) => item.path as string);
+  const prioritized = paths.sort((left, right) => Number(/(^|\/)(readme|package\.json|tsconfig\.json|next\.config|app|src|lib|components)(\.|\/|$)/i.test(right)) - Number(/(^|\/)(readme|package\.json|tsconfig\.json|next\.config|app|src|lib|components)(\.|\/|$)/i.test(left))).slice(0, 60);
+  const files: WorkspaceFile[] = [];
+  for (let start = 0; start < prioritized.length; start += 8) {
+    const batch = await Promise.all(prioritized.slice(start, start + 8).map(async (path) => {
+      const response = await fetch(`${base}/contents/${path.split("/").map(encodeURIComponent).join("/")}?ref=${encodeURIComponent(branch)}`, { headers, cache: "no-store", signal: AbortSignal.timeout(15_000) });
+      if (!response.ok) return undefined;
+      const payload = await response.json() as { type?: string; content?: string; encoding?: string };
+      if (payload.type !== "file" || typeof payload.content !== "string") return undefined;
+      const content = payload.encoding === "base64" ? Buffer.from(payload.content.replace(/\s/g, ""), "base64").toString("utf8") : payload.content;
+      return { path, content: content.slice(0, MAX_FILE_CHARS), size: content.length };
+    }));
+    files.push(...batch.filter((file): file is { path: string; content: string; size: number } => Boolean(file)));
+  }
+  if (!files.length) throw new Error(`GitHub returned no readable text files for ${reference.owner}/${reference.repo}; refusing to generate a report from an empty workspace.`);
+  await updateStoredTask(task.id, (current) => { if (!current.workspace.length) current.workspace = files; });
+  await recordTaskEvent(task.id, { kind: "tool", label: "Repository workspace loaded", status: "completed", detail: `Loaded ${files.length} text files from ${reference.owner}/${reference.repo} on ${branch}${tree.truncated ? " (GitHub tree was truncated)" : ""}.`, evidence: { type: "json", value: { repository: `${reference.owner}/${reference.repo}`, branch, fileCount: files.length, paths: files.map((file) => file.path) } } });
+  return true;
 }
 
 function permissionForRequest(request: AgentRequest): PermissionLevel {
@@ -235,6 +285,8 @@ export async function runTaskStep(id: string): Promise<TaskRecord> {
   await setTaskStatus(id, "running");
   task = (await getStoredTask(id))!;
   try {
+    await hydrateRepositoryWorkspace(task);
+    task = (await getStoredTask(id))!;
     const output = await runAgentStep({ task: task.objective, browserSessionId: task.browserSessionId, taskType: task.taskType, preferredProvider: task.preferredProvider, preferredModel: task.preferredModel, files: task.workspace, messages: task.events.filter((event) => event.kind === "message").map((event) => ({ role: "assistant", content: event.detail || event.label })), toolResults: task.toolResults });
     if (output.message) await recordTaskEvent(id, { kind: "message", label: "Agent response", status: "completed", detail: output.message, stepId: currentStep?.id, evidence: { type: "text", value: output.message } });
 
@@ -269,6 +321,11 @@ export async function runTaskStep(id: string): Promise<TaskRecord> {
 
     task = (await getStoredTask(id))!;
     if (!output.requests.length && !output.actions.length && output.done && output.message) {
+      if (referencesRepository(task.objective) && task.workspace.length === 0 && wantsDeliverable(task.objective)) {
+        const message = "Repository context is empty, so ELIAS will not generate a report. Connect a repository or retry with a GitHub URL.";
+        await recordTaskEvent(id, { kind: "error", label: "Report blocked: repository context empty", status: "failed", detail: message, stepId: currentStep?.id });
+        return await setTaskStatus(id, "failed", message);
+      }
       if (wantsDeliverable(task.objective) && providerRefusedArtifact(output.message)) {
         const cleaned = stripArtifactRefusal(output.message);
         const artifactId = await createFallbackArtifact(task, cleaned);
