@@ -1,6 +1,6 @@
 export type TaskType = "general" | "code" | "research" | "study" | "media";
 
-export type ProviderName = "qwen" | "agentrouter" | "groq" | "openrouter" | "cerebras" | "mistral" | "github";
+export type ProviderName = "experiential" | "qwen" | "agentrouter" | "groq" | "openrouter" | "cerebras" | "mistral" | "github";
 
 export type WorkspaceFile = {
   path: string;

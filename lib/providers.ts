@@ -1,6 +1,12 @@
 import type { ProviderConfig, ProviderName, TaskType } from "@/lib/types";
 
 const CONFIG: Record<ProviderName, ProviderConfig> = {
+  experiential: {
+    name: "experiential",
+    key: process.env.EXPERIENTIAL_API_KEY || process.env.EXPLABS_API_KEY,
+    baseUrl: process.env.EXPERIENTIAL_BASE_URL || "https://api.experientiallabs.ai/v1",
+    fallbackModels: [process.env.EXPERIENTIAL_MODEL, "qwen3.8-27b", "deepseek-v4-flash", "gpt-5.6-luna"].filter((model): model is string => Boolean(model)),
+  },
   qwen: {
     name: "qwen",
     key: process.env.QWEN_API_KEY,
@@ -180,9 +186,9 @@ export async function listModels(provider: ProviderName): Promise<Array<{ id: st
 function score(id: string, task: TaskType): number {
   const value = id.toLowerCase();
   let score = 0;
-  if (task === "code" && /code|coder|devstral|qwen|kimi|glm|gpt-oss/.test(value)) score += 10;
-  if ((task === "research" || task === "general") && /qwen|kimi|glm|mistral|llama|gpt-oss|deepseek/.test(value)) score += 7;
-  if (task === "study" && /qwen|mistral|kimi|glm|gpt-oss/.test(value)) score += 6;
+  if (task === "code" && /code|coder|devstral|qwen|kimi|glm|gpt-oss|deepseek|claude|gpt/.test(value)) score += 10;
+  if ((task === "research" || task === "general") && /qwen|kimi|glm|mistral|llama|gpt-oss|deepseek|claude|gpt|gemini/.test(value)) score += 7;
+  if (task === "study" && /qwen|mistral|kimi|glm|gpt-oss|deepseek|claude|gpt|gemini/.test(value)) score += 6;
   if (/reason|thinking/.test(value)) score += 2;
   if (/free/.test(value)) score += 2;
   return score;
@@ -197,10 +203,10 @@ export async function pickModel(provider: ProviderName, task: TaskType): Promise
 }
 
 export function providerOrder(task: TaskType, complexity: number): ProviderName[] {
-  if (task === "code" && complexity >= 8) return ["qwen", "agentrouter", "cerebras", "openrouter", "mistral", "github", "groq"];
-  if (task === "code") return ["qwen", "cerebras", "agentrouter", "openrouter", "mistral", "github", "groq"];
-  if (task === "research") return ["openrouter", "cerebras", "qwen", "mistral", "agentrouter", "groq", "github"];
-  return ["cerebras", "qwen", "openrouter", "mistral", "agentrouter", "groq", "github"];
+  if (task === "code" && complexity >= 8) return ["experiential", "qwen", "agentrouter", "cerebras", "openrouter", "mistral", "github", "groq"];
+  if (task === "code") return ["experiential", "qwen", "cerebras", "agentrouter", "openrouter", "mistral", "github", "groq"];
+  if (task === "research") return ["experiential", "openrouter", "cerebras", "qwen", "mistral", "agentrouter", "groq", "github"];
+  return ["experiential", "cerebras", "qwen", "openrouter", "mistral", "agentrouter", "groq", "github"];
 }
 
 export async function chooseProvider(task: TaskType, complexity: number): Promise<ProviderName | null> {
@@ -257,6 +263,9 @@ export type ModelCatalogItem = {
 };
 
 const MODEL_LABELS: Record<string, { label: string; detail: string }> = {
+  "qwen3.8-27b": { label: "Qwen3.8 27B", detail: "Experiential · fast general / code" },
+  "deepseek-v4-flash": { label: "DeepSeek V4 Flash", detail: "Experiential · fast reasoning" },
+  "gpt-5.6-luna": { label: "GPT-5.6 Luna", detail: "Experiential · general / tool-ready" },
   "qwen3.7-plus": { label: "Qwen 3.7 Plus", detail: "Qwen · general / code" },
   "qwen3.7-flash": { label: "Qwen 3.7 Flash", detail: "Qwen · fast reasoning" },
   "kimi-k2.6": { label: "Kimi K2.6", detail: "AgentRouter · reasoning" },

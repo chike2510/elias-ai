@@ -9,7 +9,7 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 const tasks = new Set<TaskType>(["general", "code", "research", "study"]);
-const providers = new Set<ProviderName>(["qwen", "agentrouter", "groq", "openrouter", "cerebras", "mistral", "github"]);
+const providers = new Set<ProviderName>(["experiential", "qwen", "agentrouter", "groq", "openrouter", "cerebras", "mistral", "github"]);
 
 function repositoryFromQuery(query: string) {
   const match = query.match(/(?:github\s+)?repository\s+([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)/i) || query.match(/\b([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\b/);
