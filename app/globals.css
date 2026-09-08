@@ -2432,3 +2432,11 @@ input[hidden], textarea[hidden], button[hidden] { display: none !important; }
   .automation-list-section .section-heading { align-items: flex-start; }
   .automation-card-actions > button:not(.icon-btn) { flex: 1 1 auto; justify-content: center; }
 }
+
+.chat-model-catalog-notice { display: block; margin: 7px 2px 0; color: #8f88a0; font-size: 9px; line-height: 1.45; }
+.chat-model-catalog-notice::before { content: "• "; color: #8f6bd8; }
+.provider-fallback-notice { line-height: 1.45; }
+.task-timeline-card .task-timeline-meta { overflow-wrap: anywhere; }
+@media (max-width: 720px) {
+  .chat-model-catalog-notice { font-size: 8px; }
+}

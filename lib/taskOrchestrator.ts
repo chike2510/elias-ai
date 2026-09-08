@@ -218,6 +218,10 @@ async function executeRequest(task: TaskRecord, request: AgentRequest): Promise<
     }
   }
 
+  const artifactProblem = artifactContentProblem(task, request.content);
+  if (artifactProblem) {
+    return { id: request.id, type: request.type, error: artifactProblem, startedAt, completedAt: Date.now() };
+  }
   const artifactId = `artifact_${crypto.randomUUID()}`;
   const extension = request.name.split(".").pop()?.toLowerCase();
   const officeDoc = extension === "docx";
@@ -248,8 +252,46 @@ function stripArtifactRefusal(message: string) {
     .trim();
 }
 
+function requiresLiveEvidence(task: TaskRecord) {
+  return task.taskType === "research" || /\b(latest|current|today|yesterday|recent|live|news|sources?|citations?|verify|research)\b/i.test(task.objective);
+}
+
+function hasLiveEvidence(task: TaskRecord) {
+  return task.toolResults.some((result) => {
+    if (result.error || !["search_web", "fetch_url"].includes(result.type)) return false;
+    if (result.type === "fetch_url") return Boolean(result.content?.trim());
+    return Array.isArray(result.result) ? result.result.length > 0 : Boolean(result.result);
+  });
+}
+
+function artifactContentProblem(task: TaskRecord, message: string) {
+  const content = message.trim();
+  if (!content) return "The artifact content was empty.";
+  if (content.length < 24) return "The artifact content was too short to be a useful deliverable.";
+  if (providerRefusedArtifact(content)) return "The provider returned a capability refusal instead of deliverable content.";
+  if (/^(i('|’)?ll|let me|i will|i can)\s+(start|begin|research|gather|create|prepare|generate)/i.test(content)) return "The provider returned a progress message instead of final deliverable content.";
+  if (requiresLiveEvidence(task) && !hasLiveEvidence(task)) return "The deliverable was deferred until verified live evidence is available.";
+  return null;
+}
+
+async function repairDeliverableContent(task: TaskRecord, refusal: string) {
+  const repair = await runAgentStep({
+    task: `${task.objective}\n\nCAPABILITY REPAIR: The previous response incorrectly claimed ELIAS cannot create the requested file. The host can create a real downloadable artifact. Return the complete final report content now, using the verified tool results already present. Do not discuss this repair, do not refuse, do not provide setup instructions, and do not request another artifact.`,
+    browserSessionId: task.browserSessionId,
+    taskType: task.taskType,
+    preferredProvider: task.preferredProvider,
+    preferredModel: task.preferredModel,
+    files: task.workspace,
+    messages: [{ role: "assistant", content: refusal }],
+    toolResults: task.toolResults,
+  });
+  return repair.message;
+}
+
 async function createFallbackArtifact(task: TaskRecord, message: string) {
-  if (!wantsDeliverable(task.objective) || !message.trim() || providerRefusedArtifact(message)) return null;
+  if (!wantsDeliverable(task.objective)) return null;
+  const problem = artifactContentProblem(task, message);
+  if (problem) return null;
   const requested = task.objective.match(/\b(docx|pptx|pdf|html|css|tsx|ts|jsx|js|md)\b/i)?.[1]?.toLowerCase() || "md";
   const artifactId = `artifact_${crypto.randomUUID()}`;
   const name = `elias-deliverable.${requested}`;
@@ -287,7 +329,7 @@ export async function runTaskStep(id: string): Promise<TaskRecord> {
   try {
     await hydrateRepositoryWorkspace(task);
     task = (await getStoredTask(id))!;
-    const output = await runAgentStep({ task: task.objective, browserSessionId: task.browserSessionId, taskType: task.taskType, preferredProvider: task.preferredProvider, preferredModel: task.preferredModel, files: task.workspace, messages: task.events.filter((event) => event.kind === "message").map((event) => ({ role: "assistant", content: event.detail || event.label })), toolResults: task.toolResults });
+    let output = await runAgentStep({ task: task.objective, browserSessionId: task.browserSessionId, taskType: task.taskType, preferredProvider: task.preferredProvider, preferredModel: task.preferredModel, files: task.workspace, messages: task.events.filter((event) => event.kind === "message").map((event) => ({ role: "assistant", content: event.detail || event.label })), toolResults: task.toolResults });
     if (output.message) await recordTaskEvent(id, { kind: "message", label: "Agent response", status: "completed", detail: output.message, stepId: currentStep?.id, evidence: { type: "text", value: output.message } });
 
     const results: ToolResult[] = [];
@@ -320,6 +362,11 @@ export async function runTaskStep(id: string): Promise<TaskRecord> {
     }
 
     task = (await getStoredTask(id))!;
+    const failedTools = results.filter((result) => result.error);
+    if (failedTools.length) {
+      if (currentStep) await updateStoredTask(id, (current) => { const step = current.plan.find((item) => item.id === currentStep.id); if (step) { step.status = "active"; step.updatedAt = Date.now(); } });
+      return await setTaskStatus(id, "queued");
+    }
     if (!output.requests.length && !output.actions.length && output.done && output.message) {
       if (referencesRepository(task.objective) && task.workspace.length === 0 && wantsDeliverable(task.objective)) {
         const message = "Repository context is empty, so ELIAS will not generate a report. Connect a repository or retry with a GitHub URL.";
@@ -327,14 +374,25 @@ export async function runTaskStep(id: string): Promise<TaskRecord> {
         return await setTaskStatus(id, "failed", message);
       }
       if (wantsDeliverable(task.objective) && providerRefusedArtifact(output.message)) {
-        const cleaned = stripArtifactRefusal(output.message);
-        const artifactId = await createFallbackArtifact(task, cleaned);
+        try {
+          const repaired = await repairDeliverableContent(task, output.message);
+          output = { ...output, message: repaired, done: true, requests: [], actions: [] };
+        } catch (error) {
+          await recordTaskEvent(id, { kind: "error", label: "Deliverable capability repair failed", status: "failed", detail: error instanceof Error ? error.message : "The provider could not be repaired for artifact generation." });
+        }
+        const artifactId = await createFallbackArtifact(task, output.message);
         if (!artifactId) {
-          await recordTaskEvent(id, { kind: "error", label: "Provider returned no artifact", status: "failed", detail: "The selected provider returned no usable deliverable content." });
-          return await setTaskStatus(id, "failed", "The selected provider did not return usable deliverable content. Retry the task.");
+          const reason = artifactContentProblem(task, output.message) || "The selected provider returned no usable deliverable content.";
+          await recordTaskEvent(id, { kind: "error", label: "Provider returned no artifact", status: "failed", detail: reason });
+          return await setTaskStatus(id, "failed", reason);
         }
       } else {
-        await createFallbackArtifact(task, output.message);
+        const artifactId = await createFallbackArtifact(task, output.message);
+        if (wantsDeliverable(task.objective) && !artifactId) {
+          const reason = artifactContentProblem(task, output.message) || "The selected provider returned no usable deliverable content.";
+          await recordTaskEvent(id, { kind: "error", label: "Deliverable deferred", status: "failed", detail: reason });
+          return await setTaskStatus(id, "failed", reason);
+        }
       }
     }
     if (task.approvals.some((approval) => approval.status === "pending")) return setTaskStatus(id, "waiting_approval");

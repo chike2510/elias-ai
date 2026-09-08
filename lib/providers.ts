@@ -1,11 +1,16 @@
 import type { ProviderConfig, ProviderName, TaskType } from "@/lib/types";
 
+function normalizeBaseUrl(value: string) {
+  const trimmed = value.trim().replace(/\/+$/, "");
+  return trimmed.endsWith("/v1") ? trimmed : `${trimmed}/v1`;
+}
+
 const CONFIG: Record<ProviderName, ProviderConfig> = {
   experiential: {
     name: "experiential",
-    key: process.env.EXPERIENTIAL_API_KEY || process.env.EXPLABS_API_KEY,
-    baseUrl: process.env.EXPERIENTIAL_BASE_URL || "https://api.experientiallabs.ai/v1",
-    fallbackModels: [process.env.EXPERIENTIAL_MODEL, "qwen3.8-27b", "deepseek-v4-flash", "gpt-5.6-luna"].filter((model): model is string => Boolean(model)),
+    key: process.env.EXPLABS_API_KEY || process.env.EXPERIENTIAL_API_KEY,
+    baseUrl: normalizeBaseUrl(process.env.EXPERIENTIAL_BASE_URL || "https://api.experientiallabs.ai"),
+    fallbackModels: [process.env.EXPERIENTIAL_MODEL].filter((model): model is string => Boolean(model)),
   },
   qwen: {
     name: "qwen",
@@ -122,6 +127,24 @@ function parseSse(raw: string): NormalizedProviderResponse | null {
   return { ...last!, text: chunks.join(""), contentType: "text/event-stream" };
 }
 
+function readResponsesOutput(data: unknown): NormalizedProviderResponse | null {
+  if (!data || typeof data !== "object") return null;
+  const value = data as Record<string, unknown>;
+  const output = Array.isArray(value.output) ? value.output : [];
+  const chunks: string[] = [];
+  for (const item of output) {
+    if (!item || typeof item !== "object") continue;
+    const content = (item as Record<string, unknown>).content;
+    if (Array.isArray(content)) {
+      for (const part of content) {
+        if (part && typeof part === "object" && typeof (part as Record<string, unknown>).text === "string") chunks.push((part as Record<string, string>).text);
+      }
+    } else if (typeof content === "string") chunks.push(content);
+  }
+  const text = cleanText(chunks.join(""));
+  return text ? { text, usage: value.usage, raw: data, contentType: "application/json" } : null;
+}
+
 export async function readProviderResponse(response: Response): Promise<NormalizedProviderResponse> {
   const contentType = response.headers.get("content-type") || "";
   const raw = await response.text();
@@ -138,6 +161,8 @@ export async function readProviderResponse(response: Response): Promise<Normaliz
     const parsed = JSON.parse(trimmed) as unknown;
     const choice = readChoice(parsed);
     if (choice) return { ...choice, contentType: contentType || "application/json" };
+    const responsesOutput = readResponsesOutput(parsed);
+    if (responsesOutput) return { ...responsesOutput, contentType: contentType || "application/json" };
 
     if (parsed && typeof parsed === "object" && "error" in parsed) {
       const error = (parsed as { error?: unknown }).error;
@@ -162,25 +187,57 @@ export function configuredProviders(): ProviderName[] {
   return (Object.keys(CONFIG) as ProviderName[]).filter((provider) => Boolean(CONFIG[provider].key));
 }
 
+type ProviderDiagnostic = { configured: boolean; ok: boolean; status?: number; error?: string; modelCount: number };
+const MODEL_DIAGNOSTICS = new Map<ProviderName, ProviderDiagnostic>();
+
+function authHeaders(provider: ProviderName, key: string, variant: "bearer" | "x-api-key" = "bearer"): Record<string, string> {
+  return variant === "x-api-key" ? { "x-api-key": key } : { Authorization: `Bearer ${key}` };
+}
+
+export function providerDiagnostics() {
+  return Object.fromEntries((Object.keys(CONFIG) as ProviderName[]).map((provider) => [provider, MODEL_DIAGNOSTICS.get(provider) || { configured: Boolean(CONFIG[provider].key), ok: false, modelCount: 0 }]));
+}
+
+function modelIds(payload: unknown) {
+  if (!payload || typeof payload !== "object") return [];
+  const value = payload as Record<string, unknown>;
+  const candidates = Array.isArray(value.data) ? value.data : Array.isArray(value.models) ? value.models : [];
+  return candidates.flatMap((item) => {
+    if (typeof item === "string") return [item];
+    if (item && typeof item === "object" && typeof (item as Record<string, unknown>).id === "string") return [(item as Record<string, string>).id];
+    return [];
+  }).map((id) => ({ id }));
+}
+
 export async function listModels(provider: ProviderName): Promise<Array<{ id: string }>> {
   const config = CONFIG[provider];
-  if (!config.key) return [];
-
-  try {
-    const response = await fetch(`${config.baseUrl}/models`, {
-      headers: { Authorization: `Bearer ${config.key}` },
-      cache: "no-store",
-      signal: AbortSignal.timeout(12_000),
-    });
-    const raw = await response.text();
-    if (!response.ok) return [];
-    const data = JSON.parse(raw) as { data?: Array<{ id?: unknown }> };
-    return Array.isArray(data.data)
-      ? data.data.filter((model): model is { id: string } => typeof model?.id === "string")
-      : [];
-  } catch {
+  if (!config.key) {
+    MODEL_DIAGNOSTICS.set(provider, { configured: false, ok: false, modelCount: 0 });
     return [];
   }
+
+  let lastError = "Model catalog request failed.";
+  for (const authVariant of ["bearer", "x-api-key"] as const) {
+    try {
+      const response = await fetch(`${config.baseUrl}/models`, {
+        headers: { ...authHeaders(provider, config.key, authVariant), Accept: "application/json" },
+        cache: "no-store",
+        signal: AbortSignal.timeout(12_000),
+      });
+      const raw = await response.text();
+      if (!response.ok) {
+        lastError = `${response.status}: ${raw.slice(0, 240)}`;
+        continue;
+      }
+      const ids = modelIds(JSON.parse(raw));
+      MODEL_DIAGNOSTICS.set(provider, { configured: true, ok: true, status: response.status, modelCount: ids.length });
+      return ids;
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : lastError;
+    }
+  }
+  MODEL_DIAGNOSTICS.set(provider, { configured: true, ok: false, error: lastError, modelCount: 0 });
+  return [];
 }
 
 function score(id: string, task: TaskType): number {
@@ -233,25 +290,35 @@ export async function completeWithProvider({
 }): Promise<NormalizedProviderResponse> {
   const config = CONFIG[provider];
   if (!config.key) throw new Error(`${provider} is not configured.`);
-
+  const timeoutSignal = signal ?? AbortSignal.timeout(60_000);
+  const headers: Record<string, string> = { "Content-Type": "application/json", ...authHeaders(provider, config.key) };
+  if (provider === "openrouter") {
+    headers["HTTP-Referer"] = "https://elias-ai.vercel.app";
+    headers["X-Title"] = "ELIAS";
+  }
   const response = await fetch(`${config.baseUrl}/chat/completions`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${config.key}`,
-      ...(provider === "openrouter" ? { "HTTP-Referer": "https://elias-ai.vercel.app", "X-Title": "ELIAS" } : {}),
-    },
+    headers,
     body: JSON.stringify({ model, temperature: temperature ?? 0.2, messages, stream }),
     cache: "no-store",
-    signal: signal ?? AbortSignal.timeout(60_000),
+    signal: timeoutSignal,
   });
 
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`${provider} ${response.status}: ${body.slice(0, 700)}`);
+  if (response.ok) return readProviderResponse(response);
+  const body = await response.text();
+  if (provider === "experiential" && !stream) {
+    const responsesResponse = await fetch(`${config.baseUrl}/responses`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ model, temperature: temperature ?? 0.2, input: messages }),
+      cache: "no-store",
+      signal: timeoutSignal,
+    });
+    if (responsesResponse.ok) return readProviderResponse(responsesResponse);
+    const responsesBody = await responsesResponse.text();
+    throw new Error(`${provider} chat ${response.status}: ${body.slice(0, 360)}; responses ${responsesResponse.status}: ${responsesBody.slice(0, 360)}`);
   }
-
-  return readProviderResponse(response);
+  throw new Error(`${provider} ${response.status}: ${body.slice(0, 700)}`);
 }
 
 export type ModelCatalogItem = {
@@ -282,16 +349,15 @@ function modelLabel(provider: ProviderName, id: string) {
 }
 
 export async function modelCatalog(): Promise<ModelCatalogItem[]> {
-  const items: ModelCatalogItem[] = [];
-  for (const provider of Object.keys(CONFIG) as ProviderName[]) {
+  const entries = await Promise.all((Object.keys(CONFIG) as ProviderName[]).map(async (provider) => {
     const config = CONFIG[provider];
     const configured = Boolean(config.key);
     const live = configured ? await listModels(provider) : [];
     const ids = [...new Set([...live.map((model) => model.id), ...config.fallbackModels])];
-    for (const id of ids) {
+    return ids.map((id) => {
       const metadata = modelLabel(provider, id);
-      items.push({ id: `${provider}:${id}`, provider, label: metadata.label, detail: metadata.detail, configured });
-    }
-  }
-  return items;
+      return { id: `${provider}:${id}`, provider, label: metadata.label, detail: metadata.detail, configured } satisfies ModelCatalogItem;
+    });
+  }));
+  return entries.flat();
 }

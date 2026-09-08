@@ -7,14 +7,18 @@ ELIAS automations turn an incoming event into a normal ELIAS task. The task uses
 ELIAS supports [Experiential Labs](https://platform.experientiallabs.ai/models) as an OpenAI-compatible provider. Set these server-only Vercel variables:
 
 ```text
-EXPERIENTIAL_API_KEY=xpl_...
-EXPERIENTIAL_BASE_URL=https://api.experientiallabs.ai/v1
-EXPERIENTIAL_MODEL=qwen3.8-27b
+EXPLABS_API_KEY=xpl_...
+# Optional aliases/overrides:
+EXPERIENTIAL_API_KEY=
+EXPERIENTIAL_BASE_URL=https://api.experientiallabs.ai
+EXPERIENTIAL_MODEL=
 ```
 
-`EXPLABS_API_KEY` is accepted as an alias for `EXPERIENTIAL_API_KEY`. ELIAS discovers the live catalog through `/v1/models`, selects a compatible model, and sends standard Chat Completions requests to `/v1/chat/completions`. If the provider is unavailable, the existing configured-provider fallback chain remains available.
+`EXPLABS_API_KEY` is the canonical key name; `EXPERIENTIAL_API_KEY` is accepted as a compatibility alias. **Do not enter a model name unless you want to pin one.** When `EXPERIENTIAL_MODEL` is blank, ELIAS calls `/v1/models`, loads the live catalog, ranks the available models for the task, and selects one automatically. The base URL may be supplied with or without `/v1`; ELIAS normalizes it.
 
-Experiential Labs describes its gateway as OpenAI-compatible and supports platform-funded models, provider waterfalls, and the Responses API. ELIAS currently uses the Chat Completions-compatible path because it fits the existing provider router and task-agent contract.
+ELIAS calls `/v1/chat/completions` first and can retry the same Experiential model through `/v1/responses` when the model route requires the Responses wire format. If the gateway is unavailable, the existing configured-provider fallback chain remains available and the models endpoint exposes provider diagnostics rather than silently presenting invented model IDs.
+
+Experiential Labs documents its gateway as OpenAI-compatible, with platform-funded models, provider waterfalls, live catalog discovery, and multiple API wire formats.
 
 ## Create an automation
 
