@@ -3,6 +3,7 @@ import { runElias } from "@/lib/eliasRuntime";
 import { getSession } from "@/lib/auth";
 import { getGitHubToken } from "@/lib/githubConnectionStore";
 import { jsonError, jsonOk, readJsonRequest } from "@/lib/http";
+import { ProviderRequestError } from "@/lib/providers";
 import type { ProviderName, TaskType } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -66,6 +67,9 @@ export async function POST(request: NextRequest) {
     const result = await runElias({ mode: "auto", taskType: task, provider, model, chat: { messages: enrichedMessages, task }, context: { enabledSkills: ["conversation", "repository-intelligence"], allowedTools } });
     return jsonOk(result);
   } catch (error) {
+    if (error instanceof ProviderRequestError) {
+      return jsonError(error.details.message, error.details.status && error.details.status >= 400 ? error.details.status : 502, "MODEL_REQUEST_FAILED", error.details);
+    }
     return jsonError(error instanceof Error ? error.message : "ELIAS could not respond.");
   }
 }

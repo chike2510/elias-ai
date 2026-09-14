@@ -1,5 +1,5 @@
 import type { TaskType } from "@/lib/types";
-import { completeWithProvider, pickModel, providerOrder } from "@/lib/providers";
+import { completeWithProvider, pickModel, providerOrder, ProviderRequestError } from "@/lib/providers";
 
 export type ChatInputMessage = {
   role: "user" | "assistant" | "system";
@@ -29,12 +29,16 @@ function systemPrompt(task: TaskType) {
 export async function runChat({ messages, task, provider: requestedProvider, model: requestedModel, systemContext }: { messages: ChatInputMessage[]; task: TaskType; provider?: import("@/lib/types").ProviderName; model?: string; systemContext?: string }) {
   const complexity = scoreComplexity(messages, task);
   const errors: string[] = [];
+  const explicitSelection = Boolean(requestedProvider);
   const providers = requestedProvider ? [requestedProvider] : [...new Set(providerOrder(task, complexity))];
 
   for (const provider of providers) {
     try {
       const model = requestedModel && provider === requestedProvider ? requestedModel : await pickModel(provider, task);
-      if (!model) continue;
+      if (!model) {
+        if (explicitSelection) throw new ProviderRequestError({ provider, model: requestedModel || "unknown", message: `${provider} has no live model available in its catalog.`, durationMs: 0 });
+        continue;
+      }
       const response = await completeWithProvider({
         provider,
         model,
@@ -58,6 +62,7 @@ export async function runChat({ messages, task, provider: requestedProvider, mod
         fallbackProviders: errors.map((item) => item.split(":")[0]).filter(Boolean),
       };
     } catch (error) {
+      if (explicitSelection) throw error;
       errors.push(`${provider}: ${error instanceof Error ? error.message : "request failed"}`);
     }
   }

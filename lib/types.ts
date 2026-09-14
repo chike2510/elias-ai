@@ -2,6 +2,21 @@ export type TaskType = "general" | "code" | "research" | "study" | "media";
 
 export type ProviderName = "experiential" | "qwen" | "agentrouter" | "groq" | "openrouter" | "cerebras" | "mistral" | "github";
 
+export type ModelCapability = "text" | "reasoning" | "code" | "vision" | "image-generation" | "tool-use" | "streaming";
+
+export type ModelInfo = {
+  id: string;
+  provider: ProviderName;
+  name: string;
+  capabilities: ModelCapability[];
+  contextWindow?: number;
+  reasoning?: boolean;
+  vision?: boolean;
+  toolCalling?: boolean;
+  imageGeneration?: boolean;
+  inferred?: boolean;
+};
+
 export type WorkspaceFile = {
   path: string;
   content: string;
@@ -12,7 +27,6 @@ export type ProviderConfig = {
   name: ProviderName;
   key?: string;
   baseUrl: string;
-  fallbackModels: string[];
 };
 
 export type AgentRequest =

@@ -32,22 +32,11 @@ function inferTask(value: string): "code" | "research" | "study" | "general" {
   return "general";
 }
 
-type ModelOption = { id: string; provider: string; label: string; detail: string; configured?: boolean };
+type ModelOption = { id: string; provider: string; label: string; detail: string; configured?: boolean; capabilities?: string[] };
 type VercelMcpStatus = { configured?: boolean; connected?: boolean; message?: string; tools?: Array<{ name: string; description?: string }> };
 type Attachment = { name: string; context?: string; status?: "uploading" | "ready" | "error"; progress?: number; error?: string; documentId?: string; source?: File };
 
-const FALLBACK_MODEL_OPTIONS: ModelOption[] = [
-  { id: "auto", provider: "auto", label: "Auto", detail: "Best model for the task", configured: true },
-  { id: "qwen:qwen3.7-plus", provider: "qwen", label: "Qwen 3.7 Plus", detail: "Qwen · general / code" },
-  { id: "qwen:qwen3.7-flash", provider: "qwen", label: "Qwen 3.7 Flash", detail: "Qwen · fast reasoning" },
-  { id: "agentrouter:kimi-k2.6", provider: "agentrouter", label: "Kimi K2.6", detail: "AgentRouter · reasoning" },
-  { id: "agentrouter:glm-5.1", provider: "agentrouter", label: "GLM 5.1", detail: "AgentRouter · general" },
-  { id: "agentrouter:step3p5-code-alpha", provider: "agentrouter", label: "Step 3.5 Code", detail: "AgentRouter · coding" },
-  { id: "cerebras:zai-glm-4.7", provider: "cerebras", label: "GLM 4.7", detail: "Cerebras · fast reasoning" },
-  { id: "mistral:mistral-large-latest", provider: "mistral", label: "Mistral Large", detail: "Mistral · writing / study" },
-  { id: "groq:openai/gpt-oss-120b", provider: "groq", label: "GPT OSS 120B", detail: "Groq · fast responses" },
-  { id: "openrouter:openrouter/free", provider: "openrouter", label: "OpenRouter Free", detail: "OpenRouter · automatic free route" },
-];
+const FALLBACK_MODEL_OPTIONS: ModelOption[] = [{ id: "auto", provider: "auto", label: "Auto", detail: "Best model for the task", configured: true }];
 
 function shouldHandoffToTask(value: string, attachments: Attachment[]) {
   if (attachments.length > 0) return true;
@@ -154,7 +143,7 @@ export default function ChatScreen() {
       if (experiential?.ok && experiential.modelCount) setModelCatalogNotice(`Experiential Labs · ${experiential.modelCount} live models loaded`);
       else if (experiential?.configured && experiential.error) setModelCatalogNotice(`Experiential Labs catalog unavailable: ${experiential.error.slice(0, 140)}`);
       else if (!experiential?.configured) setModelCatalogNotice("Experiential Labs is not configured; Auto will use another configured provider.");
-    }).catch(() => setModelCatalogNotice("Model catalog unavailable; Auto will use the configured provider fallback."));
+    }).catch(() => setModelCatalogNotice("Model catalog unavailable; Auto will use only providers with a reachable live catalog."));
     let active = true;
     async function load() {
       setActiveTask(null);
@@ -317,7 +306,7 @@ export default function ChatScreen() {
       });
       const data = await readApiResponse<{ content?: string; provider?: string; model?: string; fallbackProviders?: string[]; runtime?: { webEvidence?: { status: string; resultCount: number; fetchedSourceCount: number; sourceUrls: string[]; errors: string[] }; groundingWarning?: boolean }; result?: { content?: string; provider?: string; model?: string; fallbackProviders?: string[]; runtime?: { webEvidence?: { status: string; resultCount: number; fetchedSourceCount: number; sourceUrls: string[]; errors: string[] }; groundingWarning?: boolean } } }>(response);
       const reply = data.result || data;
-      if (Array.isArray(reply.fallbackProviders) && reply.fallbackProviders.length) setProviderNotice(`Retrying succeeded with ${reply.provider || "another provider"} after ${reply.fallbackProviders.join(", ")} was unavailable.`);
+      if (Array.isArray(reply.fallbackProviders) && reply.fallbackProviders.length) setProviderNotice(`Auto routing used ${reply.provider || "another provider"} after ${reply.fallbackProviders.join(", ")} was unavailable.`);
       else setProviderNotice("");
       const content = typeof reply.content === "string" && reply.content.trim() ? reply.content : "I received your message but could not form a response.";
       const assistant: ConversationMessage = {

@@ -143,10 +143,10 @@ export async function formatTextArtifact(name: string, content: string) {
 
 export function artifactMime(name: string) {
   const extension = name.split(".").pop()?.toLowerCase();
-  return ({ pdf: "application/pdf", docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation", html: "text/html; charset=utf-8", css: "text/css; charset=utf-8", ts: "text/typescript; charset=utf-8", tsx: "text/tsx; charset=utf-8", js: "text/javascript; charset=utf-8", jsx: "text/jsx; charset=utf-8", md: "text/markdown; charset=utf-8" } as Record<string, string>)[extension || ""] || "text/plain; charset=utf-8";
+  return ({ csv: "text/csv; charset=utf-8", json: "application/json; charset=utf-8", xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", txt: "text/plain; charset=utf-8", pdf: "application/pdf", docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation", html: "text/html; charset=utf-8", css: "text/css; charset=utf-8", ts: "text/typescript; charset=utf-8", tsx: "text/tsx; charset=utf-8", js: "text/javascript; charset=utf-8", jsx: "text/jsx; charset=utf-8", md: "text/markdown; charset=utf-8" } as Record<string, string>)[extension || ""] || "text/plain; charset=utf-8";
 }
 
 export function artifactLanguage(name: string) {
   const extension = name.split(".").pop()?.toLowerCase() || "file";
-  return ({ js: "JavaScript", jsx: "React JSX", ts: "TypeScript", tsx: "React TSX", html: "HTML", css: "CSS", md: "Markdown", txt: "Text", pdf: "PDF", docx: "Word document", pptx: "PowerPoint" } as Record<string, string>)[extension] || extension.toUpperCase();
+  return ({ csv: "CSV", json: "JSON", xlsx: "Excel spreadsheet", txt: "Text", js: "JavaScript", jsx: "React JSX", ts: "TypeScript", tsx: "React TSX", html: "HTML", css: "CSS", md: "Markdown", pdf: "PDF", docx: "Word document", pptx: "PowerPoint" } as Record<string, string>)[extension] || extension.toUpperCase();
 }

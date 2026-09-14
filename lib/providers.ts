@@ -1,4 +1,4 @@
-import type { ProviderConfig, ProviderName, TaskType } from "@/lib/types";
+import type { ModelCapability, ModelInfo, ProviderConfig, ProviderName, TaskType } from "@/lib/types";
 
 function normalizeBaseUrl(value: string) {
   const trimmed = value.trim().replace(/\/+$/, "");
@@ -10,49 +10,41 @@ const CONFIG: Record<ProviderName, ProviderConfig> = {
     name: "experiential",
     key: process.env.EXPLABS_API_KEY || process.env.EXPERIENTIAL_API_KEY,
     baseUrl: normalizeBaseUrl(process.env.EXPERIENTIAL_BASE_URL || "https://api.experientiallabs.ai"),
-    fallbackModels: [process.env.EXPERIENTIAL_MODEL].filter((model): model is string => Boolean(model)),
   },
   qwen: {
     name: "qwen",
     key: process.env.QWEN_API_KEY,
     baseUrl: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
-    fallbackModels: ["qwen3.7-plus", "qwen3.7-flash"],
   },
   agentrouter: {
     name: "agentrouter",
     key: process.env.AGENTROUTER_API_KEY,
     baseUrl: "https://co.agentrouter.org/v1",
-    fallbackModels: ["kimi-k2.6", "glm-5.1", "step3p5-code-alpha"],
   },
   groq: {
     name: "groq",
     key: process.env.GROQ_API_KEY,
     baseUrl: "https://api.groq.com/openai/v1",
-    fallbackModels: ["openai/gpt-oss-120b"],
   },
   openrouter: {
     name: "openrouter",
     key: process.env.OPENROUTER_API_KEY,
     baseUrl: "https://openrouter.ai/api/v1",
-    fallbackModels: ["openrouter/free"],
   },
   cerebras: {
     name: "cerebras",
     key: process.env.CEREBRAS_API_KEY,
     baseUrl: "https://api.cerebras.ai/v1",
-    fallbackModels: ["zai-glm-4.7"],
   },
   mistral: {
     name: "mistral",
     key: process.env.MISTRAL_API_KEY,
     baseUrl: "https://api.mistral.ai/v1",
-    fallbackModels: ["mistral-large-latest"],
   },
   github: {
     name: "github",
     key: process.env.GITHUB_TOKEN,
     baseUrl: "https://models.github.ai/inference",
-    fallbackModels: [],
   },
 };
 
@@ -187,7 +179,7 @@ export function configuredProviders(): ProviderName[] {
   return (Object.keys(CONFIG) as ProviderName[]).filter((provider) => Boolean(CONFIG[provider].key));
 }
 
-type ProviderDiagnostic = { configured: boolean; ok: boolean; status?: number; error?: string; modelCount: number };
+export type ProviderDiagnostic = { provider?: ProviderName; configured: boolean; ok: boolean; status?: number; error?: string; modelCount: number; latencyMs?: number; checkedAt?: string };
 const MODEL_DIAGNOSTICS = new Map<ProviderName, ProviderDiagnostic>();
 
 function authHeaders(provider: ProviderName, key: string, variant: "bearer" | "x-api-key" = "bearer"): Record<string, string> {
@@ -198,18 +190,38 @@ export function providerDiagnostics() {
   return Object.fromEntries((Object.keys(CONFIG) as ProviderName[]).map((provider) => [provider, MODEL_DIAGNOSTICS.get(provider) || { configured: Boolean(CONFIG[provider].key), ok: false, modelCount: 0 }]));
 }
 
-function modelIds(payload: unknown) {
+function modelEntries(payload: unknown) {
   if (!payload || typeof payload !== "object") return [];
   const value = payload as Record<string, unknown>;
   const candidates = Array.isArray(value.data) ? value.data : Array.isArray(value.models) ? value.models : [];
   return candidates.flatMap((item) => {
-    if (typeof item === "string") return [item];
-    if (item && typeof item === "object" && typeof (item as Record<string, unknown>).id === "string") return [(item as Record<string, string>).id];
+    if (typeof item === "string") return [{ id: item }];
+    if (item && typeof item === "object" && typeof (item as Record<string, unknown>).id === "string") return [item as Record<string, unknown>];
     return [];
-  }).map((id) => ({ id }));
+  });
 }
 
-export async function listModels(provider: ProviderName): Promise<Array<{ id: string }>> {
+function inferredCapabilities(id: string): ModelCapability[] {
+  const value = id.toLowerCase();
+  const capabilities: ModelCapability[] = ["text"];
+  if (/reason|think|o[1-9]|r1/.test(value)) capabilities.push("reasoning");
+  if (/code|coder|dev|deepseek|qwen|claude|gpt/.test(value)) capabilities.push("code");
+  if (/vision|vl|gemini|gpt-4|claude-3/.test(value)) capabilities.push("vision");
+  if (/image|flux|dall|stable-diffusion/.test(value)) capabilities.push("image-generation");
+  capabilities.push("streaming");
+  return [...new Set(capabilities)];
+}
+
+function normalizeModel(provider: ProviderName, item: Record<string, unknown>): ModelInfo {
+  const id = String(item.id);
+  const rawCapabilities = item.capabilities;
+  const listed = Array.isArray(rawCapabilities) ? rawCapabilities.filter((value): value is ModelCapability => typeof value === "string") : [];
+  const capabilities = listed.length ? listed : inferredCapabilities(id);
+  const contextWindow = typeof item.context_window === "number" ? item.context_window : typeof item.contextWindow === "number" ? item.contextWindow : undefined;
+  return { id, provider, name: typeof item.name === "string" ? item.name : id, capabilities, contextWindow, reasoning: capabilities.includes("reasoning"), vision: capabilities.includes("vision"), toolCalling: capabilities.includes("tool-use"), imageGeneration: capabilities.includes("image-generation"), inferred: listed.length === 0 };
+}
+
+export async function listModels(provider: ProviderName): Promise<ModelInfo[]> {
   const config = CONFIG[provider];
   if (!config.key) {
     MODEL_DIAGNOSTICS.set(provider, { configured: false, ok: false, modelCount: 0 });
@@ -217,6 +229,7 @@ export async function listModels(provider: ProviderName): Promise<Array<{ id: st
   }
 
   let lastError = "Model catalog request failed.";
+  const started = Date.now();
   for (const authVariant of ["bearer", "x-api-key"] as const) {
     try {
       const response = await fetch(`${config.baseUrl}/models`, {
@@ -229,14 +242,14 @@ export async function listModels(provider: ProviderName): Promise<Array<{ id: st
         lastError = `${response.status}: ${raw.slice(0, 240)}`;
         continue;
       }
-      const ids = modelIds(JSON.parse(raw));
-      MODEL_DIAGNOSTICS.set(provider, { configured: true, ok: true, status: response.status, modelCount: ids.length });
+      const ids = modelEntries(JSON.parse(raw)).map((item) => normalizeModel(provider, item));
+      MODEL_DIAGNOSTICS.set(provider, { provider, configured: true, ok: true, status: response.status, modelCount: ids.length, latencyMs: Date.now() - started, checkedAt: new Date().toISOString() });
       return ids;
     } catch (error) {
       lastError = error instanceof Error ? error.message : lastError;
     }
   }
-  MODEL_DIAGNOSTICS.set(provider, { configured: true, ok: false, error: lastError, modelCount: 0 });
+  MODEL_DIAGNOSTICS.set(provider, { provider, configured: true, ok: false, error: lastError, modelCount: 0, latencyMs: Date.now() - started, checkedAt: new Date().toISOString() });
   return [];
 }
 
@@ -256,7 +269,7 @@ export async function pickModel(provider: ProviderName, task: TaskType): Promise
   if (!config.key) return null;
   const models = await listModels(provider);
   const ranked = models.map((model) => model.id).sort((a, b) => score(b, task) - score(a, task));
-  return ranked[0] || config.fallbackModels[0] || null;
+  return ranked[0] || null;
 }
 
 export function providerOrder(task: TaskType, complexity: number): ProviderName[] {
@@ -289,7 +302,8 @@ export async function completeWithProvider({
   stream?: boolean;
 }): Promise<NormalizedProviderResponse> {
   const config = CONFIG[provider];
-  if (!config.key) throw new Error(`${provider} is not configured.`);
+  if (!config.key) throw new ProviderRequestError({ provider, model, message: `${provider} is not configured.`, durationMs: 0 });
+  const started = Date.now();
   const timeoutSignal = signal ?? AbortSignal.timeout(60_000);
   const headers: Record<string, string> = { "Content-Type": "application/json", ...authHeaders(provider, config.key) };
   if (provider === "openrouter") {
@@ -316,9 +330,9 @@ export async function completeWithProvider({
     });
     if (responsesResponse.ok) return readProviderResponse(responsesResponse);
     const responsesBody = await responsesResponse.text();
-    throw new Error(`${provider} chat ${response.status}: ${body.slice(0, 360)}; responses ${responsesResponse.status}: ${responsesBody.slice(0, 360)}`);
+    throw new ProviderRequestError({ provider, model, status: responsesResponse.status, message: `${provider}/${model} failed: chat HTTP ${response.status}: ${body.slice(0, 360)}; responses HTTP ${responsesResponse.status}: ${responsesBody.slice(0, 360)}`, durationMs: Date.now() - started });
   }
-  throw new Error(`${provider} ${response.status}: ${body.slice(0, 700)}`);
+  throw new ProviderRequestError({ provider, model, status: response.status, message: `${provider}/${model} failed with HTTP ${response.status}: ${body.slice(0, 700)}`, durationMs: Date.now() - started });
 }
 
 export type ModelCatalogItem = {
@@ -327,25 +341,14 @@ export type ModelCatalogItem = {
   label: string;
   detail: string;
   configured: boolean;
+  capabilities?: ModelCapability[];
 };
 
-const MODEL_LABELS: Record<string, { label: string; detail: string }> = {
-  "qwen3.8-27b": { label: "Qwen3.8 27B", detail: "Experiential · fast general / code" },
-  "deepseek-v4-flash": { label: "DeepSeek V4 Flash", detail: "Experiential · fast reasoning" },
-  "gpt-5.6-luna": { label: "GPT-5.6 Luna", detail: "Experiential · general / tool-ready" },
-  "qwen3.7-plus": { label: "Qwen 3.7 Plus", detail: "Qwen · general / code" },
-  "qwen3.7-flash": { label: "Qwen 3.7 Flash", detail: "Qwen · fast reasoning" },
-  "kimi-k2.6": { label: "Kimi K2.6", detail: "AgentRouter · reasoning" },
-  "glm-5.1": { label: "GLM 5.1", detail: "AgentRouter · general" },
-  "step3p5-code-alpha": { label: "Step 3.5 Code", detail: "AgentRouter · coding" },
-  "openai/gpt-oss-120b": { label: "GPT OSS 120B", detail: "Groq · fast responses" },
-  "openrouter/free": { label: "OpenRouter Free", detail: "OpenRouter · automatic free route" },
-  "zai-glm-4.7": { label: "GLM 4.7", detail: "Cerebras · fast reasoning" },
-  "mistral-large-latest": { label: "Mistral Large", detail: "Mistral · writing / study" },
-};
-
-function modelLabel(provider: ProviderName, id: string) {
-  return MODEL_LABELS[id] || { label: id, detail: `${provider} · provider model` };
+export class ProviderRequestError extends Error {
+  constructor(public readonly details: { provider: ProviderName; model: string; status?: number; message: string; durationMs: number }) {
+    super(details.message);
+    this.name = "ProviderRequestError";
+  }
 }
 
 export async function modelCatalog(): Promise<ModelCatalogItem[]> {
@@ -353,11 +356,7 @@ export async function modelCatalog(): Promise<ModelCatalogItem[]> {
     const config = CONFIG[provider];
     const configured = Boolean(config.key);
     const live = configured ? await listModels(provider) : [];
-    const ids = [...new Set([...live.map((model) => model.id), ...config.fallbackModels])];
-    return ids.map((id) => {
-      const metadata = modelLabel(provider, id);
-      return { id: `${provider}:${id}`, provider, label: metadata.label, detail: metadata.detail, configured } satisfies ModelCatalogItem;
-    });
+    return live.map((model) => ({ id: `${provider}:${model.id}`, provider, label: model.name, detail: `${provider} · ${model.capabilities.join(" / ")}${model.inferred ? " · inferred" : ""}`, configured, capabilities: model.capabilities } satisfies ModelCatalogItem));
   }));
   return entries.flat();
 }
