@@ -25,6 +25,7 @@ Validation commands are implemented in `lib/execution.ts` but are disabled by de
 Set only the provider keys you actually use on the server. Keys are never read by client-side code. `GITHUB_LOGIN_CLIENT_ID` and `GITHUB_LOGIN_CLIENT_SECRET` are used only for Elias account sign-in; `GITHUB_REPO_CLIENT_ID` and `GITHUB_REPO_CLIENT_SECRET` are used only for the separate repository connector flow.
 
 ```text
+EXA_API_KEY=
 QWEN_API_KEY=
 AGENTROUTER_API_KEY=
 GROQ_API_KEY=

@@ -1,7 +1,17 @@
 import { lookup } from "node:dns/promises";
 
 const MAX_SOURCE_CHARS = 30_000;
-const SEARCH_TIMEOUT_MS = 5_000;
+const SEARCH_TIMEOUT_MS = 8_000;
+const EXA_SEARCH_URL = "https://api.exa.ai/search";
+
+type WebSearchResult = {
+  title: string;
+  url: string;
+  source: string;
+  snippet?: string;
+  publishedDate?: string;
+  author?: string;
+};
 
 function isFootballSearch(value: string) {
   return /\b(football|soccer|fixture|fixtures|match|matches|score|scored|won|win|lost|played|premier league|championship|manchester united|hull city|man utd|manutd)\b/i.test(value);
@@ -68,9 +78,52 @@ async function readBounded(response: Response) {
   return new TextDecoder().decode(buffer);
 }
 
-export async function searchWeb(query: string) {
-  const value = query.trim();
-  if (!value) return [];
+function normalizeExaResult(value: unknown): WebSearchResult | null {
+  if (!value || typeof value !== "object") return null;
+  const item = value as Record<string, unknown>;
+  if (typeof item.url !== "string" || !/^https?:\/\//i.test(item.url)) return null;
+  const title = typeof item.title === "string" && item.title.trim() ? item.title.trim() : item.url;
+  const highlights = Array.isArray(item.highlights) ? item.highlights.filter((entry): entry is string => typeof entry === "string") : [];
+  return {
+    title,
+    url: item.url,
+    source: (() => {
+      try { return new URL(item.url as string).hostname; } catch { return "web"; }
+    })(),
+    snippet: highlights.join(" ").trim() || undefined,
+    publishedDate: typeof item.publishedDate === "string" ? item.publishedDate : undefined,
+    author: typeof item.author === "string" ? item.author : undefined,
+  };
+}
+
+async function searchWithExa(query: string): Promise<WebSearchResult[]> {
+  const apiKey = process.env.EXA_API_KEY?.trim();
+  if (!apiKey) return [];
+  const response = await fetch(EXA_SEARCH_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-api-key": apiKey, Accept: "application/json" },
+    body: JSON.stringify({
+      query: query.slice(0, 500),
+      type: "auto",
+      contents: {
+        highlights: true,
+        // Coding-agent answers need current page content, not a stale cached excerpt.
+        maxAgeHours: 0,
+      },
+    }),
+    cache: "no-store",
+    signal: AbortSignal.timeout(SEARCH_TIMEOUT_MS),
+  });
+  if (!response.ok) {
+    const detail = (await response.text()).slice(0, 300);
+    throw new Error(`Exa search failed (${response.status})${detail ? `: ${detail}` : ""}`);
+  }
+  const payload = await response.json() as { results?: unknown };
+  const results = Array.isArray(payload.results) ? payload.results.map(normalizeExaResult).filter((item): item is WebSearchResult => Boolean(item)) : [];
+  return results.filter((item, index, items) => items.findIndex((candidate) => candidate.url === item.url) === index).slice(0, 10);
+}
+
+async function searchWithLegacyProviders(value: string): Promise<WebSearchResult[]> {
   const encoded = encodeURIComponent(value.slice(0, 300));
   const searchUrls = [
     { provider: "duckduckgo", url: `https://html.duckduckgo.com/html/?q=${encoded}` },
@@ -89,7 +142,7 @@ export async function searchWeb(query: string) {
       });
       if (!response.ok) continue;
       const html = await response.text();
-      const output: Array<{ title: string; url: string; source: string }> = [];
+      const output: WebSearchResult[] = [];
       const links = provider === "bing"
         ? /<li[^>]+class=["'][^"']*b_algo[^"']*["'][\s\S]*?<h2[^>]*>\s*<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi
         : /<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
@@ -130,6 +183,18 @@ export async function searchWeb(query: string) {
     }
   }
   return [];
+}
+
+export async function searchWeb(query: string): Promise<WebSearchResult[]> {
+  const value = query.trim();
+  if (!value) return [];
+  try {
+    const exaResults = await searchWithExa(value);
+    if (exaResults.length) return exaResults;
+  } catch {
+    // Keep ELIAS usable when Exa is temporarily unavailable or not configured correctly.
+  }
+  return searchWithLegacyProviders(value);
 }
 
 export async function fetchUrl(value: string) {
