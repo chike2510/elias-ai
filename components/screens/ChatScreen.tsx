@@ -133,6 +133,7 @@ export default function ChatScreen() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const uploadRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const autoSubmittedPromptRef = useRef<string | null>(null);
 
   useEffect(() => {
     void getConversations().then(setHistory).catch(() => setHistory([]));
@@ -176,6 +177,14 @@ export default function ChatScreen() {
       .then((data) => {         const latest = data.tasks?.[0]; if (latest) { setActiveTask(latest); cacheTaskSnapshot(latest); } })
       .catch(() => undefined);
   }, [conversation?.id]);
+
+  useEffect(() => {
+    if (!requestedPrompt || !conversation || conversation.messages.length || busy) return;
+    if (autoSubmittedPromptRef.current === `${conversation.id}:${requestedPrompt}`) return;
+    autoSubmittedPromptRef.current = `${conversation.id}:${requestedPrompt}`;
+    setInput("");
+    void sendMessage(requestedPrompt);
+  }, [conversation, requestedPrompt, busy]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
