@@ -2440,3 +2440,24 @@ input[hidden], textarea[hidden], button[hidden] { display: none !important; }
 @media (max-width: 720px) {
   .chat-model-catalog-notice { font-size: 8px; }
 }
+
+/* Surgical polish: preserve the existing ELIAS visual system */
+.profile-titlebar h1, .screen-header h1, .skills-header h1, .task-workspace-header h1 { text-shadow: none; }
+.profile-group-label { color: #9f91c9; font-size: 11px; font-weight: 650; letter-spacing: .13em; }
+.profile-titlebar .back { width: 28px; height: 28px; border: 0; background: transparent; }
+.profile-titlebar .back:hover { background: #171521; }
+@media (min-width: 701px) { .clean-sidebar-nav { gap: 5px !important; } .clean-sidebar-nav .nav-item { min-height: 41px; } }
+.task-start-guide-gradient { opacity: .45; }
+.task-start-guide { border-color: #3a3548; background: linear-gradient(145deg, #15151d, #101117); }
+.task-status-row { align-items: center; }
+.task-status-dot { align-self: center; }
+.task-history-artifacts { align-self: center; }
+.agent-objective-actions { margin-bottom: 12px; }
+.agent-file-tabs, .workspace-file-tabs { margin-top: 18px; }
+.skills-summary strong { font-size: 18px; }
+.skills-summary span { color: #8b8795; font-size: 9px; font-weight: 600; }
+.browser-control-state { min-height: 24px; padding: 5px 9px; font-size: 10px; font-weight: 650; }
+.browser-control-state.active { box-shadow: 0 0 0 3px rgba(107, 211, 109, .08); }
+.markdown-code { margin: 19px 0; }
+.markdown-table-wrap { margin: 19px 0; }
+.markdown-message blockquote { margin: 18px 0; }

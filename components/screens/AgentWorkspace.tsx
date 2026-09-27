@@ -295,7 +295,7 @@ export default function AgentWorkspace({ initialProjectId }: { initialProjectId?
           </div>
           <textarea value={task} onChange={(event) => setTask(event.target.value)} rows={3} placeholder="Review this project, fix the highest-risk issue, and show me the diff." />
           <div className="agent-objective-footer">
-            <span className="agent-context-chip"><Folder size={14} /> {projectName} · {files.length} files</span>
+              <span className="agent-context-chip"><Folder size={14} /> {projectName} · {files.length} file{files.length === 1 ? "" : "s"}</span>
             <div className="agent-objective-actions">
               <Link href="/projects" className="agent-secondary-action"><Link2 size={14} /> Connect project</Link>
               <button type="button" className="primary agent-start-button" disabled={busy || !task.trim()} onClick={() => void run()}>{busy ? <LoaderCircle size={14} className="spin" /> : <Send size={14} />}{busy ? "Working…" : "Start task"}</button>
