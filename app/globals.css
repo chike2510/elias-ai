@@ -2461,3 +2461,10 @@ input[hidden], textarea[hidden], button[hidden] { display: none !important; }
 .markdown-code { margin: 19px 0; }
 .markdown-table-wrap { margin: 19px 0; }
 .markdown-message blockquote { margin: 18px 0; }
+
+/* New ELIAS mark: keep the existing shell, give the supplied black/white mark a readable tile. */
+.brand-mark { padding: 4px; border: 1px solid #363642; background: #f1f1f4; }
+.brand-mark img { mix-blend-mode: normal; }
+.clean-brand .brand-mark, .clean-mobile-brand .brand-mark, .clean-drawer-brand .brand-mark { padding: 3px; border-color: #3d3b48; background: #f1f1f4; }
+.auth-brand .brand-mark { padding: 5px; background: #f1f1f4; }
+.chat-empty .brand-mark.large { padding: 5px; background: #f1f1f4; }
