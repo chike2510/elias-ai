@@ -2759,3 +2759,39 @@ input::placeholder, textarea::placeholder { color: #77827b !important; }
   .task-focus-actions { display: grid; grid-template-columns: 1fr 1fr; }
   .task-focus-actions button, .task-focus-actions a { width: 100%; min-height: 42px; }
 }
+
+/* Issue fix pass: use the real mark, clip the composer cleanly, and match task-detail mockups. */
+.clean-home-mark img, .task-start-mark img, .chat-avatar img { width: 70%; height: 70%; object-fit: contain; display: block; }
+.chat-avatar img { width: 72%; height: 72%; }
+.chat-route-screen .chat-composer { width: 100%; max-width: 100%; box-sizing: border-box; overflow: hidden !important; isolation: isolate; }
+.chat-route-screen .chat-composer-bar { width: 100%; box-sizing: border-box; }
+.chat-route-screen .chat-composer-input { border-radius: 0 !important; }
+.chat-route-screen .chat-composer-bar { border-radius: 0 !important; }
+.chat-route-screen .chat-composer::after { content: ""; position: absolute; inset: 0; pointer-events: none; border: 1px solid rgba(255,255,255,.04); border-radius: inherit; }
+.task-main-artifact { margin-top: 18px; padding: 14px; border: 1px solid #3f4148; border-radius: 18px; background: #202126; }
+.task-main-artifact-head { display: flex; align-items: center; gap: 8px; color: #d9d8d8; font-size: 12px; }
+.task-main-artifact-head svg { color: #b8b9c1; }
+.task-main-artifact-preview { display: flex; align-items: center; gap: 12px; margin-top: 12px; padding: 14px; border-radius: 13px; background: #15161a; }
+.task-main-artifact-preview > svg { flex: 0 0 auto; color: var(--e2-coral-soft); }
+.task-main-artifact-preview div { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.task-main-artifact-preview strong { overflow-wrap: anywhere; color: #fff; font-size: 13px; }
+.task-main-artifact-preview small { color: #aaaab0; font-size: 10px; }
+.task-main-artifact-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; margin-top: 12px; }
+.task-main-artifact-actions > * { min-height: 36px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 7px 8px; border-radius: 999px !important; font-size: 9px; }
+.task-focus-card .task-state-pill.completed { display: inline-flex; align-items: center; gap: 4px; }
+.task-workspace-screen .task-focus-card { padding: 18px; }
+@media (max-width: 700px) {
+  .task-main-artifact-actions { grid-template-columns: 1fr 1fr 1fr; }
+  .task-main-artifact-actions > * { min-width: 0; font-size: 8px; }
+  .task-main-artifact-actions svg { width: 13px; }
+}
+.task-back, .task-more { display: none; }
+.task-empty img { width: 28px; height: 28px; object-fit: contain; margin-bottom: 4px; }
+.nav-elias-mark { width: 15px; height: 15px; object-fit: contain; }
+@media (max-width: 700px) {
+  .task-workspace-header { display: grid; grid-template-columns: 32px minmax(0, 1fr) 32px; align-items: center; gap: 10px; }
+  .task-workspace-header .task-back, .task-workspace-header .task-more { display: grid; place-items: center; width: 32px; height: 32px; border: 0; background: transparent; color: #a9a9b0; }
+  .task-workspace-header .screen-header-copy { text-align: center; }
+  .task-workspace-header h1 { margin: 0; font-size: 25px; }
+  .task-workspace-header .task-filter { display: none; }
+}
