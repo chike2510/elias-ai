@@ -79,8 +79,8 @@ export default function StudioScreen() {
     setError("Snapshot saved to Files. Image analysis is not configured in this deployment.");
   }
 
-  return <AppShell title="Studio"><main className="screen studio-screen">
-    <ScreenHeader title="Voice + camera" />
+  return <AppShell title="ELIAS AI Studio"><main className="screen studio-screen">
+    <ScreenHeader title="ELIAS AI Studio" />
     <section className="studio-card panel">
       <div className="studio-tabs" role="tablist" aria-label="Studio mode"><button type="button" className={mode === "voice" ? "active" : ""} onClick={() => { setMode("voice"); stopCamera(); }}><Mic size={16} /> Voice</button><button type="button" className={mode === "camera" ? "active" : ""} onClick={() => { setMode("camera"); void startCamera(); }}><Camera size={16} /> Camera</button><button type="button" className={mode === "generate" ? "active" : ""} onClick={() => { setMode("generate"); stopCamera(); }}><WandSparkles size={16} /> Generate</button></div>
       {error ? <div className="inline-error"><span>{error}</span></div> : null}
