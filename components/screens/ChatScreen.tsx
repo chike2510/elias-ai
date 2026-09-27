@@ -165,9 +165,6 @@ export default function ChatScreen() {
       const now = Date.now();
       setConversation({ id: requestedId || makeId("chat"), title: "New conversation", createdAt: now, updatedAt: now, messages: [] });
       if (requestedPrompt) setInput(requestedPrompt);
-      else if (!requestedId) {
-        try { setInput(window.localStorage.getItem("elias.chat.draft") || ""); } catch { /* storage is optional */ }
-      }
     }
     void load();
     return () => { active = false; };
@@ -180,13 +177,6 @@ export default function ChatScreen() {
       .then((data) => {         const latest = data.tasks?.[0]; if (latest) { setActiveTask(latest); cacheTaskSnapshot(latest); } })
       .catch(() => undefined);
   }, [conversation?.id]);
-
-  useEffect(() => {
-    try {
-      if (input.trim()) window.localStorage.setItem("elias.chat.draft", input);
-      else window.localStorage.removeItem("elias.chat.draft");
-    } catch { /* draft persistence is best effort */ }
-  }, [input]);
 
   useEffect(() => {
     if (!requestedPrompt || !conversation || conversation.messages.length || busy) return;
@@ -281,7 +271,6 @@ export default function ChatScreen() {
       : { ...base, title, updatedAt: Date.now(), messages: [...base.messages, userMessage] };
 
     setInput("");
-    try { window.localStorage.removeItem("elias.chat.draft"); } catch { /* storage is optional */ }
     setAttachments([]);
     await persist(optimistic);
     if (!requestedId) window.history.replaceState(null, "", `/chat?id=${encodeURIComponent(optimistic.id)}`);
@@ -343,13 +332,10 @@ export default function ChatScreen() {
     } catch (error) {
       if (controller.signal.aborted) return;
       void recordAutomaticSignal({ kind: "evaluation", title: "Chat or task request failed", detail: error instanceof Error ? error.message : "ELIAS failed to respond.", severity: "critical", source: selectedModel === "auto" ? "chat-auto" : `chat-${selectedModel}` }).catch(() => undefined);
-      const message = error instanceof Error && /failed to fetch|network|fetch/i.test(error.message)
-        ? "I couldn’t reach the workspace just now. Your message is safe—check your connection and try again."
-        : "I couldn’t finish that request. Your conversation is safe—try again or continue with a smaller next step.";
       const assistant: ConversationMessage = {
         id: makeId("msg"),
         role: "assistant",
-        content: message,
+        content: error instanceof Error ? error.message : "ELIAS failed to respond.",
         status: "error",
         createdAt: Date.now(),
       };

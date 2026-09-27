@@ -1,17 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { BookOpen, Command, FileText, Folder, Home, LibraryBig, Menu, MessageSquare, Search, Settings2, Sparkles, SquarePen, X } from "lucide-react";
+import { BookOpen, CheckSquare, Command, FileText, Folder, Globe2, Home, LibraryBig, Menu, MessageSquare, Search, Settings2, Sparkles, SquarePen, Workflow, X } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import HistoryDrawer from "@/components/HistoryDrawer";
 
 const navigation = [
   { href: "/", label: "Home", icon: Home },
-  { href: "/chat", label: "Conversations", icon: MessageSquare },
-  { href: "/outcomes", label: "Outcomes", icon: FileText },
-  { href: "/files", label: "Library", icon: LibraryBig },
   { href: "/projects", label: "Projects", icon: Folder },
+  { href: "/tasks", label: "Tasks", icon: CheckSquare },
+  { href: "/files", label: "Library", icon: LibraryBig },
+  { href: "/agent", label: "Code", icon: Sparkles },
+  { href: "/browser", label: "Browser", icon: Globe2 },
+  { href: "/automations", label: "Automations", icon: Workflow },
 ];
 
 export default function AppShell({ children, title }: { children: React.ReactNode; title?: string }) {
@@ -39,7 +41,7 @@ export default function AppShell({ children, title }: { children: React.ReactNod
       <Link href="/" className="brand clean-brand"><span className="brand-mark"><img src="/branding/elias-logo.png" alt="" /></span><span className="brand-wordmark">ELIAS</span></Link>
       <button className="clean-new-button" type="button" onClick={() => { window.location.href = "/chat"; }}><SquarePen size={15} /> New conversation</button>
       <nav className="sidebar-nav clean-sidebar-nav" aria-label="Primary navigation">{navigation.map((item) => <Nav key={item.href} {...item} active={item.href === "/" ? pathname === "/" : pathname.startsWith(item.href)} />)}</nav>
-      <div className="clean-sidebar-section"><span className="clean-sidebar-label">Workspace</span><Link href="/resources" className="clean-sidebar-link"><BookOpen size={15} /> Developer resources</Link><Link href="/agent" className="clean-sidebar-link"><Sparkles size={15} /> Coding workspace</Link><Link href="/profile" className="clean-sidebar-link"><Settings2 size={15} /> Customize</Link></div>
+      <div className="clean-sidebar-section"><span className="clean-sidebar-label">Workspace</span><Link href="/skills" className="clean-sidebar-link"><BookOpen size={15} /> Skills</Link><Link href="/profile" className="clean-sidebar-link"><Settings2 size={15} /> Customize</Link></div>
       <div className="sidebar-footer clean-sidebar-footer"><Link href="/profile" className="profile-avatar" aria-label="Open profile">{user?.login?.slice(0, 1).toUpperCase() || "?"}</Link><Link href="/profile" className="profile-summary"><strong>{user?.name || user?.login || "Profile"}</strong><small>{user?.login ? `@${user.login}` : "Account"}</small></Link><button type="button" className="profile-menu" onClick={() => void logout()} aria-label="Sign out">↗</button></div>
     </aside>
     <div className="app-main">
@@ -52,7 +54,7 @@ export default function AppShell({ children, title }: { children: React.ReactNod
       <div className="app-content">{children}</div>
     </div>
     <HistoryDrawer open={historyOpen} onClose={() => setHistoryOpen(false)} user={user} />
-    {commandOpen ? <div className="command-overlay" role="presentation" onMouseDown={() => setCommandOpen(false)}><section className="command-palette clean-command-palette" role="dialog" aria-modal="true" aria-label="Elias command palette" onMouseDown={(event) => event.stopPropagation()}><div className="command-palette-head"><Command size={16} /><strong>Jump to</strong><button className="icon-btn" onClick={() => setCommandOpen(false)} aria-label="Close command palette"><X size={17} /></button></div><div className="command-list"><CommandLink href="/chat" label="New conversation" icon={<MessageSquare size={15} />} onSelect={() => setCommandOpen(false)} /><CommandLink href="/outcomes" label="Outcomes" icon={<FileText size={15} />} onSelect={() => setCommandOpen(false)} /><CommandLink href="/projects" label="Projects" icon={<Folder size={15} />} onSelect={() => setCommandOpen(false)} /><CommandLink href="/files" label="Library" icon={<LibraryBig size={15} />} onSelect={() => setCommandOpen(false)} /><CommandLink href="/resources" label="Developer resources" icon={<BookOpen size={15} />} onSelect={() => setCommandOpen(false)} /><CommandLink href="/search" label="Search" icon={<Search size={15} />} onSelect={() => setCommandOpen(false)} /></div><small className="command-hint">Press Esc to close</small></section></div> : null}
+    {commandOpen ? <div className="command-overlay" role="presentation" onMouseDown={() => setCommandOpen(false)}><section className="command-palette clean-command-palette" role="dialog" aria-modal="true" aria-label="Elias command palette" onMouseDown={(event) => event.stopPropagation()}><div className="command-palette-head"><Command size={16} /><strong>Jump to</strong><button className="icon-btn" onClick={() => setCommandOpen(false)} aria-label="Close command palette"><X size={17} /></button></div><div className="command-list"><CommandLink href="/chat" label="New conversation" icon={<MessageSquare size={15} />} onSelect={() => setCommandOpen(false)} /><CommandLink href="/projects" label="Projects" icon={<Folder size={15} />} onSelect={() => setCommandOpen(false)} /><CommandLink href="/tasks" label="Tasks" icon={<CheckSquare size={15} />} onSelect={() => setCommandOpen(false)} /><CommandLink href="/files" label="Library" icon={<FileText size={15} />} onSelect={() => setCommandOpen(false)} /><CommandLink href="/search" label="Search" icon={<Search size={15} />} onSelect={() => setCommandOpen(false)} /><CommandLink href="/automations" label="Automations" icon={<Workflow size={15} />} onSelect={() => setCommandOpen(false)} /></div><small className="command-hint">Press Esc to close</small></section></div> : null}
   </div>;
 }
 
