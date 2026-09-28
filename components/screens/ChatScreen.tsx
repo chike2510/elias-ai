@@ -344,7 +344,7 @@ export default function ChatScreen() {
       });
       const data = await readApiResponse<{ content?: string; provider?: string; model?: string; fallbackProviders?: string[]; runtime?: { webEvidence?: { status: string; resultCount: number; fetchedSourceCount: number; sourceUrls: string[]; errors: string[] }; groundingWarning?: boolean }; result?: { content?: string; provider?: string; model?: string; fallbackProviders?: string[]; runtime?: { webEvidence?: { status: string; resultCount: number; fetchedSourceCount: number; sourceUrls: string[]; errors: string[] }; groundingWarning?: boolean } } }>(response);
       const reply = data.result || data;
-      if (Array.isArray(reply.fallbackProviders) && reply.fallbackProviders.length) setProviderNotice(`Auto routing used ${reply.provider || "another provider"} after ${reply.fallbackProviders.join(", ")} was unavailable.`);
+      if (Array.isArray(reply.fallbackProviders) && reply.fallbackProviders.length) setProviderNotice(`Auto routing succeeded with ${reply.provider || "another provider"} after these provider attempts failed: ${reply.fallbackProviders.join(", ")}.`);
       else setProviderNotice("");
       const content = typeof reply.content === "string" && reply.content.trim() ? reply.content : "I received your message but could not form a response.";
       const assistant: ConversationMessage = {
