@@ -12,6 +12,8 @@ import GoalProgressCard from "@/components/GoalProgressCard";
 import MarkdownMessage from "@/components/MarkdownMessage";
 import { readApiResponse } from "@/lib/clientApi";
 import { cacheTaskSnapshot, listCachedTaskSnapshots } from "@/lib/clientTask";
+import { buildSelectedDocumentContext } from "@/lib/clientDocumentContext";
+import { syncTaskArtifactToLibrary } from "@/lib/taskArtifactLibrary";
 import type { TaskRecord } from "@/lib/task";
 import { getArtifacts,
   getConversation,
@@ -131,9 +133,13 @@ export default function ChatScreen() {
   const [modelOptions, setModelOptions] = useState<ModelOption[]>(FALLBACK_MODEL_OPTIONS);
   const [vercelStatus, setVercelStatus] = useState<VercelMcpStatus | null>(null);
   const [recentArtifacts, setRecentArtifacts] = useState<Array<{ id: string; name: string; type: string }>>([]);
+  const [librarySyncNotice, setLibrarySyncNotice] = useState<{ taskId: string; message: string } | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const uploadRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const librarySyncInFlight = useRef(new Set<string>());
+  const librarySynced = useRef(new Set<string>());
+  const librarySyncFailed = useRef(new Set<string>());
   const autoSubmittedPromptRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -145,15 +151,16 @@ export default function ChatScreen() {
     }).catch(() => setRecentTasks(listCachedTaskSnapshots().sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 4)));
     void fetch("/api/models").then((response) => response.ok ? response.json() as Promise<{ models?: ModelOption[]; diagnostics?: Record<string, { configured?: boolean; ok?: boolean; modelCount?: number; error?: string }> }> : Promise.reject(new Error("models unavailable"))).then((data) => {
       if (Array.isArray(data.models) && data.models.length) setModelOptions(data.models);
-      const experiential = data.diagnostics?.experiential;
-      if (experiential?.ok && experiential.modelCount) setModelCatalogNotice(`Experiential Labs · ${experiential.modelCount} live models loaded`);
-      else if (experiential?.configured && experiential.error) setModelCatalogNotice(`Experiential Labs catalog unavailable: ${experiential.error.slice(0, 140)}`);
-      else if (!experiential?.configured) setModelCatalogNotice("Experiential Labs is not configured; Auto will use another configured provider.");
+      const huggingface = data.diagnostics?.huggingface;
+      if (huggingface?.ok && huggingface.modelCount) setModelCatalogNotice(`Hugging Face · ${huggingface.modelCount} live models loaded`);
+      else if (huggingface?.configured && huggingface.error) setModelCatalogNotice(`Hugging Face catalog unavailable: ${huggingface.error.slice(0, 140)}`);
+      else if (!huggingface?.configured) setModelCatalogNotice("Hugging Face is not configured; Auto will try another configured provider.");
     }).catch(() => setModelCatalogNotice("Model catalog unavailable; Auto will use only providers with a reachable live catalog."));
     let active = true;
     async function load() {
       setActiveTask(null);
       setTaskMode(false);
+      setActiveDocumentIds(requestedDocumentId ? [requestedDocumentId] : []);
       try {
         if (requestedId) {
           const existing = await getConversation(requestedId);
@@ -166,7 +173,6 @@ export default function ChatScreen() {
         // A stale or corrupted local conversation must not take down the Chat route.
       }
       if (!active) return;
-      if (requestedDocumentId) setActiveDocumentIds([requestedDocumentId]);
       const now = Date.now();
       setConversation({ id: requestedId || makeId("chat"), title: "New conversation", createdAt: now, updatedAt: now, messages: [] });
       if (requestedPrompt) setInput(requestedPrompt);
@@ -216,6 +222,27 @@ export default function ChatScreen() {
     return () => { stopped = true; if (timer !== undefined) window.clearInterval(timer); };
   }, [activeTask?.id]);
 
+  useEffect(() => {
+    if (!activeTask) return;
+    for (const artifact of activeTask.artifacts) {
+      const key = `${activeTask.id}:${artifact.id}`;
+      if (librarySynced.current.has(key) || librarySyncFailed.current.has(key) || librarySyncInFlight.current.has(key)) continue;
+      librarySyncInFlight.current.add(key);
+      void syncTaskArtifactToLibrary(activeTask, artifact, { save: saveArtifact })
+        .then(async () => {
+          librarySynced.current.add(key);
+          setLibrarySyncNotice((current) => current?.taskId === activeTask.id ? null : current);
+          const items = await getArtifacts();
+          setRecentArtifacts(items.slice(0, 4).map(({ id, name, type }) => ({ id, name, type })));
+        })
+        .catch(() => {
+          librarySyncFailed.current.add(key);
+          setLibrarySyncNotice({ taskId: activeTask.id, message: "This file is still available in the chat, but could not be added to the Library. Refresh Chat to retry." });
+        })
+        .finally(() => librarySyncInFlight.current.delete(key));
+    }
+  }, [activeTask?.id, activeTask?.conversationId, activeTask?.artifacts]);
+
   async function persist(next: ConversationRecord) {
     setConversation(next);
     try {
@@ -234,32 +261,14 @@ export default function ChatScreen() {
       ? { ...conversation, messages: conversation.messages.filter((message) => message.status !== "error") }
       : conversation;
     let retrievedContext = "";
-    if (!retry && !attachments.length && activeDocumentIds.length) {
+    if (!retry && activeDocumentIds.length) {
       try {
         const artifacts = await getArtifacts();
-        const stopWords = new Set(["this", "that", "with", "from", "what", "which", "about", "into", "have", "does", "your", "please", "document"]);
-        const terms = [...new Set(text.toLowerCase().split(/\W+/).filter((term) => term.length > 2 && !stopWords.has(term)))];
-        const ranked = artifacts.filter((artifact) => activeDocumentIds.includes(artifact.id) && artifact.chunks?.length).flatMap((artifact) => (artifact.chunks || []).map((chunk) => {
-          const source = chunk.text.toLowerCase();
-          const summary = (chunk.summary || "").toLowerCase();
-          const score = terms.reduce((total, term) => total + (summary.includes(term) ? 4 : source.includes(term) ? 2 : 0), 0) + (source.includes(text.toLowerCase()) ? 8 : 0) + (chunk.summary ? 1 : 0);
-          return { artifact, chunk, score };
-        })).filter((item) => item.score > 0).sort((a, b) => b.score - a.score || a.chunk.index - b.chunk.index).slice(0, 6);
-        if (!ranked.length) {
-          void recordAutomaticSignal({ kind: "evaluation", title: "Document retrieval returned no matching chunks", detail: `No relevant chunk matched the query across ${activeDocumentIds.length} selected document${activeDocumentIds.length === 1 ? "" : "s"}.`, severity: "warning", source: "chat-retrieval" }).catch(() => undefined);
+        const result = await buildSelectedDocumentContext(artifacts, activeDocumentIds, text);
+        if (result.noMatches) {
+          void recordAutomaticSignal({ kind: "evaluation", title: "Document retrieval returned no matching content", detail: `No relevant content was available across ${activeDocumentIds.length} selected document${activeDocumentIds.length === 1 ? "" : "s"}.`, severity: "warning", source: "chat-retrieval" }).catch(() => undefined);
         }
-        if (ranked.length) {
-          const sections: string[] = [];
-          let budget = 18_000;
-          for (const { artifact, chunk } of ranked) {
-            const excerpt = (chunk.summary || chunk.text).slice(0, Math.min(4_500, budget));
-            if (!excerpt) continue;
-            sections.push(`[${artifact.name} · pages ${chunk.pageStart}-${chunk.pageEnd}]\\n${excerpt}`);
-            budget -= excerpt.length;
-            if (budget <= 0) break;
-          }
-          retrievedContext = sections.length ? `\\n\\n[retrieved document context]\\n${sections.join("\\n\\n")}` : "";
-        }
+        if (result.context) retrievedContext = `\n\n[retrieved document context]\n${result.context}`;
       } catch { /* continue without retrieval context */ }
     }
     const attachmentContext = retry ? "" : attachments.filter((file) => file.context).map((file) => `\n\n[attached file: ${file.name}]\n${file.context!.slice(0, 60_000)}`).join("");
@@ -484,13 +493,13 @@ export default function ChatScreen() {
           <section className="chat-room" aria-label="Conversation">
           <div className="chat-body">
           {messages.length === 0 && !activeTask ? <section className="chat-welcome-stage" aria-labelledby="chat-welcome-title">
-            <div className="chat-welcome-kicker"><span /> TASK &amp; CONVERSATION WORKSPACE</div>
+            <div className="chat-welcome-kicker"><span /> YOUR PERSONAL ASSISTANT</div>
             <h2 id="chat-welcome-title">What would you like to get done?</h2>
-            <p>Ask a quick question or describe work to research, build, review, or create. Multi-step requests can open as tasks with a visible plan, live progress, approval requests, and files.</p>
+            <p>Ask a quick question, research live sources, work with a file or connected project, or create a downloadable deliverable. Multi-step work stays in this conversation, with progress and approvals here and finished files in your Library.</p>
             <div className="chat-welcome-paths" aria-label="Start with an example">
               <button type="button" onClick={() => setInput("Research the latest best practices for this topic and cite the strongest sources.")}><Globe2 size={17} /><span><strong>Research</strong><small>Find and compare sources</small></span><ChevronRight size={15} /></button>
               <button type="button" onClick={() => setInput("Review this project, identify the highest-risk issues, and propose a prioritized fix plan.")}><WandSparkles size={17} /><span><strong>Review or build</strong><small>Turn a project into a plan</small></span><ChevronRight size={15} /></button>
-              <button type="button" onClick={() => setInput("Create a concise technical report with a clear recommendation and supporting evidence.")}><FileText size={17} /><span><strong>Create</strong><small>Make a useful deliverable</small></span><ChevronRight size={15} /></button>
+              <button type="button" onClick={() => setInput("Create a downloadable PDF report with a clear recommendation and supporting evidence.")}><FileText size={17} /><span><strong>Create a file</strong><small>Preview and download it in your Library</small></span><ChevronRight size={15} /></button>
             </div>
             <div className="chat-welcome-footnote"><CheckCircle2 size={14} /><span>You stay in control: review the plan, evidence, approvals, and files as work progresses.</span></div>
           </section> : null}
@@ -500,11 +509,13 @@ export default function ChatScreen() {
 
           {busy ? <div className="chat-message assistant"><div className="chat-avatar"><LoaderCircle size={14} className="spin" /></div><div className="chat-message-body"><span className="chat-role">ELIAS</span>{taskMode && activeTask ? <LiveExecutionFeed task={activeTask} /> : taskMode ? <div className="chat-content typing-line">setting up the task…</div> : <div className="chat-content typing-line">thinking…</div>}</div></div> : null}
           {activeTask ? <section className="chat-execution-stack" aria-live="polite">
+            {librarySyncNotice?.taskId === activeTask.id ? <div className="provider-fallback-notice chat-library-sync-notice" role="status">{librarySyncNotice.message}</div> : null}
             {browserActivityForTask(activeTask) ? <BrowserActivityCard task={activeTask} /> : null}
             <StepTracker summary={activeTask.events.at(-1)?.detail || activeTask.events.at(-1)?.label || activeTask.title || "Elias is working through the request."} steps={trackerStepsForTask(activeTask)} status={trackerStatusForTask(activeTask.status)} />
             {pendingTaskApproval ? <article className="chat-inline-approval"><div><span>APPROVAL NEEDED</span><strong>{pendingTaskApproval.question}</strong><small>Work is paused until you decide.</small></div><div className="chat-inline-approval-actions"><button type="button" disabled={taskBusy} onClick={() => void resolveTaskApproval(pendingTaskApproval.id, "approve")}>{taskBusy ? "Saving…" : "Approve & continue"}</button><button type="button" disabled={taskBusy} onClick={() => void resolveTaskApproval(pendingTaskApproval.id, "reject")}>Decline</button></div></article> : null}
             <article className="chat-message assistant task-timeline-message"><div className="chat-avatar"><img src="/branding/elias-logo.png" alt="ELIAS" /></div><div className="chat-message-body"><span className="chat-role">ELIAS · WORKING</span><details className="task-timeline-card"><summary><span><strong>{activeTask.title || "Active task"}</strong><small>{activeTask.status.replaceAll("_", " ")} · {activeTask.plan.filter((step) => step.status === "completed").length}/{activeTask.plan.length || 0} steps</small></span><ChevronRight size={16} /></summary><GoalProgressCard task={activeTask} compact /><LiveExecutionFeed task={activeTask} />{activeTask.artifacts.length ? <div className="chat-inline-artifacts">{activeTask.artifacts.slice(-4).reverse().map((artifact) => <ArtifactCard key={artifact.id} artifact={artifact} href={inlineArtifactHref(activeTask.id, artifact)} compact taskLabel="This task" onPreview={() => setArtifactPreview(artifact)} onDownload={() => { const anchor = document.createElement("a"); anchor.href = inlineArtifactHref(activeTask.id, artifact); anchor.download = artifact.name; anchor.click(); }} />)}</div> : null}<div className="task-timeline-meta">{activeTask.events.at(-1)?.detail || "Task state updates appear here as Elias works."}</div>{!['completed','cancelled','waiting_approval'].includes(activeTask.status) ? <button type="button" className="primary task-timeline-continue" disabled={taskBusy} onClick={() => void continueTask()}>{taskBusy ? "Working…" : "Continue task"}</button> : null}</details></div></article>
             <Link className="chat-open-task" href={`/tasks?id=${encodeURIComponent(activeTask.id)}`}><ListChecks size={14} /> Open full task workspace <ChevronRight size={14} /></Link>
+            {activeTask.artifacts.length ? <Link className="chat-open-task" href="/files"><FileText size={14} /> View generated files in Library <ChevronRight size={14} /></Link> : null}
           </section> : null}
           <div ref={bottomRef} />
         </div>
@@ -516,7 +527,7 @@ export default function ChatScreen() {
           {providerNotice ? <div className="provider-fallback-notice" role="status">{providerNotice}</div> : null}<div className="chat-composer">
             <textarea className="chat-composer-input" value={input} onChange={(event) => setInput(event.target.value)} rows={1} placeholder="Message ELIAS…" onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendMessage(input); } }} />
             <input ref={uploadRef} hidden type="file" multiple accept=".zip,.ts,.tsx,.js,.jsx,.html,.css,.md,.txt,.pdf,.docx,.png,.jpg,.jpeg,.webp" onChange={(event) => { const files = Array.from(event.currentTarget.files ?? []); void addFiles(files); event.currentTarget.value = ""; }} />
-            <div className="chat-composer-bar"><div className="composer-left"><div className="composer-plus-wrap"><button type="button" className="composer-plus" aria-label="Add to chat" aria-expanded={plusOpen} onClick={() => { setPlusOpen((open) => !open); setModelPickerOpen(false); }}><Plus size={19} /></button>{plusOpen ? <div className="chat-plus-popover" role="dialog" aria-label="Add to chat"><div className="chat-plus-popover-head"><div><span className="eyebrow">CONTEXT</span><strong>Add to chat</strong><small>Bring in the source, skill, or model you need.</small></div><button type="button" className="chat-plus-close" onClick={() => setPlusOpen(false)} aria-label="Close Add to chat"><X size={16} /></button></div><div className="chat-plus-grid"><AddChatAction icon={<Paperclip size={17} />} label="Files" onClick={() => { uploadRef.current?.click(); setPlusOpen(false); }} /><Link href="/files" className="add-chat-action" onClick={() => setPlusOpen(false)}><FileClock size={17} /><span>Library</span></Link><Link href="/projects" className="add-chat-action" onClick={() => setPlusOpen(false)}><FolderPlus size={17} /><span>Project</span></Link><Link href="/skills" className="add-chat-action" onClick={() => setPlusOpen(false)}><Puzzle size={17} /><span>Skills</span></Link><Link href="/connectors" className="add-chat-action" onClick={() => setPlusOpen(false)}><Link2 size={17} /><span>Connectors</span></Link><AddChatAction icon={<ListChecks size={17} />} label="Plan" onClick={() => { setInput("Create a clear plan for this request before taking action."); setPlusOpen(false); }} /><AddChatAction icon={<WandSparkles size={17} />} label="Create" onClick={() => { setInput("Create a useful deliverable for "); setPlusOpen(false); }} /><AddChatAction icon={<Sparkles size={17} />} label="Web search" onClick={() => { setInput("Search the web for "); setPlusOpen(false); }} /></div><div className="chat-plus-model"><div className="chat-plus-model-head"><span>Model</span><button type="button" className="chat-model-trigger" aria-expanded={modelPickerOpen} onClick={() => setModelPickerOpen((open) => !open)}><span className="composer-model-mark">{selectedModelOption?.label.slice(0, 1) || "A"}</span><span><strong>{selectedModelOption?.label || "Auto"}</strong><small>{selectedModelOption?.detail || "Best model for the task"}</small></span><ChevronRight size={14} /></button></div>{modelCatalogNotice ? <small className="chat-model-catalog-notice" role="status">{modelCatalogNotice}</small> : null}{modelPickerOpen ? <div className="chat-model-options" role="listbox" aria-label="Choose a model">{modelOptions.map((option) => <button type="button" role="option" aria-selected={selectedModel === option.id} className={`chat-model-option ${selectedModel === option.id ? "selected" : ""}`} key={option.id} onClick={() => { setSelectedModel(option.id); setModelPickerOpen(false); }}><span className="composer-model-mark">{option.label.slice(0, 1)}</span><span><strong>{option.label}</strong><small>{option.detail}</small></span>{selectedModel === option.id ? <Check size={14} /> : null}</button>)}</div> : null}</div>{recentArtifacts.length ? <div className="chat-plus-recent"><div className="chat-plus-section-label">Recent files</div>{recentArtifacts.slice(0, 3).map((artifact) => <button type="button" key={artifact.id} className="chat-plus-recent-row" onClick={() => { setPlusOpen(false); setInput(`Use the recent file ${artifact.name} as context for this conversation.`); }}><FileText size={15} /><span><strong>{artifact.name}</strong><small>{artifact.type || "file"}</small></span><ChevronRight size={14} /></button>)}</div> : null}<div className="chat-plus-footer"><button type="button" className="chat-plus-footer-action" onClick={() => void connectVercel()}><Link2 size={15} /><span>Check Vercel MCP</span></button><button type="button" className="chat-plus-footer-action" onClick={() => { setInput("Review my recent tasks and continue the most relevant one."); setPlusOpen(false); }}><ListChecks size={15} /><span>Recent tasks</span></button></div></div> : null}</div><button type="button" className="chat-model-pill" onClick={() => { setPlusOpen(true); setModelPickerOpen(true); }} aria-label="Choose model">{selectedModelOption?.label || "Auto"}<ChevronRight size={12} /></button><Link href="/studio?mode=voice" className="composer-utility" title="Voice" aria-label="Voice"><Mic size={17} /></Link></div>{busy ? <button className="chat-send stop-button" type="button" onClick={stop} title="Stop generation"><X size={18} /></button> : <button className="chat-send" type="button" disabled={!input.trim()} onClick={() => void sendMessage(input)}><ArrowUp size={18} /></button>}</div>
+            <div className="chat-composer-bar"><div className="composer-left"><div className="composer-plus-wrap"><button type="button" className="composer-plus" aria-label="Add to chat" aria-expanded={plusOpen} onClick={() => { setPlusOpen((open) => !open); setModelPickerOpen(false); }}><Plus size={19} /></button>{plusOpen ? <div className="chat-plus-popover" role="dialog" aria-label="Add to chat"><div className="chat-plus-popover-head"><div><span className="eyebrow">CONTEXT</span><strong>Add to chat</strong><small>Bring in the source, skill, or model you need.</small></div><button type="button" className="chat-plus-close" onClick={() => setPlusOpen(false)} aria-label="Close Add to chat"><X size={16} /></button></div><div className="chat-plus-grid"><AddChatAction icon={<Paperclip size={17} />} label="Files" onClick={() => { uploadRef.current?.click(); setPlusOpen(false); }} /><Link href="/files" className="add-chat-action" onClick={() => setPlusOpen(false)}><FileClock size={17} /><span>Library</span></Link><Link href="/projects" className="add-chat-action" onClick={() => setPlusOpen(false)}><FolderPlus size={17} /><span>Project</span></Link><Link href="/skills" className="add-chat-action" onClick={() => setPlusOpen(false)}><Puzzle size={17} /><span>Skills</span></Link><Link href="/connectors" className="add-chat-action" onClick={() => setPlusOpen(false)}><Link2 size={17} /><span>Connectors</span></Link><AddChatAction icon={<ListChecks size={17} />} label="Plan" onClick={() => { setInput("Create a clear plan for this request before taking action."); setPlusOpen(false); }} /><AddChatAction icon={<WandSparkles size={17} />} label="Create" onClick={() => { setInput("Create a useful deliverable for "); setPlusOpen(false); }} /><AddChatAction icon={<Sparkles size={17} />} label="Web search" onClick={() => { setInput("Search the web for "); setPlusOpen(false); }} /></div><div className="chat-plus-model"><div className="chat-plus-model-head"><span>Model</span><button type="button" className="chat-model-trigger" aria-expanded={modelPickerOpen} onClick={() => setModelPickerOpen((open) => !open)}><span className="composer-model-mark">{selectedModelOption?.label.slice(0, 1) || "A"}</span><span><strong>{selectedModelOption?.label || "Auto"}</strong><small>{selectedModelOption?.detail || "Best model for the task"}</small></span><ChevronRight size={14} /></button></div>{modelCatalogNotice ? <small className="chat-model-catalog-notice" role="status">{modelCatalogNotice}</small> : null}{modelPickerOpen ? <div className="chat-model-options" role="listbox" aria-label="Choose a model">{modelOptions.map((option) => <button type="button" role="option" aria-selected={selectedModel === option.id} className={`chat-model-option ${selectedModel === option.id ? "selected" : ""}`} key={option.id} onClick={() => { setSelectedModel(option.id); setModelPickerOpen(false); }}><span className="composer-model-mark">{option.label.slice(0, 1)}</span><span><strong>{option.label}</strong><small>{option.detail}</small></span>{selectedModel === option.id ? <Check size={14} /> : null}</button>)}</div> : null}</div>{recentArtifacts.length ? <div className="chat-plus-recent"><div className="chat-plus-section-label">Recent files</div>{recentArtifacts.slice(0, 3).map((artifact) => <button type="button" key={artifact.id} className="chat-plus-recent-row" onClick={() => { setActiveDocumentIds((current) => current.includes(artifact.id) ? current : [...current, artifact.id]); setInput(`Use the recent file ${artifact.name} as context for this conversation.`); setPlusOpen(false); }}><FileText size={15} /><span><strong>{artifact.name}</strong><small>{artifact.type || "file"}</small></span><ChevronRight size={14} /></button>)}</div> : null}<div className="chat-plus-footer"><button type="button" className="chat-plus-footer-action" onClick={() => void connectVercel()}><Link2 size={15} /><span>Check Vercel MCP</span></button><Link href="/tasks" className="chat-plus-footer-action" onClick={() => setPlusOpen(false)}><ListChecks size={15} /><span>Open task board</span></Link></div></div> : null}</div><button type="button" className="chat-model-pill" onClick={() => { setPlusOpen(true); setModelPickerOpen(true); }} aria-label="Choose model">{selectedModelOption?.label || "Auto"}<ChevronRight size={12} /></button><Link href="/studio?mode=voice" className="composer-utility" title="Voice" aria-label="Voice"><Mic size={17} /></Link></div>{busy ? <button className="chat-send stop-button" type="button" onClick={stop} title="Stop generation"><X size={18} /></button> : <button className="chat-send" type="button" disabled={!input.trim()} onClick={() => void sendMessage(input)}><ArrowUp size={18} /></button>}</div>
           </div>
         </div>
           </section>

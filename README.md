@@ -6,9 +6,9 @@ ELIAS is a mobile-first intelligence workbench for turning objectives into plans
 
 The primary experience is the `/tasks` workbench. A user starts with an outcome, ELIAS infers a task kind, creates a plan, shows permissions, records activity and evidence, creates checkpoints around workspace mutations, exposes approvals, and associates generated artifacts with the task. Recent tasks are addressable by URL and can be resumed through the task detail API.
 
-The chat, coding, research, files, and Studio surfaces remain available as specialist workspaces. The coding editor can hand an imported project into the task workbench, and the task workbench can open the current task workspace in the editor. Research and voice transcripts can be handed directly into a task objective. Generated text artifacts can be downloaded from the task delivery panel.
+The chat, coding, research, files, and Studio surfaces remain available as specialist workspaces. Chat can hand multi-step requests to the task runner without leaving the conversation; task outputs are also copied into the browser-local Library for preview and download. The coding editor can hand an imported project into the task workbench, and the task workbench can open the current task workspace in the editor. Research and voice transcripts can be handed directly into a task objective. The server-side task record remains the source copy; the Library view uses the current browser’s local storage.
 
-The server provides normalized multi-provider routing for Qwen, AgentRouter, Cerebras, Groq, OpenRouter, Mistral, and GitHub Models where configured. Image requests use the media pipeline instead of sending the prompt to a text chat model; when `HF_TOKEN` is configured, ELIAS can call Hugging Face Inference Providers with `HF_IMAGE_MODEL` (default `Qwen/Qwen-Image`) and otherwise falls back to Pollinations for images. Provider responses are read text-first and normalized across JSON, SSE, plain-text failures, timeouts, malformed responses, and fallback providers. API routes return a stable `{ ok, ... }` response envelope, and client readers tolerate non-JSON failures.
+Chat and coding requests try Hugging Face Inference Providers first through the OpenAI-compatible router at `https://router.huggingface.co/v1`, using the server-only `HF_TOKEN`; configured Qwen, AgentRouter, Groq, Mistral, Experiential Labs, and GitHub Models remain fallback options. OpenRouter and Cerebras routing has been removed. Image requests use the media pipeline instead of sending the prompt to a text chat model; when `HF_TOKEN` is configured, ELIAS can call Hugging Face with `HF_IMAGE_MODEL` (default `Qwen/Qwen-Image`) and otherwise falls back to Pollinations for images. Provider responses are read text-first and normalized across JSON, SSE, plain-text failures, timeouts, malformed responses, and fallback providers. API routes return a stable `{ ok, ... }` response envelope, and client readers tolerate non-JSON failures.
 
 The agent protocol supports workspace inspection, file listing and reading, file search, dependency inspection, bounded web search and source opening, text artifact creation, validation requests, and workspace actions for writing, appending, editing, renaming, and deleting files. ZIP import rejects traversal paths, extracts bounded editable text files, and the existing editor can export the real current workspace.
 
@@ -31,8 +31,6 @@ EXA_API_KEY=
 QWEN_API_KEY=
 AGENTROUTER_API_KEY=
 GROQ_API_KEY=
-OPENROUTER_API_KEY=
-CEREBRAS_API_KEY=
 MISTRAL_API_KEY=
 GITHUB_LOGIN_CLIENT_ID=
 GITHUB_LOGIN_CLIENT_SECRET=
@@ -69,10 +67,11 @@ The task API is available at `/api/tasks`, `/api/tasks/[taskId]`, `/api/tasks/[t
 ```bash
 npm install
 npm run typecheck
+node --test tests/*.test.mjs
 npm run build
 ```
 
-The supplied project does not define `lint` or `test` scripts. The `/chat` route remains wrapped in a Suspense boundary so `useSearchParams()` satisfies the current Next.js prerender requirement.
+The supplied project does not define a `lint` script. The `/chat` route remains wrapped in a Suspense boundary so `useSearchParams()` satisfies the current Next.js prerender requirement.
 
 
 ## Hugging Face model routing

@@ -29,7 +29,7 @@ export default function FilesScreen() {
     <header className="screen-header"><div className="screen-header-copy"><span className="eyebrow">FILES</span><h1>Library</h1><p className="screen-description">Files uploaded or created by Elias, ready to revisit.</p></div><span className="library-count quiet-badge">{filtered.length}</span></header>
     <div className="searchbox library-search"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search files" /><span className="search-hint">{filtered.length}</span></div>
     <section className="artifact-library-list" aria-label="Elias artifacts">
-      {filtered.map((artifact) => <ArtifactCard key={artifact.id} artifact={artifact} taskLabel={artifact.pageCount ? "Document" : undefined} onPreview={() => setPreview(artifact)} onDownload={() => download(artifact)} />)}
+      {filtered.map((artifact) => <ArtifactCard key={artifact.id} artifact={artifact} taskLabel={artifact.taskId ? "Task output" : artifact.pageCount ? "Document" : undefined} onPreview={() => setPreview(artifact)} onDownload={() => download(artifact)} />)}
       {!filtered.length ? <div className="empty-state panel"><Archive size={22} /><b>{query ? "No matches" : "No files yet"}</b><small>{query ? "Try another search." : "Files uploaded or created by Elias appear here."}</small><a className="primary" href="/chat">Open Chat <ArrowUpRight size={14} /></a></div> : null}
     </section>
     <ArtifactPreviewSheet artifact={preview} onClose={() => setPreview(null)} onDownload={preview ? () => download(preview) : undefined} />

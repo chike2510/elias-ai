@@ -6,6 +6,11 @@ function normalizeBaseUrl(value: string) {
 }
 
 const CONFIG: Record<ProviderName, ProviderConfig> = {
+  huggingface: {
+    name: "huggingface",
+    key: process.env.HF_TOKEN || process.env.HUGGINGFACE_API_KEY,
+    baseUrl: "https://router.huggingface.co/v1",
+  },
   experiential: {
     name: "experiential",
     key: process.env.EXPLABS_API_KEY || process.env.EXPERIENTIAL_API_KEY,
@@ -26,16 +31,6 @@ const CONFIG: Record<ProviderName, ProviderConfig> = {
     key: process.env.GROQ_API_KEY,
     baseUrl: "https://api.groq.com/openai/v1",
   },
-  openrouter: {
-    name: "openrouter",
-    key: process.env.OPENROUTER_API_KEY,
-    baseUrl: "https://openrouter.ai/api/v1",
-  },
-  cerebras: {
-    name: "cerebras",
-    key: process.env.CEREBRAS_API_KEY,
-    baseUrl: "https://api.cerebras.ai/v1",
-  },
   mistral: {
     name: "mistral",
     key: process.env.MISTRAL_API_KEY,
@@ -45,11 +40,6 @@ const CONFIG: Record<ProviderName, ProviderConfig> = {
     name: "github",
     key: process.env.GITHUB_TOKEN,
     baseUrl: "https://models.github.ai/inference",
-  },
-  huggingface: {
-    name: "huggingface",
-    key: process.env.HF_TOKEN || process.env.HUGGINGFACE_API_KEY,
-    baseUrl: "https://router.huggingface.co/v1",
   },
 };
 
@@ -278,10 +268,12 @@ export async function pickModel(provider: ProviderName, task: TaskType): Promise
 }
 
 export function providerOrder(task: TaskType, complexity: number): ProviderName[] {
-  if (task === "code" && complexity >= 8) return ["experiential", "qwen", "agentrouter", "cerebras", "openrouter", "mistral", "github", "huggingface", "groq"];
-  if (task === "code") return ["experiential", "qwen", "cerebras", "agentrouter", "openrouter", "mistral", "github", "huggingface", "groq"];
-  if (task === "research") return ["experiential", "openrouter", "cerebras", "qwen", "mistral", "agentrouter", "groq", "github", "huggingface"];
-  return ["experiential", "cerebras", "qwen", "openrouter", "mistral", "agentrouter", "groq", "github", "huggingface"];
+  const remaining: ProviderName[] = task === "code"
+    ? complexity >= 8 ? ["qwen", "agentrouter", "mistral", "github", "groq", "experiential"] : ["qwen", "agentrouter", "groq", "mistral", "github", "experiential"]
+    : task === "research"
+      ? ["qwen", "mistral", "agentrouter", "groq", "github", "experiential"]
+      : ["qwen", "agentrouter", "groq", "mistral", "github", "experiential"];
+  return ["huggingface", ...remaining];
 }
 
 export async function chooseProvider(task: TaskType, complexity: number): Promise<ProviderName | null> {
@@ -311,10 +303,6 @@ export async function completeWithProvider({
   const started = Date.now();
   const timeoutSignal = signal ?? AbortSignal.timeout(60_000);
   const headers: Record<string, string> = { "Content-Type": "application/json", ...authHeaders(provider, config.key) };
-  if (provider === "openrouter") {
-    headers["HTTP-Referer"] = "https://elias-ai.vercel.app";
-    headers["X-Title"] = "ELIAS";
-  }
   const response = await fetch(`${config.baseUrl}/chat/completions`, {
     method: "POST",
     headers,
