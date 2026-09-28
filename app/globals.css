@@ -2815,3 +2815,12 @@ input::placeholder, textarea::placeholder { color: #77827b !important; }
   .chat-route-screen .chat-composer { border-radius: 13px !important; }
   .chat-route-screen .chat-plus-popover { left: -3px; bottom: calc(100% + 8px); width: min(320px, calc(100vw - 28px)); max-height: min(560px, calc(100dvh - 116px)); }
 }
+
+
+/* Fresh chat positioning: anchor the idle composer to the viewport edge; lift it only once a draft exists. */
+.chat-route-screen.fresh-chat-empty { padding-bottom: max(0px, env(safe-area-inset-bottom)) !important; }
+.chat-route-screen.fresh-chat-empty .chat-bottom-region { padding-bottom: 0 !important; }
+.chat-route-screen.fresh-chat-has-draft { padding-bottom: 18px; }
+@media (max-width: 700px) {
+  .chat-route-screen.fresh-chat-has-draft { padding-bottom: max(18px, env(safe-area-inset-bottom)); }
+}

@@ -469,7 +469,7 @@ export default function ChatScreen() {
 
   return (
     <AppShell title="Chat">
-      <main className="screen chat-screen chat-route-screen">
+      <main className={`screen chat-screen chat-route-screen ${messages.length === 0 && !activeTask ? (input.trim() ? "fresh-chat-has-draft" : "fresh-chat-empty") : ""}`}>
         <div className="chat-body">
           {activeTask?.artifacts.length ? <div className="chat-artifact-pill"><FileText size={13} /> {activeTask.artifacts.length} Artifact{activeTask.artifacts.length === 1 ? "" : "s"}</div> : null}
 
