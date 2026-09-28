@@ -12,6 +12,7 @@ import {
   taskSnapshot,
 } from "@/lib/task";
 import type { AgentActivity, ToolResult, WorkspaceFile } from "@/lib/types";
+import { filterTasksForOwner, isTaskOwnedBy } from "@/lib/taskOwnership";
 
 type StoreState = { tasks: Map<string, TaskRecord>; loaded: boolean };
 
@@ -60,8 +61,10 @@ function decodeTask(value: unknown): TaskRecord | undefined {
 async function remoteGet(id: string) { await ensureSchema(); const rows = await db()<Array<{ task: unknown }>>`select task from public.elias_task_records where id = ${id} limit 1`; return rows[0] ? decodeTask(rows[0].task) : undefined; }
 async function remoteSave(task: TaskRecord) { await ensureSchema(); task.updatedAt = Date.now(); await db()`insert into public.elias_task_records (id, task, updated_at) values (${task.id}, ${JSON.stringify(task)}::jsonb, now()) on conflict (id) do update set task = excluded.task, updated_at = now()`; return clone(task); }
 
-export async function createStoredTask(task: TaskRecord) { return useRemoteStore() ? remoteSave(task) : localSave(task); }
-export async function restoreStoredTask(task: TaskRecord) { return useRemoteStore() ? remoteSave(task) : localSave(task); }
+export async function createStoredTask(task: TaskRecord) {
+  if (!task.ownerUserId?.trim()) throw new Error("A signed-in task owner is required.");
+  return useRemoteStore() ? remoteSave(task) : localSave(task);
+}
 function localSave(task: TaskRecord) { task.updatedAt = Date.now(); state().tasks.set(task.id, clone(task)); persistLocal(); return clone(task); }
 
 export async function getStoredTask(id: string): Promise<TaskRecord | undefined> {
@@ -71,14 +74,21 @@ export async function getStoredTask(id: string): Promise<TaskRecord | undefined>
   const task = current.tasks.get(id); return task ? clone(task) : undefined;
 }
 
-export async function listStoredTasks(projectId?: string, conversationId?: string) {
-  let tasks: TaskRecord[];
-  if (useRemoteStore()) { await ensureSchema(); const rows = await db()<Array<{ task: unknown }>>`select task from public.elias_task_records order by updated_at desc`; tasks = rows.map((row) => decodeTask(row.task)).filter((task): task is TaskRecord => Boolean(task)); }
-  else { tasks = [...(await Promise.all([...state().tasks.keys()].map((id) => getStoredTask(id)))).filter((task): task is TaskRecord => Boolean(task))]; }
-  return tasks.filter((task) => (!projectId || task.projectId === projectId) && (!conversationId || task.conversationId === conversationId)).sort((a, b) => b.updatedAt - a.updatedAt).map(clone);
+export async function getStoredTaskForUser(id: string, userId: string): Promise<TaskRecord | undefined> {
+  if (!userId) return undefined;
+  const task = await getStoredTask(id);
+  return isTaskOwnedBy(task, userId) ? task : undefined;
 }
 
-export async function snapshotStoredTask(id: string): Promise<TaskSnapshot | undefined> { const task = await getStoredTask(id); return task ? taskSnapshot(task) : undefined; }
+export async function listStoredTasks(userId: string, projectId?: string, conversationId?: string) {
+  if (!userId) return [];
+  let tasks: TaskRecord[];
+  if (useRemoteStore()) { await ensureSchema(); const rows = await db()<Array<{ task: unknown }>>`select task from public.elias_task_records where task->>'ownerUserId' = ${userId} order by updated_at desc`; tasks = rows.map((row) => decodeTask(row.task)).filter((task): task is TaskRecord => Boolean(task)); }
+  else { tasks = [...(await Promise.all([...state().tasks.keys()].map((id) => getStoredTask(id)))).filter((task): task is TaskRecord => Boolean(task))]; }
+  return filterTasksForOwner(tasks, userId).filter((task) => (!projectId || task.projectId === projectId) && (!conversationId || task.conversationId === conversationId)).sort((a, b) => b.updatedAt - a.updatedAt).map(clone);
+}
+
+export async function snapshotStoredTaskForUser(id: string, userId: string): Promise<TaskSnapshot | undefined> { const task = await getStoredTaskForUser(id, userId); return task ? taskSnapshot(task) : undefined; }
 
 export async function updateStoredTask(id: string, update: (task: TaskRecord) => void) {
   const task = await getStoredTask(id); if (!task) throw new Error("Task not found."); update(task); return useRemoteStore() ? remoteSave(task) : localSave(task);

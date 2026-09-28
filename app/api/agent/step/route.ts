@@ -4,6 +4,7 @@ import { SKILL_REGISTRY } from "@/lib/skills";
 import { detectExtendedSkills } from "@/lib/extendedSkills";
 import type { AgentInput } from "@/lib/agent";
 import { jsonError, jsonOk, readJsonRequest } from "@/lib/http";
+import { getSession } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -22,6 +23,8 @@ function isMessage(value: unknown): value is AgentInput["messages"][number] {
 
 export async function POST(request: NextRequest) {
   try {
+    const session = await getSession();
+    if (!session) return jsonError("Sign in to use the Elias agent.", 401, "AUTH_REQUIRED");
     const input = await readJsonRequest<AgentInput>(request);
     if (!input?.task || !input?.taskType || !Array.isArray(input.files) || !Array.isArray(input.messages) || !Array.isArray(input.toolResults)) {
       return jsonError("task, taskType, files, messages, and toolResults are required", 400, "INVALID_REQUEST");

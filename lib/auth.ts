@@ -21,7 +21,11 @@ const COOKIE_NAME = "elias_session";
 const MAX_AGE = 60 * 60 * 24 * 30;
 
 function key() {
-  return createHash("sha256").update(process.env.ELIAS_SESSION_SECRET || "local-development-secret-change-me").digest();
+  const configuredSecret = process.env.ELIAS_SESSION_SECRET;
+  if (process.env.NODE_ENV === "production" && (!configuredSecret || Buffer.byteLength(configuredSecret) < 32)) {
+    throw new Error("ELIAS_SESSION_SECRET must be configured with at least 32 bytes in production.");
+  }
+  return createHash("sha256").update(configuredSecret || "local-development-secret-change-me").digest();
 }
 
 function encode(value: string) {

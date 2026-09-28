@@ -83,6 +83,8 @@ export type TaskRecord = {
   objective: string;
   kind: TaskKind;
   taskType: TaskType;
+  /** Server-assigned account owner; absent only on legacy records, which must remain inaccessible. */
+  ownerUserId?: string;
   preferredProvider?: import("@/lib/types").ProviderName;
   preferredModel?: string;
   status: TaskStatus;

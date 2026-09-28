@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
     const prompt = typeof body.prompt === "string" && body.prompt.trim() ? body.prompt.trim().slice(0, 12_000) : "Complete the requested browser task and report what changed.";
     const url = typeof body.url === "string" ? body.url.trim().slice(0, 2_000) : undefined;
     if (url && !/^https?:\/\//i.test(url)) return jsonError("Only HTTP(S) browser pages are supported.", 400, "INVALID_URL");
-    const task = await createTaskRecord({ objective: prompt, kind: "research", taskType: "research" });
+    const task = await createTaskRecord({ objective: prompt, kind: "research", taskType: "research" }, token.sub);
     const session = await createBrowserSession(task.id, url, token.sub);
     const linkedTask = await updateStoredTask(task.id, (current) => { current.browserSessionId = session.id; });
     return jsonOk({ session, task: linkedTask }, { status: 201 });
