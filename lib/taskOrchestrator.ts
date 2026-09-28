@@ -13,6 +13,7 @@ import {
   createTaskCheckpoint,
   restoreTaskCheckpoint,
   getStoredTask,
+  getStoredTaskForUser,
   grantTaskPermission,
   recordTaskEvent,
   recordToolResult,
@@ -142,21 +143,24 @@ function applyAction(task: TaskRecord, action: AgentAction): { path?: string; ch
   return { path: to, changed: true, detail: `Renamed ${path} to ${to}.` };
 }
 
-export async function createTaskRecord(input: CreateTaskInput) {
+export async function createTaskRecord(input: CreateTaskInput, ownerUserId: string) {
+  if (!ownerUserId?.trim()) throw new Error("A signed-in task owner is required.");
   const kind = input.kind || inferTaskKind(input.objective);
   const task = createTask({ ...input, kind, taskType: input.taskType || inferTaskType(kind) });
+  task.ownerUserId = ownerUserId;
   return await createStoredTask(task);
 }
 
-export async function getTask(id: string) {
-  return await getStoredTask(id);
+export async function getTask(id: string, ownerUserId: string) {
+  return await getStoredTaskForUser(id, ownerUserId);
 }
 
-export function listTasks(projectId?: string, conversationId?: string) {
-  return import("@/lib/taskStore").then(({ listStoredTasks }) => listStoredTasks(projectId, conversationId));
+export function listTasks(ownerUserId: string, projectId?: string, conversationId?: string) {
+  return import("@/lib/taskStore").then(({ listStoredTasks }) => listStoredTasks(ownerUserId, projectId, conversationId));
 }
 
-export async function updateTaskAction(id: string, action: "start" | "pause" | "cancel" | "approve" | "reject" | "restore_checkpoint", value?: string) {
+export async function updateTaskAction(id: string, ownerUserId: string, action: "start" | "pause" | "cancel" | "approve" | "reject" | "restore_checkpoint", value?: string) {
+  if (!(await getStoredTaskForUser(id, ownerUserId))) throw new Error("Task not found.");
   if (action === "start") return await setTaskStatus(id, "queued");
   if (action === "pause") return await setTaskStatus(id, "paused");
   if (action === "cancel") return await setTaskStatus(id, "cancelled");
@@ -306,7 +310,7 @@ async function createFallbackArtifact(task: TaskRecord, message: string) {
   return artifactId;
 }
 
-export async function runTaskStep(id: string): Promise<TaskRecord> {
+async function runTaskStep(id: string): Promise<TaskRecord> {
   let task = await getStoredTask(id);
   if (!task) throw new Error("Task not found.");
   if (["cancelled", "completed"].includes(task.status)) return task;
@@ -410,8 +414,8 @@ export async function runTaskStep(id: string): Promise<TaskRecord> {
   }
 }
 
-export async function runTaskLoop(id: string, maxSteps = MAX_STEPS) {
-  let task = await getStoredTask(id);
+export async function runTaskLoop(id: string, ownerUserId: string, maxSteps = MAX_STEPS) {
+  let task = await getStoredTaskForUser(id, ownerUserId);
   if (!task) throw new Error("Task not found.");
   for (let step = 0; step < maxSteps; step += 1) {
     task = await runTaskStep(id);

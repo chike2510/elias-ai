@@ -9,7 +9,7 @@ export const runtime = "nodejs";
 async function owned(request: NextRequest, sessionId: string) {
   const identity = await getSession();
   const session = await getBrowserSession(sessionId);
-  if (!session || !identity || (session.ownerId && session.ownerId !== identity.userId)) return null;
+  if (!session || !identity || session.ownerId !== identity.userId) return null;
   return session;
 }
 

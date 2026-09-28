@@ -1,13 +1,17 @@
 import { NextRequest } from "next/server";
 import { getTask } from "@/lib/taskOrchestrator";
+import { getSession } from "@/lib/auth";
+import { jsonError } from "@/lib/http";
 
 type Context = { params: Promise<{ taskId: string; artifactId: string }> };
 
 export const runtime = "nodejs";
 
 export async function GET(_request: NextRequest, context: Context) {
+  const session = await getSession();
+  if (!session) return jsonError("Sign in to download this artifact.", 401, "AUTH_REQUIRED");
   const { taskId, artifactId } = await context.params;
-  const task = await getTask(taskId);
+  const task = await getTask(taskId, session.userId);
   const artifact = task?.artifacts.find((item) => item.id === artifactId);
   if (!artifact || artifact.content === undefined) return new Response("Artifact not found.", { status: 404 });
   const body = artifact.encoding === "base64" ? Buffer.from(artifact.content, "base64") : artifact.content;

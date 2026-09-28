@@ -38,9 +38,9 @@ export async function POST(request: NextRequest, context: { params: Promise<{ au
       preferredProvider: record.preferredProvider as ProviderName | undefined,
       preferredModel: record.preferredModel,
       permissions: { read: true, artifact: record.approvalPolicy !== "always", network: record.allowedTools.includes("web.search") && record.approvalPolicy === "never", external_side_effect: false },
-    });
+    }, record.userId);
     await recordAutomationRun(record.id, record.userId);
-    after(async () => { try { await runTaskLoop(task.id, 1); } catch { /* task state records failure */ } });
+    after(async () => { try { await runTaskLoop(task.id, record.userId, 1); } catch { /* task state records failure */ } });
     return jsonOk({ ok: true, taskId: task.id, status: task.status, message: "Automation accepted and task execution started." }, { status: 202 });
   } catch (error) {
     return jsonError(error instanceof Error ? error.message : "Could not trigger automation.");

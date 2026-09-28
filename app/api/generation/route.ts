@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
     const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
     const type = validType(body.type) ? body.type : "image";
     if (!prompt || prompt.length > 8_000) return jsonError("A prompt between 1 and 8,000 characters is required.", 400);
-    const task = typeof body.taskId === "string" && body.taskId ? await getTask(body.taskId) : await createTaskRecord({ objective: `Generate a ${type} asset: ${prompt}`, kind: "media", taskType: "media" });
+    const task = typeof body.taskId === "string" && body.taskId ? await getTask(body.taskId, session.userId) : await createTaskRecord({ objective: `Generate a ${type} asset: ${prompt}`, kind: "media", taskType: "media" }, session.userId);
     if (!task) return jsonError("Generation task not found.", 404);
     await setTaskStatus(task.id, "running");
     await recordTaskEvent(task.id, { kind: "action", label: "Generation job submitted", status: "completed", detail: `Submitting a ${type} generation job through ${body.provider === "huggingface" ? "Hugging Face" : body.provider === "pollinations" ? "Pollinations" : "the default provider"}.` });

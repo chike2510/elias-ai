@@ -45,6 +45,8 @@ function formatRepositoryContext(context: Awaited<ReturnType<typeof loadReposito
 
 export async function POST(request: NextRequest) {
   try {
+    const session = await getSession();
+    if (!session) return jsonError("Sign in to use Elias chat.", 401, "AUTH_REQUIRED");
     const body = await readJsonRequest<{ messages?: unknown; task?: unknown; provider?: unknown; model?: unknown }>(request);
     const messages = Array.isArray(body.messages)
       ? body.messages.filter((message): message is { role: "user" | "assistant" | "system"; content: string } => {
