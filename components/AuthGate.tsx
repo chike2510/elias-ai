@@ -15,12 +15,14 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const publicPaths = pathname === "/login" || pathname === "/privacy" || pathname === "/terms";
-  const [user, setUser] = useState<User | null>(() => cachedUser());
-  const [loading, setLoading] = useState(!publicPaths && !cachedUser());
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(!publicPaths);
 
   useEffect(() => {
     if (publicPaths) { setLoading(false); return; }
     let active = true;
+    const cached = cachedUser();
+    if (cached) { setUser(cached); setLoading(false); }
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), 8000);
     fetch("/api/auth/me", { cache: "no-store", signal: controller.signal }).then((response) => response.json()).then((data: { user?: User | null }) => {
