@@ -8,7 +8,7 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 type ReviewFinding = { id: string; severity: "critical" | "high" | "medium" | "low"; title: string; detail: string; evidence: Array<{ path: string; line?: number; quote?: string }>; recommendation: string; confidence: number };
-const providers = new Set<ProviderName>(["qwen", "agentrouter", "groq", "openrouter", "cerebras", "mistral", "github"]);
+const providers = new Set<ProviderName>(["qwen", "agentrouter", "groq", "openrouter", "cerebras", "mistral", "github", "huggingface"]);
 const safePath = (value: string) => value.length > 0 && value.length < 240 && !value.includes("..") && !value.startsWith("/");
 function parseModelJson(text: string): { summary?: string; riskLevel?: string; findings?: unknown[] } {
   const cleaned = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();

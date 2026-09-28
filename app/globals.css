@@ -2795,3 +2795,23 @@ input::placeholder, textarea::placeholder { color: #77827b !important; }
   .task-workspace-header h1 { margin: 0; font-size: 25px; }
   .task-workspace-header .task-filter { display: none; }
 }
+
+
+/* Mobile chat polish: the composer is a compact rounded rectangle, while the add menu floats above it without being clipped. */
+.chat-route-screen .chat-composer { overflow: visible !important; border-radius: 14px !important; }
+.chat-route-screen .chat-composer-bar { border-radius: 0 0 13px 13px !important; }
+.chat-route-screen .chat-send { border-radius: 10px !important; }
+.chat-route-screen .chat-plus-popover { z-index: 1000; border-color: #48504c !important; border-radius: 14px !important; background: #1b2020 !important; box-shadow: 0 18px 45px rgba(0,0,0,.55); }
+.chat-route-screen .chat-plus-popover .eyebrow { color: #ff9581 !important; }
+.chat-route-screen .chat-plus-popover-head strong { color: #f2f0e9 !important; }
+.chat-route-screen .chat-plus-popover-head small, .chat-route-screen .chat-plus-section-label, .chat-route-screen .chat-plus-model-head > span { color: #9da7a0 !important; }
+.chat-route-screen .chat-plus-grid, .chat-route-screen .chat-plus-model, .chat-route-screen .chat-plus-footer { border-color: #38433f !important; }
+.chat-route-screen .chat-plus-grid .add-chat-action, .chat-route-screen .chat-plus-footer-action { color: #dedfd9 !important; }
+.chat-route-screen .chat-plus-grid .add-chat-action svg, .chat-route-screen .chat-plus-footer-action svg, .chat-route-screen .composer-model-mark { color: #ff9581 !important; }
+.chat-route-screen .chat-plus-grid .add-chat-action:hover, .chat-route-screen .chat-plus-footer-action:hover { background: #2b2927 !important; }
+.chat-route-screen .chat-plus-footer-action { border-color: #4a504a !important; background: #252a29 !important; }
+.chat-route-screen .chat-plus-model select, .chat-route-screen .chat-model-options { border-color: #46504b !important; background: #151918 !important; }
+@media (max-width: 700px) {
+  .chat-route-screen .chat-composer { border-radius: 13px !important; }
+  .chat-route-screen .chat-plus-popover { left: -3px; bottom: calc(100% + 8px); width: min(320px, calc(100vw - 28px)); max-height: min(560px, calc(100dvh - 116px)); }
+}

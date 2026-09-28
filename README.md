@@ -8,7 +8,7 @@ The primary experience is the `/tasks` workbench. A user starts with an outcome,
 
 The chat, coding, research, files, and Studio surfaces remain available as specialist workspaces. The coding editor can hand an imported project into the task workbench, and the task workbench can open the current task workspace in the editor. Research and voice transcripts can be handed directly into a task objective. Generated text artifacts can be downloaded from the task delivery panel.
 
-The server provides normalized multi-provider routing for Qwen, AgentRouter, Cerebras, Groq, OpenRouter, Mistral, and GitHub Models where configured. Provider responses are read text-first and normalized across JSON, SSE, plain-text failures, timeouts, malformed responses, and fallback providers. API routes return a stable `{ ok, ... }` response envelope, and client readers tolerate non-JSON failures.
+The server provides normalized multi-provider routing for Qwen, AgentRouter, Cerebras, Groq, OpenRouter, Mistral, and GitHub Models where configured. Image requests use the media pipeline instead of sending the prompt to a text chat model; when `HF_TOKEN` is configured, ELIAS can call Hugging Face Inference Providers with `HF_IMAGE_MODEL` (default `Qwen/Qwen-Image`) and otherwise falls back to Pollinations for images. Provider responses are read text-first and normalized across JSON, SSE, plain-text failures, timeouts, malformed responses, and fallback providers. API routes return a stable `{ ok, ... }` response envelope, and client readers tolerate non-JSON failures.
 
 The agent protocol supports workspace inspection, file listing and reading, file search, dependency inspection, bounded web search and source opening, text artifact creation, validation requests, and workspace actions for writing, appending, editing, renaming, and deleting files. ZIP import rejects traversal paths, extracts bounded editable text files, and the existing editor can export the real current workspace.
 
@@ -25,6 +25,8 @@ Validation commands are implemented in `lib/execution.ts` but are disabled by de
 Set only the provider keys you actually use on the server. Keys are never read by client-side code. `GITHUB_LOGIN_CLIENT_ID` and `GITHUB_LOGIN_CLIENT_SECRET` are used only for Elias account sign-in; `GITHUB_REPO_CLIENT_ID` and `GITHUB_REPO_CLIENT_SECRET` are used only for the separate repository connector flow.
 
 ```text
+HF_TOKEN=
+HF_IMAGE_MODEL=
 EXA_API_KEY=
 QWEN_API_KEY=
 AGENTROUTER_API_KEY=
@@ -71,3 +73,14 @@ npm run build
 ```
 
 The supplied project does not define `lint` or `test` scripts. The `/chat` route remains wrapped in a Suspense boundary so `useSearchParams()` satisfies the current Next.js prerender requirement.
+
+
+## Hugging Face model routing
+
+ELIAS should treat Hugging Face as a model gateway, not as one universal chat model. Keep three routing layers separate:
+
+- **Chat and coding:** use the Hugging Face OpenAI-compatible router at `https://router.huggingface.co/v1` with a fine-grained `HF_TOKEN`; select a text model with `:fastest`, `:cheapest`, or `:preferred`, or pin a provider suffix.
+- **Image generation:** call the task endpoint with a text-to-image model such as `Qwen/Qwen-Image` or FLUX and store the returned binary image as an artifact. Do not send this request to `/chat/completions`; a Qwen chat model cannot generate pixels.
+- **Audio/video:** add separate task adapters for text-to-speech, speech recognition, and text-to-video. Each adapter should declare input/output MIME types, maximum duration, provider/model, timeout, polling or callback behavior, and a fallback.
+
+For production, model selection should be capability-based: `text`, `code`, `vision`, `image-generation`, `audio-generation`, `video-generation`, or `tool-use`. Automations should select a text/tool model for planning and a specialist media adapter for asset generation, with an approval step before external side effects.

@@ -279,12 +279,12 @@ export default function ChatScreen() {
     abortRef.current = controller;
 
     try {
-      const wantsImage = /\b(generate|create|make|draw|render|design)\b.{0,40}\b(photo|image|picture|illustration|poster|thumbnail)\b|\b(photo|image|picture)\b.{0,40}\b(generate|create|make|draw|render)\b/i.test(text);
+      const wantsImage = /\b(generate|create|make|draw|render|design)\b.{0,40}\b(photo|image|picture|illustration|poster|thumbnail)\b|\b(photo|image|picture)\b.{0,40}\b(generate|create|make|draw|render)\b|^\s*(generate|create|make)\s+(for me|something|an? image|a photo)\b/i.test(text);
       if (wantsImage && !attachments.length) {
         const generationResponse = await fetch("/api/generation", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ prompt: text, type: "image" }),
+          body: JSON.stringify({ prompt: text, type: "image", ...(selectedModel.startsWith("huggingface:") ? { provider: "huggingface", model: selectedModel.slice("huggingface:".length) } : {}) }),
           signal: controller.signal,
         });
         const generationData = await readApiResponse<{ task?: TaskRecord; artifact?: { name?: string; type?: string }; error?: { message?: string } }>(generationResponse);

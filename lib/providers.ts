@@ -46,6 +46,11 @@ const CONFIG: Record<ProviderName, ProviderConfig> = {
     key: process.env.GITHUB_TOKEN,
     baseUrl: "https://models.github.ai/inference",
   },
+  huggingface: {
+    name: "huggingface",
+    key: process.env.HF_TOKEN || process.env.HUGGINGFACE_API_KEY,
+    baseUrl: "https://router.huggingface.co/v1",
+  },
 };
 
 export type NormalizedProviderResponse = {
@@ -273,10 +278,10 @@ export async function pickModel(provider: ProviderName, task: TaskType): Promise
 }
 
 export function providerOrder(task: TaskType, complexity: number): ProviderName[] {
-  if (task === "code" && complexity >= 8) return ["experiential", "qwen", "agentrouter", "cerebras", "openrouter", "mistral", "github", "groq"];
-  if (task === "code") return ["experiential", "qwen", "cerebras", "agentrouter", "openrouter", "mistral", "github", "groq"];
-  if (task === "research") return ["experiential", "openrouter", "cerebras", "qwen", "mistral", "agentrouter", "groq", "github"];
-  return ["experiential", "cerebras", "qwen", "openrouter", "mistral", "agentrouter", "groq", "github"];
+  if (task === "code" && complexity >= 8) return ["experiential", "qwen", "agentrouter", "cerebras", "openrouter", "mistral", "github", "huggingface", "groq"];
+  if (task === "code") return ["experiential", "qwen", "cerebras", "agentrouter", "openrouter", "mistral", "github", "huggingface", "groq"];
+  if (task === "research") return ["experiential", "openrouter", "cerebras", "qwen", "mistral", "agentrouter", "groq", "github", "huggingface"];
+  return ["experiential", "cerebras", "qwen", "openrouter", "mistral", "agentrouter", "groq", "github", "huggingface"];
 }
 
 export async function chooseProvider(task: TaskType, complexity: number): Promise<ProviderName | null> {
