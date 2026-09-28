@@ -3209,3 +3209,19 @@ input::placeholder, textarea::placeholder { color: #77827b !important; }
   .chat-route-screen .chat-body { align-self: stretch; max-width: none; padding-right: clamp(30px, 5vw, 76px); padding-left: clamp(30px, 5vw, 76px); }
   .chat-route-screen .chat-bottom-region { max-width: none; padding-right: clamp(30px, 5vw, 76px); padding-left: clamp(30px, 5vw, 76px); }
 }
+
+/* Keep the anchored composer footprint, but fade the shell sides into the page instead of outlining clipped vertical edges. */
+.chat-route-screen .chat-composer {
+  border-color: transparent;
+  border-radius: 18px 18px 0 0 !important;
+  background: linear-gradient(90deg, transparent 0%, rgba(23, 26, 24, .42) 5%, #171a18 14%, #171a18 86%, rgba(23, 26, 24, .42) 95%, transparent 100%);
+  box-shadow: none;
+}
+.chat-route-screen .chat-composer::after {
+  border: 0;
+  border-top: 1px solid rgba(104, 114, 105, .24);
+  border-radius: inherit;
+}
+.chat-route-screen .chat-composer-input {
+  background: transparent !important;
+}
