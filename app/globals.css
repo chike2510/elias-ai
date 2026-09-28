@@ -18,6 +18,7 @@
   --m-red: #ef626e;
   --m-radius: 22px;
   --m-ease: cubic-bezier(.23, 1, .32, 1);
+  --app-topbar-height: 62px;
 }
 
 * { box-sizing: border-box; }
@@ -2512,7 +2513,7 @@ button, a { transition: transform .16s cubic-bezier(.23,1,.32,1), background .16
 .clean-sidebar-link:hover { background: #202526; color: #f2f0e9; }
 .clean-sidebar-link svg { color: #8b9891; }
 .clean-sidebar-footer { border-top-color: #2a3030; }
-.clean-topbar { height: 62px; background: rgba(17,20,22,.92) !important; border-bottom: 1px solid #2a3030 !important; }
+.clean-topbar { height: var(--app-topbar-height); background: rgba(17,20,22,.92) !important; border-bottom: 1px solid #2a3030 !important; }
 .clean-topbar-context { color: #8d9891; }
 .clean-top-actions .icon-btn { color: #9da7a0; }
 .clean-top-actions .icon-btn:hover { background: #222728; color: #f2f0e9; }
@@ -2818,11 +2819,13 @@ input::placeholder, textarea::placeholder { color: #77827b !important; }
 
 
 /* Fresh chat positioning: anchor the idle composer to the viewport edge; lift it only once a draft exists. */
-.chat-route-screen.fresh-chat-empty { padding-bottom: max(0px, env(safe-area-inset-bottom)) !important; }
-.chat-route-screen.fresh-chat-empty .chat-bottom-region { padding-bottom: 0 !important; }
-.chat-route-screen.fresh-chat-has-draft { padding-bottom: 18px; }
-@media (max-width: 700px) {
-  .chat-route-screen.fresh-chat-has-draft { padding-bottom: max(18px, env(safe-area-inset-bottom)); }
+.chat-route-screen.fresh-chat-empty,
+.chat-route-screen.fresh-chat-has-draft {
+  padding-bottom: max(0px, env(safe-area-inset-bottom, 0px)) !important;
+}
+.chat-route-screen.fresh-chat-empty .chat-bottom-region,
+.chat-route-screen.fresh-chat-has-draft .chat-bottom-region {
+  padding-bottom: 0 !important;
 }
 
 
@@ -3060,3 +3063,10 @@ input::placeholder, textarea::placeholder { color: #77827b !important; }
 .task-empty small { max-width: 340px; color: #9da7a0; font-size: 10px; line-height: 1.5; }
 .task-history-copy { overflow: visible; }
 .task-history-copy strong { display: block; overflow: visible; text-overflow: clip; white-space: normal; overflow-wrap: anywhere; line-height: 1.4; }
+
+/* Measured chat viewport correction: match the rendered header and follow the dynamic mobile viewport. */
+.chat-route-screen {
+  min-height: 0;
+  height: calc(100vh - var(--app-topbar-height));
+  height: calc(100dvh - var(--app-topbar-height));
+}
