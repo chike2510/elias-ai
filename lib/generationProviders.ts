@@ -1,3 +1,5 @@
+import { huggingFaceModel } from "@/lib/huggingfaceModels";
+
 export type GenerationType = "image" | "video" | "tts";
 export type GenerationJobStatus = "queued" | "running" | "completed" | "failed";
 
@@ -32,7 +34,7 @@ export async function submitGenerationJob(provider: string, prompt: string, para
   job.status = "running";
   if (provider === "huggingface") {
     const token = process.env.HF_TOKEN || process.env.HUGGINGFACE_API_KEY;
-    const model = params.model || process.env.HF_IMAGE_MODEL || "Qwen/Qwen-Image";
+    const model = params.model || huggingFaceModel("image-generation", process.env.HF_IMAGE_MODEL) || "Qwen/Qwen-Image";
     if (!token) {
       job.status = "failed";
       job.error = "Hugging Face image generation is not configured. Add HF_TOKEN in Vercel, or disable it to use Pollinations.";
