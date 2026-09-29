@@ -5,7 +5,7 @@ import { useEffect, useState, type FormEvent, type KeyboardEvent } from "react";
 import { ArrowUpRight, BookOpen, CheckCircle2, ChevronRight, CircleAlert, Code2, FileText, Globe2, ListChecks, LoaderCircle, Send, Sparkles } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import { readApiResponse } from "@/lib/clientApi";
-import { listCachedTaskSnapshots } from "@/lib/clientTask";
+import { listCachedTaskSnapshots, mergeTaskSnapshots } from "@/lib/clientTask";
 import type { TaskRecord, TaskStatus } from "@/lib/task";
 
 const examples = [
@@ -45,10 +45,7 @@ export default function HomeScreen() {
         const data = await readApiResponse<{ tasks?: TaskRecord[] }>(await fetch("/api/tasks", { cache: "no-store" }));
         if (!active) return;
         const cached = listCachedTaskSnapshots();
-        setRecent([...cached, ...(data.tasks || [])]
-          .filter((item, index, items) => items.findIndex((candidate) => candidate.id === item.id) === index)
-          .sort((a, b) => b.updatedAt - a.updatedAt)
-          .slice(0, 3));
+        setRecent(mergeTaskSnapshots(cached, data.tasks || []).slice(0, 3));
       } catch { /* recent tasks remain available from the local snapshot cache */ }
     })();
     return () => { active = false; };
