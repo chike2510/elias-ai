@@ -1,4 +1,5 @@
 import type { AgentActivity, TaskType, ToolResult, WorkspaceFile } from "@/lib/types";
+import { includesCodeArtifactFile } from "@/lib/taskArtifactRequirements";
 
 export type TaskStatus =
   | "queued"
@@ -136,7 +137,7 @@ export type TaskSnapshot = {
 
 export function inferTaskKind(objective: string): TaskKind {
   const value = objective.toLowerCase();
-  const codingRequest = /code|coding|build|implement|develop|debug|refactor|repository|repo|project|component|dashboard|website|web app|file tree|typescript|javascript|python|api|run type checks|review the existing.*architecture/.test(value);
+  const codingRequest = includesCodeArtifactFile(objective) || /code|coding|build|implement|develop|debug|refactor|repository|repo|project|component|dashboard|website|web app|file tree|typescript|javascript|python|api|run type checks|review the existing.*architecture/.test(value);
   if (codingRequest) return "code";
   if (/research|latest|source|current|compare|investigate/.test(value)) return "research";
   if (/study|exam|flashcard|lesson|chapter/.test(value)) return "study";

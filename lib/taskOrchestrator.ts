@@ -24,6 +24,7 @@ import {
 } from "@/lib/taskStore";
 import { runAgentStep } from "@/lib/agent";
 import { artifactMime, formatTextArtifact, textToDocx, textToPdf, textToPptx } from "@/lib/artifacts";
+import { missingArtifactNames, requestedArtifactNames } from "@/lib/taskArtifactRequirements";
 import { performBrowserAction } from "@/lib/browser/browserManager";
 import { getSession } from "@/lib/auth";
 import { getGitHubToken } from "@/lib/githubConnectionStore";
@@ -220,18 +221,25 @@ async function executeRequest(task: TaskRecord, request: AgentRequest): Promise<
     return { id: request.id, type: request.type, error: artifactProblem, startedAt, completedAt: Date.now() };
   }
   const artifactId = `artifact_${crypto.randomUUID()}`;
+  const exactRequestedName = requestedArtifactNames(task.objective).includes(request.name);
   const extension = request.name.split(".").pop()?.toLowerCase();
   const officeDoc = extension === "docx";
   const officeSlides = extension === "pptx";
-  const pdf = extension === "pdf" || request.mimeType === "application/pdf";
+  const pdf = extension === "pdf" || (!exactRequestedName && request.mimeType === "application/pdf");
   const binary = pdf || officeDoc || officeSlides;
   const encoding = binary ? "base64" as const : (request.encoding || "utf8") as "utf8" | "base64";
   const content = pdf ? await textToPdf(request.content) : officeDoc ? await textToDocx(request.content) : officeSlides ? await textToPptx(request.content) : request.encoding === "base64" ? request.content : await formatTextArtifact(request.name, request.content);
-  const type = request.mimeType || artifactMime(request.name);
+  const type = exactRequestedName ? artifactMime(request.name) : request.mimeType || artifactMime(request.name);
+  let savedArtifactId = artifactId;
   await updateStoredTask(task.id, (current) => {
-    current.artifacts.push({ id: artifactId, taskId: task.id, name: request.name, type, encoding, size: content.length, createdAt: Date.now(), preview: request.content.slice(0, 2_000), content });
+    const existingIndex = current.artifacts.findIndex((artifact) => artifact.name === request.name);
+    if (existingIndex >= 0) savedArtifactId = current.artifacts[existingIndex].id;
+    const createdAt = existingIndex >= 0 ? Math.max(Date.now(), current.artifacts[existingIndex].createdAt + 1) : Date.now();
+    const artifact = { id: savedArtifactId, taskId: task.id, name: request.name, type, encoding, size: content.length, createdAt, preview: request.content.slice(0, 2_000), content };
+    if (existingIndex >= 0) current.artifacts[existingIndex] = artifact;
+    else current.artifacts.push(artifact);
   });
-  return { id: request.id, type: request.type, result: { artifactId, name: request.name, type, encoding }, startedAt, completedAt: Date.now() };
+  return { id: request.id, type: request.type, result: { artifactId: savedArtifactId, name: request.name, type, encoding }, startedAt, completedAt: Date.now() };
 }
 
 function wantsDeliverable(objective: string) {
@@ -266,7 +274,7 @@ function artifactContentProblem(task: TaskRecord, message: string) {
   if (!content) return "The artifact content was empty.";
   if (content.length < 24) return "The artifact content was too short to be a useful deliverable.";
   if (providerRefusedArtifact(content)) return "The provider returned a capability refusal instead of deliverable content.";
-  if (/^(i('|’)?ll|let me|i will|i can)\s+(start|begin|research|gather|create|prepare|generate)/i.test(content)) return "The provider returned a progress message instead of final deliverable content.";
+  if (/^(?:(?:i|we)\s+(?:am|are|will|have|'m|'re|'ll|'ve)\s+)?(?:start(?:ing)?|begin(?:ning)?|research(?:ing)?|gather(?:ing)?|creat(?:e|ing|ed)|prepar(?:e|ing|ed)|generat(?:e|ing|ed)|writ(?:e|ing)|work(?:ing)? on|done\b|complet(?:e|ing|ed)|finish(?:ing|ed))\b/i.test(content)) return "The provider returned a progress or completion message instead of final deliverable content.";
   if (requiresLiveEvidence(task) && !hasLiveEvidence(task)) return "The deliverable was deferred until verified live evidence is available.";
   return null;
 }
@@ -303,6 +311,13 @@ async function createFallbackArtifact(task: TaskRecord, message: string) {
   return artifactId;
 }
 
+async function recordArtifactValidationIssue(id: string, message: string, missing: string[], stepId?: string) {
+  const task = await getStoredTask(id);
+  if (task?.toolResults.some((result) => result.type === "create_artifact" && result.error === message)) return;
+  await recordToolResult(id, { id: `artifact_validation_${crypto.randomUUID()}`, type: "create_artifact", error: message, startedAt: Date.now(), completedAt: Date.now() });
+  await recordTaskEvent(id, { kind: "error", label: "Requested artifacts incomplete", status: "failed", detail: message, stepId, evidence: { type: "validation", value: { missingArtifacts: missing } } });
+}
+
 export async function runTaskStep(id: string): Promise<TaskRecord> {
   let task = await getStoredTask(id);
   if (!task) throw new Error("Task not found.");
@@ -312,7 +327,7 @@ export async function runTaskStep(id: string): Promise<TaskRecord> {
   await setTaskStatus(id, "planning");
   await recordTaskEvent(id, { kind: "plan", label: "Task plan loaded", status: "completed", detail: `${task.plan.length} planned steps.` });
   task = (await getStoredTask(id))!;
-  const currentStep = task.plan.find((step) => step.status === "pending" || step.status === "active") || task.plan.at(-1);
+  const currentStep = task.plan.find((step) => step.status === "pending" || step.status === "active" || step.status === "failed") || task.plan.at(-1);
   if (currentStep) {
     await updateStoredTask(id, (current) => {
       const step = current.plan.find((item) => item.id === currentStep.id);
@@ -364,37 +379,65 @@ export async function runTaskStep(id: string): Promise<TaskRecord> {
       if (currentStep) await updateStoredTask(id, (current) => { const step = current.plan.find((item) => item.id === currentStep.id); if (step) { step.status = "active"; step.updatedAt = Date.now(); } });
       return await setTaskStatus(id, "queued");
     }
-    if (!output.requests.length && !output.actions.length && output.done && output.message) {
+    if (task.approvals.some((approval) => approval.status === "pending")) return setTaskStatus(id, "waiting_approval");
+    const stepProducedEvidence = output.requests.length > 0 || output.actions.length > 0;
+    const canFinishPlan = task.plan.every((step) => step.id === currentStep?.id || step.status === "completed" || step.status === "skipped");
+    let validationIssue: { message: string; missing: string[] } | null = null;
+    const requested = requestedArtifactNames(task.objective);
+    const validArtifacts = task.artifacts.filter((artifact) => artifact.content !== undefined && (artifact.size ?? artifact.content.length) > 0 && artifact.type === artifactMime(artifact.name));
+    const missing = missingArtifactNames(requested, validArtifacts);
+
+    if (output.done && !stepProducedEvidence && wantsDeliverable(task.objective)) {
+      const contentProblem = artifactContentProblem(task, output.message);
+      if (missing.length || (!requested.length && !validArtifacts.length && contentProblem)) {
+        const detail = missing.length
+          ? `Missing exact requested files: ${missing.join(", ")}. Create each as a separate downloadable artifact with the exact filename and expected file type.`
+          : contentProblem || "No usable downloadable artifact was produced.";
+        validationIssue = { missing, message: `${contentProblem ? `${contentProblem} ` : ""}${detail}` };
+      }
+    }
+
+    if (!validationIssue && output.done && canFinishPlan) {
       if (referencesRepository(task.objective) && task.workspace.length === 0 && wantsDeliverable(task.objective)) {
         const message = "Repository context is empty, so ELIAS will not generate a report. Connect a repository or retry with a GitHub URL.";
         await recordTaskEvent(id, { kind: "error", label: "Report blocked: repository context empty", status: "failed", detail: message, stepId: currentStep?.id });
         return await setTaskStatus(id, "failed", message);
       }
-      if (wantsDeliverable(task.objective) && providerRefusedArtifact(output.message)) {
-        try {
-          const repaired = await repairDeliverableContent(task, output.message);
-          output = { ...output, message: repaired, done: true, requests: [], actions: [] };
-        } catch (error) {
-          await recordTaskEvent(id, { kind: "error", label: "Deliverable capability repair failed", status: "failed", detail: error instanceof Error ? error.message : "The provider could not be repaired for artifact generation." });
-        }
-        const artifactId = await createFallbackArtifact(task, output.message);
-        if (!artifactId) {
-          const reason = artifactContentProblem(task, output.message) || "The selected provider returned no usable deliverable content.";
-          await recordTaskEvent(id, { kind: "error", label: "Provider returned no artifact", status: "failed", detail: reason });
-          return await setTaskStatus(id, "failed", reason);
-        }
-      } else {
-        const artifactId = await createFallbackArtifact(task, output.message);
-        if (wantsDeliverable(task.objective) && !artifactId) {
-          const reason = artifactContentProblem(task, output.message) || "The selected provider returned no usable deliverable content.";
-          await recordTaskEvent(id, { kind: "error", label: "Deliverable deferred", status: "failed", detail: reason });
-          return await setTaskStatus(id, "failed", reason);
+
+      if (wantsDeliverable(task.objective)) {
+        if (requested.length) {
+          if (missing.length) {
+            validationIssue = {
+              missing,
+              message: `The requested downloadable files are not all present with their exact names and file types: ${missing.join(", ")}. Create each missing file as a separate artifact and return its successful tool result before marking the task done.`,
+            };
+          }
+        } else if (!task.artifacts.some((artifact) => artifact.content !== undefined && (artifact.size ?? artifact.content.length) > 0)) {
+          if (providerRefusedArtifact(output.message)) {
+            try {
+              const repaired = await repairDeliverableContent(task, output.message);
+              output = { ...output, message: repaired, done: true, requests: [], actions: [] };
+            } catch (error) {
+              await recordTaskEvent(id, { kind: "error", label: "Deliverable capability repair failed", status: "failed", detail: error instanceof Error ? error.message : "The provider could not be repaired for artifact generation." });
+            }
+          }
+          const artifactId = await createFallbackArtifact(task, output.message);
+          if (!artifactId) {
+            const reason = artifactContentProblem(task, output.message) || "The selected provider returned no usable deliverable content.";
+            validationIssue = { missing: [], message: `${reason} Return complete deliverable content or create the requested artifact; do not return a progress message.` };
+          }
         }
       }
     }
-    if (task.approvals.some((approval) => approval.status === "pending")) return setTaskStatus(id, "waiting_approval");
-    if (currentStep) await updateStoredTask(id, (current) => { const step = current.plan.find((item) => item.id === currentStep.id); if (step) { const producedEvidence = output.requests.length > 0 || output.actions.length > 0; step.status = output.done || producedEvidence ? "completed" : "active"; step.updatedAt = Date.now(); } });
-    const remainingSteps = (await getStoredTask(id))!.plan.some((step) => step.status === "pending" || step.status === "active");
+
+    if (validationIssue) {
+      await recordArtifactValidationIssue(id, validationIssue.message, validationIssue.missing, currentStep?.id);
+      if (currentStep) await updateStoredTask(id, (current) => { const step = current.plan.find((item) => item.id === currentStep.id); if (step) { step.status = "active"; step.updatedAt = Date.now(); } });
+      return await setTaskStatus(id, "queued");
+    }
+
+    if (currentStep) await updateStoredTask(id, (current) => { const step = current.plan.find((item) => item.id === currentStep.id); if (step) { step.status = output.done || stepProducedEvidence ? "completed" : "active"; step.updatedAt = Date.now(); } });
+    const remainingSteps = (await getStoredTask(id))!.plan.some((step) => !["completed", "skipped"].includes(step.status));
     if (output.done && !remainingSteps) {
       await recordTaskEvent(id, { kind: "validation", label: "Task ready for delivery", status: "completed", detail: "Agent returned done=true after all planned steps were completed." });
       return await setTaskStatus(id, "completed");

@@ -35,7 +35,7 @@ const SYSTEM = `You are ELIAS, an autonomous software engineering, research, and
 
 You operate over a user-provided workspace. You must use structured requests and actions only for operations the host can execute.
 
-The host can create real PDF, DOCX, PPTX, Markdown, text, HTML, CSS, JavaScript, TypeScript, and TSX files through create_artifact. Never say that you cannot create a PDF or that the user must copy content into Google Docs or Canva. When a deliverable is requested, a create_artifact request must contain the complete final content, not a promise, outline, refusal, placeholder, or statement about work that still needs to happen.
+The host can create real PDF, DOCX, PPTX, Markdown, text, HTML, CSS, JavaScript, TypeScript, and TSX files through create_artifact. Never say that you cannot create a PDF or that the user must copy content into Google Docs or Canva. When a deliverable is requested, a create_artifact request must contain the complete final content, not a promise, outline, refusal, placeholder, or statement about work that still needs to happen. If the objective names multiple output files, issue one create_artifact request per named file, preserve every filename exactly, and wait for a successful tool result for each one before marking the task done. Do not replace a named file set with one generic elias-deliverable file.
 
 For requests containing current, latest, today, recent, live, news, sources, citations, or research requirements, use search_web first and fetch_url for the most relevant sources when available. Do not create the deliverable until the required evidence has returned and you have synthesized the final answer. Avoid duplicate searches: use at most three focused search_web requests, then fetch the best sources.
 
@@ -161,7 +161,7 @@ function normalizeAgentOutput(raw: string, provider: string, model: string): Age
     message: typeof value.message === "string" ? value.message : "",
     requests,
     actions,
-    done: Boolean(value.done) || (!requests.length && !actions.length),
+    done: typeof value.done === "boolean" ? value.done : (!requests.length && !actions.length),
   };
 }
 

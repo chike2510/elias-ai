@@ -74,3 +74,37 @@ test("binary PDF outputs remain complete Blobs for Library preview and download"
   assert.deepEqual(new Uint8Array(await saved.blob.arrayBuffer()), expected);
   assert.equal(saved.size, expected.length);
 });
+
+test("Library sync retries temporary HTTP and storage failures, but writes one stable record", async () => {
+  let downloads = 0;
+  let writes = 0;
+  const waits = [];
+  let stored;
+  const saved = await syncTaskArtifactToLibrary(
+    { id: "task_retry", conversationId: "chat_retry" },
+    { id: "artifact_retry", name: "calculator.ts", type: "text/typescript; charset=utf-8" },
+    {
+      maxRetries: 2,
+      retryDelayMs: 10,
+      wait: async (milliseconds) => waits.push(milliseconds),
+      fetcher: async () => {
+        downloads += 1;
+        if (downloads === 1) return new Response("temporarily unavailable", { status: 503 });
+        return new Response("export const add = (a: number, b: number): number => a + b;", { status: 200, headers: { "content-type": "text/typescript; charset=utf-8" } });
+      },
+      save: async (record) => {
+        writes += 1;
+        if (writes === 1) throw new Error("temporary IndexedDB failure");
+        stored = record;
+      },
+    },
+  );
+
+  assert.equal(downloads, 2);
+  assert.equal(writes, 2);
+  assert.deepEqual(waits, [10, 10]);
+  assert.equal(saved.id, "task_task_retry_artifact_retry");
+  assert.equal(stored.id, saved.id);
+  assert.equal(saved.name, "calculator.ts");
+  assert.match(saved.text, /number/);
+});

@@ -12,7 +12,9 @@ import GoalProgressCard from "@/components/GoalProgressCard";
 import MarkdownMessage from "@/components/MarkdownMessage";
 import { readApiResponse } from "@/lib/clientApi";
 import { cacheTaskSnapshot, listCachedTaskSnapshots } from "@/lib/clientTask";
+import { inferChatTask as inferTask } from "@/lib/chatTaskRouting";
 import { buildSelectedDocumentContext } from "@/lib/clientDocumentContext";
+import { continueTaskSteps, selectActiveTaskSnapshot, taskArtifactSyncKey, upsertRecentTaskSnapshot } from "@/lib/clientTaskRunner";
 import { syncTaskArtifactToLibrary } from "@/lib/taskArtifactLibrary";
 import type { TaskRecord } from "@/lib/task";
 import { getArtifacts,
@@ -25,14 +27,6 @@ import { getArtifacts,
   type ConversationMessage,
   type ConversationRecord,
 } from "@/lib/persistence";
-
-function inferTask(value: string): "code" | "research" | "study" | "general" {
-  const text = value.toLowerCase();
-  if (/research|latest|current|today|news|source|search the web/.test(text)) return "research";
-  if (/study|exam|notes|flashcard|pdf|chapter|document/.test(text)) return "study";
-  if (/build|code|bug|debug|tsx|jsx|html|css|typescript|javascript|repository|github|refactor|implement/.test(text)) return "code";
-  return "general";
-}
 
 type ModelOption = { id: string; provider: string; label: string; detail: string; configured?: boolean; capabilities?: string[] };
 type VercelMcpStatus = { configured?: boolean; connected?: boolean; message?: string; tools?: Array<{ name: string; description?: string }> };
@@ -127,6 +121,7 @@ export default function ChatScreen() {
   const [recentTasks, setRecentTasks] = useState<TaskRecord[]>([]);
   const [artifactPreview, setArtifactPreview] = useState<TaskRecord["artifacts"][number] | null>(null);
   const [taskBusy, setTaskBusy] = useState(false);
+  const taskBusyRef = useRef(false);
   const [plusOpen, setPlusOpen] = useState(false);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [selectedModel, setSelectedModel] = useState("auto");
@@ -141,6 +136,16 @@ export default function ChatScreen() {
   const librarySynced = useRef(new Set<string>());
   const librarySyncFailed = useRef(new Set<string>());
   const autoSubmittedPromptRef = useRef<string | null>(null);
+  const activeTaskSnapshotRef = useRef<TaskRecord | null>(null);
+
+  function updateActiveTaskSnapshot(incoming: TaskRecord, expectedTaskId?: string, force = false) {
+    const previous = activeTaskSnapshotRef.current;
+    const next = selectActiveTaskSnapshot(previous, incoming, expectedTaskId, force);
+    if (next === previous) return previous;
+    activeTaskSnapshotRef.current = next;
+    setActiveTask(next);
+    return next;
+  }
 
   useEffect(() => {
     void getConversations().then(setHistory).catch(() => setHistory([]));
@@ -158,6 +163,7 @@ export default function ChatScreen() {
     }).catch(() => setModelCatalogNotice("Model catalog unavailable; Hugging Face Auto chat cannot route until its live chat catalog is reachable."));
     let active = true;
     async function load() {
+      activeTaskSnapshotRef.current = null;
       setActiveTask(null);
       setTaskMode(false);
       setActiveDocumentIds(requestedDocumentId ? [requestedDocumentId] : []);
@@ -183,10 +189,19 @@ export default function ChatScreen() {
 
   useEffect(() => {
     if (!conversation?.id) return;
+    const activeTaskIdAtRequest = activeTaskSnapshotRef.current?.id ?? null;
+    let active = true;
     void fetch(`/api/tasks?conversationId=${encodeURIComponent(conversation.id)}`, { cache: "no-store" })
       .then((response) => response.ok ? response.json() as Promise<{ tasks?: TaskRecord[] }> : Promise.reject(new Error("task lookup failed")))
-      .then((data) => {         const latest = data.tasks?.[0]; if (latest) { setActiveTask(latest); cacheTaskSnapshot(latest); } })
+      .then((data) => {
+        if (!active || activeTaskSnapshotRef.current?.id !== activeTaskIdAtRequest) return;
+        const latest = data.tasks?.[0];
+        if (!latest) return;
+        const accepted = updateActiveTaskSnapshot(latest);
+        if (accepted?.id === latest.id) cacheTaskSnapshot(accepted);
+      })
       .catch(() => undefined);
+    return () => { active = false; };
   }, [conversation?.id]);
 
   useEffect(() => {
@@ -212,9 +227,11 @@ export default function ChatScreen() {
         const payload = await response.json() as { task?: TaskRecord };
         const latest = payload.task;
         if (!latest || stopped) return;
-        setActiveTask(latest);
-        cacheTaskSnapshot(latest);
-        if (["completed", "failed", "cancelled"].includes(latest.status) && timer !== undefined) window.clearInterval(timer);
+        const accepted = updateActiveTaskSnapshot(latest, activeTask.id);
+        setRecentTasks((current) => upsertRecentTaskSnapshot(current, latest));
+        if (accepted?.id === latest.id) cacheTaskSnapshot(accepted);
+        const currentTask = accepted?.id === latest.id ? accepted : latest;
+        if (["completed", "failed", "cancelled"].includes(currentTask.status) && timer !== undefined) window.clearInterval(timer);
       } catch { /* keep the inline task state while the network recovers */ }
     };
     void poll();
@@ -225,10 +242,17 @@ export default function ChatScreen() {
   useEffect(() => {
     if (!activeTask) return;
     for (const artifact of activeTask.artifacts) {
-      const key = `${activeTask.id}:${artifact.id}`;
+      const key = taskArtifactSyncKey(activeTask.id, artifact);
       if (librarySynced.current.has(key) || librarySyncFailed.current.has(key) || librarySyncInFlight.current.has(key)) continue;
       librarySyncInFlight.current.add(key);
-      void syncTaskArtifactToLibrary(activeTask, artifact, { save: saveArtifact })
+      void syncTaskArtifactToLibrary(activeTask, artifact, {
+        save: async (record) => {
+          const latestTask = activeTaskSnapshotRef.current;
+          const latestArtifact = latestTask?.id === activeTask.id ? latestTask.artifacts.find((item) => item.id === artifact.id) : undefined;
+          if (latestArtifact && taskArtifactSyncKey(activeTask.id, latestArtifact) !== key) return;
+          await saveArtifact(record);
+        },
+      })
         .then(async () => {
           librarySynced.current.add(key);
           setLibrarySyncNotice((current) => current?.taskId === activeTask.id ? null : current);
@@ -303,8 +327,8 @@ export default function ChatScreen() {
         });
         const generationData = await readApiResponse<{ task?: TaskRecord; artifact?: { name?: string; type?: string; provider?: string; model?: string }; error?: { message?: string } }>(generationResponse);
         if (!generationData.task || !generationData.artifact?.name) throw new Error(generationData.error?.message || "Image generation could not be completed.");
-        cacheTaskSnapshot(generationData.task);
-        setActiveTask(generationData.task);
+        const generatedTask = updateActiveTaskSnapshot(generationData.task, undefined, true);
+        if (generatedTask?.id === generationData.task.id) cacheTaskSnapshot(generatedTask);
         const generatedMessage: ConversationMessage = {
           id: makeId("msg"),
           role: "assistant",
@@ -330,14 +354,15 @@ export default function ChatScreen() {
             kind: inferTask(text),
             conversationId: optimistic.id,
             ...(selectedModel !== "auto" ? { preferredProvider: selectedModel.split(":")[0], preferredModel: selectedModel.split(":").slice(1).join(":") } : {}),
-            autoStart: true,
           }),
           signal: controller.signal,
         });
         const taskData = await readApiResponse<{ task: TaskRecord }>(taskResponse);
-        cacheTaskSnapshot(taskData.task);
+        const createdTask = updateActiveTaskSnapshot(taskData.task, undefined, true);
+        if (createdTask?.id === taskData.task.id) cacheTaskSnapshot(createdTask);
         await persist({ ...optimistic, updatedAt: Date.now(), messages: optimistic.messages });
-        setActiveTask(taskData.task);
+        setRecentTasks((current) => upsertRecentTaskSnapshot(current, taskData.task));
+        if (createdTask?.id === taskData.task.id) void continueTask(createdTask);
         return;
       }
 
@@ -390,24 +415,33 @@ export default function ChatScreen() {
     setBusy(false);
   }
 
-  async function continueTask() {
-    if (!activeTask || taskBusy || ["completed", "cancelled"].includes(activeTask.status)) return;
+  async function continueTask(taskToContinue: TaskRecord | null = activeTask) {
+    if (!taskToContinue || taskBusyRef.current || ["completed", "cancelled", "waiting_approval"].includes(taskToContinue.status)) return;
+    taskBusyRef.current = true;
     setTaskBusy(true);
     try {
-      let current = activeTask;
       // One model/tool step per request keeps execution reliable on Vercel.
-      // Continue the loop in the browser so every result is immediately visible.
-      for (let step = 0; step < 12; step += 1) {
-        const response = await fetch(`/api/tasks/${encodeURIComponent(current.id)}/step`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ maxSteps: 1 }) });
-        const data = await readApiResponse<{ task: TaskRecord }>(response);
-        current = data.task;
-        setActiveTask(current);
-        cacheTaskSnapshot(current);
-        if (["completed", "failed", "cancelled", "waiting_approval", "paused"].includes(current.status)) break;
-      }
+      // Keep stepping in the browser so every progress snapshot is visible.
+      const current = await continueTaskSteps(taskToContinue, {
+        advance: async (task) => {
+          const response = await fetch(`/api/tasks/${encodeURIComponent(task.id)}/step`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ maxSteps: 1 }) });
+          const data = await readApiResponse<{ task: TaskRecord }>(response);
+          return data.task;
+        },
+        onUpdate: (task) => {
+          const accepted = updateActiveTaskSnapshot(task, taskToContinue.id);
+          setRecentTasks((tasks) => upsertRecentTaskSnapshot(tasks, task));
+          if (accepted?.id === task.id) cacheTaskSnapshot(accepted);
+        },
+      });
+      const accepted = updateActiveTaskSnapshot(current, taskToContinue.id);
+      setRecentTasks((tasks) => upsertRecentTaskSnapshot(tasks, current));
+      if (accepted?.id === current.id) cacheTaskSnapshot(accepted);
     } catch (error) {
-      setActiveTask((current) => current ? { ...current, status: "failed", error: error instanceof Error ? error.message : "Task execution failed." } : current);
-    } finally { setTaskBusy(false); }
+      const message = error instanceof Error ? error.message : "Task execution failed.";
+      const current = activeTaskSnapshotRef.current;
+      if (current?.id === taskToContinue.id) updateActiveTaskSnapshot({ ...current, error: message }, taskToContinue.id);
+    } finally { taskBusyRef.current = false; setTaskBusy(false); }
   }
 
   async function resolveTaskApproval(approvalId: string, decision: "approve" | "reject") {
@@ -416,11 +450,13 @@ export default function ChatScreen() {
     try {
       const response = await fetch(`/api/tasks/${encodeURIComponent(activeTask.id)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: decision, value: approvalId }) });
       const data = await readApiResponse<{ task: TaskRecord }>(response);
-      setActiveTask(data.task);
-      cacheTaskSnapshot(data.task);
-      if (decision === "approve") window.setTimeout(() => void continueTask(), 0);
+      const accepted = updateActiveTaskSnapshot(data.task, activeTask.id);
+      setRecentTasks((tasks) => upsertRecentTaskSnapshot(tasks, data.task));
+      if (accepted?.id === data.task.id) cacheTaskSnapshot(accepted);
+      if (decision === "approve" && accepted?.id === data.task.id) window.setTimeout(() => void continueTask(accepted), 0);
     } catch (error) {
-      setActiveTask((current) => current ? { ...current, error: error instanceof Error ? error.message : "Approval update failed." } : current);
+      const current = activeTaskSnapshotRef.current;
+      if (current?.id === activeTask.id) updateActiveTaskSnapshot({ ...current, error: error instanceof Error ? error.message : "Approval update failed." }, activeTask.id);
     } finally { setTaskBusy(false); }
   }
 
@@ -514,7 +550,20 @@ export default function ChatScreen() {
             {browserActivityForTask(activeTask) ? <BrowserActivityCard task={activeTask} /> : null}
             <StepTracker summary={activeTask.events.at(-1)?.detail || activeTask.events.at(-1)?.label || activeTask.title || "Elias is working through the request."} steps={trackerStepsForTask(activeTask)} status={trackerStatusForTask(activeTask.status)} />
             {pendingTaskApproval ? <article className="chat-inline-approval"><div><span>APPROVAL NEEDED</span><strong>{pendingTaskApproval.question}</strong><small>Work is paused until you decide.</small></div><div className="chat-inline-approval-actions"><button type="button" disabled={taskBusy} onClick={() => void resolveTaskApproval(pendingTaskApproval.id, "approve")}>{taskBusy ? "Saving…" : "Approve & continue"}</button><button type="button" disabled={taskBusy} onClick={() => void resolveTaskApproval(pendingTaskApproval.id, "reject")}>Decline</button></div></article> : null}
-            <article className="chat-message assistant task-timeline-message"><div className="chat-avatar"><img src="/branding/elias-logo.png" alt="ELIAS" /></div><div className="chat-message-body"><span className="chat-role">ELIAS · WORKING</span><details className="task-timeline-card"><summary><span><strong>{activeTask.title || "Active task"}</strong><small>{activeTask.status.replaceAll("_", " ")} · {activeTask.plan.filter((step) => step.status === "completed").length}/{activeTask.plan.length || 0} steps</small></span><ChevronRight size={16} /></summary><GoalProgressCard task={activeTask} compact /><LiveExecutionFeed task={activeTask} />{activeTask.artifacts.length ? <div className="chat-inline-artifacts">{activeTask.artifacts.slice(-4).reverse().map((artifact) => <ArtifactCard key={artifact.id} artifact={artifact} href={inlineArtifactHref(activeTask.id, artifact)} compact taskLabel="This task" onPreview={() => setArtifactPreview(artifact)} onDownload={() => { const anchor = document.createElement("a"); anchor.href = inlineArtifactHref(activeTask.id, artifact); anchor.download = artifact.name; anchor.click(); }} />)}</div> : null}<div className="task-timeline-meta">{activeTask.events.at(-1)?.detail || "Task state updates appear here as Elias works."}</div>{!['completed','cancelled','waiting_approval'].includes(activeTask.status) ? <button type="button" className="primary task-timeline-continue" disabled={taskBusy} onClick={() => void continueTask()}>{taskBusy ? "Working…" : "Continue task"}</button> : null}</details></div></article>
+            <article className="chat-message assistant task-timeline-message">
+              <div className="chat-avatar"><img src="/branding/elias-logo.png" alt="ELIAS" /></div>
+              <div className="chat-message-body">
+                <span className="chat-role">ELIAS · WORKING</span>
+                <details className="task-timeline-card">
+                  <summary><span><strong>{activeTask.title || "Active task"}</strong><small>{activeTask.status.replaceAll("_", " ")} · {activeTask.plan.filter((step) => step.status === "completed").length}/{activeTask.plan.length || 0} steps</small></span><ChevronRight size={16} /></summary>
+                  <GoalProgressCard task={activeTask} compact />
+                  <LiveExecutionFeed task={activeTask} />
+                  {activeTask.artifacts.length ? <div className="chat-inline-artifacts">{activeTask.artifacts.slice(-4).reverse().map((artifact) => <ArtifactCard key={artifact.id} artifact={artifact} href={inlineArtifactHref(activeTask.id, artifact)} compact taskLabel="This task" onPreview={() => setArtifactPreview(artifact)} onDownload={() => { const anchor = document.createElement("a"); anchor.href = inlineArtifactHref(activeTask.id, artifact); anchor.download = artifact.name; anchor.click(); }} />)}</div> : null}
+                  <div className="task-timeline-meta" role={activeTask.error ? "alert" : undefined}>{activeTask.error || activeTask.events.at(-1)?.detail || "Task state updates appear here as Elias works."}</div>
+                  {!['completed','cancelled','waiting_approval'].includes(activeTask.status) ? <button type="button" className="primary task-timeline-continue" disabled={taskBusy} onClick={() => void continueTask()}>{taskBusy ? "Working…" : "Continue task"}</button> : null}
+                </details>
+              </div>
+            </article>
             <Link className="chat-open-task" href={`/tasks?id=${encodeURIComponent(activeTask.id)}`}><ListChecks size={14} /> Open full task workspace <ChevronRight size={14} /></Link>
             {activeTask.artifacts.length ? <Link className="chat-open-task" href="/files"><FileText size={14} /> View generated files in Library <ChevronRight size={14} /></Link> : null}
           </section> : null}
