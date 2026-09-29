@@ -14,7 +14,7 @@ export type GitHubWriteProposal = {
   branch?: string;
   base?: string;
   path?: string;
-  files?: Array<{ path: string; contentHash: string }>;
+  files?: Array<{ path: string; contentHash: string | null; deleted?: boolean }>;
   message?: string;
   title?: string;
   head?: string;
@@ -68,7 +68,7 @@ function stable(value: unknown): unknown {
 export function hashGitHubWritePayload(payload: GitHubWritePayload) { return createHash("sha256").update(JSON.stringify(stable(payload))).digest("hex"); }
 function hashContent(value: string) { return createHash("sha256").update(value, "utf8").digest("hex"); }
 function proposalFromPayload(id: string, userId: string, action: GitHubWriteAction, payload: GitHubWritePayload, now: number, ttlMs: number): GitHubWriteProposal {
-  const files = Array.isArray(payload.files) ? (payload.files as Array<{ path?: unknown; content?: unknown }>).map((file) => ({ path: String(file.path || ""), contentHash: hashContent(String(file.content || "")) })) : undefined;
+  const files = Array.isArray(payload.files) ? (payload.files as Array<{ path?: unknown; content?: unknown; delete?: unknown }>).map((file) => ({ path: String(file.path || ""), contentHash: file.delete === true ? null : hashContent(String(file.content ?? "")), ...(file.delete === true ? { deleted: true } : {}) })) : undefined;
   return {
     id, userId, action, owner: String(payload.owner || ""), repo: String(payload.repo || ""),
     branch: typeof payload.branch === "string" ? payload.branch : undefined, base: typeof payload.base === "string" ? payload.base : undefined,

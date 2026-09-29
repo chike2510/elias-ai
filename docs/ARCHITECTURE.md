@@ -51,12 +51,17 @@ The task routes are:
 | `/api/tasks/[taskId]` | Read task state, approve/reject requests, pause, cancel, or restore checkpoints |
 | `/api/tasks/[taskId]/step` | Execute one or more bounded task steps and return updated evidence |
 | `/api/tasks/[taskId]/artifact/[artifactId]` | Download bounded text artifacts associated with a task |
+| `/api/github/repositories/[owner]/[repo]/tasks` | Create an owner-scoped task from a bounded, commit-pinned GitHub repository snapshot |
+| `/api/github/repository-tasks/[taskId]` | Read and control a repository task under its authenticated owner |
+| `/api/github/repository-tasks/[taskId]/step` | Execute one repository task step with per-task permission checks |
 
 ## Permissions and recovery
 
 Read access is the only broadly automatic capability. Network access is granted by policy for research tasks; write and command execution permissions require explicit configuration or user approval. External side effects are represented in the contract but are not silently executed.
 
 Before workspace mutations the orchestrator captures a checkpoint. It captures a second checkpoint after the mutation and records each action as a diff-oriented evidence event. The task workbench exposes pending approvals, checkpoint history, restore actions, pause, and cancellation. The event ledger is the source of truth for what ELIAS actually did; model narration is not treated as evidence.
+
+Repository tasks use a separate JSON/Postgres store; every read and update includes the authenticated user ID, and their snapshots are excluded from generic local-storage task history. The loader records the selected branch and exact commit SHA, then hydrates only a bounded, prioritized text snapshot. Workspace edits remain isolated from GitHub. A reviewed diff can only be committed to a feature branch from the pinned snapshot through a short-lived single-use proposal; a pull request uses a second approval. The base branch is not updated and pull requests are never merged automatically.
 
 ## Agent protocol and tools
 

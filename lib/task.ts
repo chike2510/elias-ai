@@ -84,6 +84,16 @@ export type TaskRecord = {
   objective: string;
   kind: TaskKind;
   taskType: TaskType;
+  repository?: {
+    owner: string;
+    repo: string;
+    fullName: string;
+    url: string;
+    branch: string;
+    commitSha: string;
+    defaultBranch: string;
+    private: boolean;
+  };
   preferredProvider?: import("@/lib/types").ProviderName;
   preferredModel?: string;
   status: TaskStatus;

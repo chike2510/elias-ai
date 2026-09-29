@@ -4,7 +4,7 @@ const PREFIX = "elias:task:";
 const MAX_CACHE_BYTES = 4_500_000;
 
 export function cacheTaskSnapshot(task: TaskRecord) {
-  if (typeof window === "undefined") return;
+  if (typeof window === "undefined" || task.repository) return;
   try {
     const value = JSON.stringify(task);
     if (new Blob([value]).size <= MAX_CACHE_BYTES) window.localStorage.setItem(`${PREFIX}${task.id}`, value);
@@ -16,6 +16,7 @@ export function cacheTaskSnapshot(task: TaskRecord) {
 function normalizeCachedTask(value: unknown): TaskRecord | null {
   if (!value || typeof value !== "object") return null;
   const task = value as Partial<TaskRecord>;
+  if (task.repository) return null;
   if (typeof task.id !== "string" || typeof task.updatedAt !== "number") return null;
   if (!Array.isArray(task.plan) || !Array.isArray(task.permissions) || !Array.isArray(task.approvals) || !Array.isArray(task.checkpoints) || !Array.isArray(task.events) || !Array.isArray(task.artifacts) || !Array.isArray(task.toolResults) || !Array.isArray(task.workspace)) return null;
   return task as TaskRecord;
