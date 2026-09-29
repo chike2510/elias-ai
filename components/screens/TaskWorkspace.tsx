@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { AlertCircle, ArrowLeft, Check, CheckCircle2, ChevronRight, CircleAlert, Clock3, Download, ExternalLink, FileArchive, LoaderCircle, LockKeyhole, Pause, Play, RotateCcw, Send, Share2, ShieldCheck, Square, Undo2 } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import GradientBackdrop from "@/components/GradientBackdrop";
+import RepositoryTaskChanges from "@/components/RepositoryTaskChanges";
 import StepTracker, { type Step } from "@/components/StepTracker";
 import { readApiResponse } from "@/lib/clientApi";
 import { cacheTaskSnapshot, getCachedTaskSnapshot, listCachedTaskSnapshots } from "@/lib/clientTask";
@@ -72,6 +73,9 @@ export default function TaskWorkspace() {
   const params = useSearchParams();
   const requestedId = params.get("id");
   const requestedPrompt = params.get("prompt");
+  const repositoryOwner = params.get("owner");
+  const repositoryName = params.get("repo");
+  const repositoryMode = Boolean(repositoryOwner && repositoryName);
   const [task, setTask] = useState<TaskRecord | null>(null);
   const [recent, setRecent] = useState<TaskRecord[]>([]);
   const [objective, setObjective] = useState(requestedPrompt || "");
@@ -82,6 +86,7 @@ export default function TaskWorkspace() {
   const stopAfterStep = useRef<StopAfterStep | null>(null);
 
   async function loadRecent() {
+    if (repositoryMode) { setRecent([]); return; }
     try {
       const data = await readApiResponse<{ tasks?: TaskRecord[] }>(await fetch("/api/tasks", { cache: "no-store" }));
       const serverTasks = data.tasks || [];
@@ -91,10 +96,11 @@ export default function TaskWorkspace() {
   }
 
   async function loadTask(id: string) {
-    const cached = getCachedTaskSnapshot(id);
+    const cached = repositoryMode ? undefined : getCachedTaskSnapshot(id);
     if (cached) { setTask(cached); setObjective(cached.objective); setError(""); }
     try {
-      const data = await readApiResponse<{ task: TaskRecord }>(await fetch(`/api/tasks/${encodeURIComponent(id)}`, { cache: "no-store" }));
+      const endpoint = repositoryMode ? `/api/github/repository-tasks/${encodeURIComponent(id)}` : `/api/tasks/${encodeURIComponent(id)}`;
+      const data = await readApiResponse<{ task: TaskRecord }>(await fetch(endpoint, { cache: "no-store" }));
       setTask(data.task); cacheTaskSnapshot(data.task); setObjective(data.task.objective); setError("");
     } catch (caught) {
       if (cached) return;
@@ -102,15 +108,18 @@ export default function TaskWorkspace() {
     }
   }
 
-  useEffect(() => { void loadRecent(); if (requestedId) void loadTask(requestedId); else setTask(null); }, [requestedId, requestedPrompt]);
+  useEffect(() => { void loadRecent(); if (requestedId) void loadTask(requestedId); else setTask(null); }, [requestedId, requestedPrompt, repositoryOwner, repositoryName]);
 
   async function create() {
     const value = objective.trim();
     if (!value || busy) return;
     setBusy(true); setError(""); setNotice("");
     try {
-      const data = await readApiResponse<{ task: TaskRecord }>(await fetch("/api/tasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ objective: value }) }));
-      setTask(data.task); cacheTaskSnapshot(data.task); window.history.replaceState({}, "", `/tasks?id=${encodeURIComponent(data.task.id)}`); setRecent((current) => [data.task, ...current.filter((item) => item.id !== data.task.id)]);
+      const endpoint = repositoryMode ? `/api/github/repositories/${encodeURIComponent(repositoryOwner!)}/${encodeURIComponent(repositoryName!)}/tasks` : "/api/tasks";
+      const data = await readApiResponse<{ task: TaskRecord }>(await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ objective: value }) }));
+      setTask(data.task); cacheTaskSnapshot(data.task);
+      const nextUrl = data.task.repository ? `/tasks?owner=${encodeURIComponent(data.task.repository.owner)}&repo=${encodeURIComponent(data.task.repository.repo)}&id=${encodeURIComponent(data.task.id)}` : `/tasks?id=${encodeURIComponent(data.task.id)}`;
+      window.history.replaceState({}, "", nextUrl); if (!data.task.repository) setRecent((current) => [data.task, ...current.filter((item) => item.id !== data.task.id && !item.repository)]);
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Task could not be created."); }
     finally { setBusy(false); }
   }
@@ -122,12 +131,17 @@ export default function TaskWorkspace() {
     try {
       let current = taskToRun;
       for (let count = 0; count < 12; count += 1) {
-        const data = await readApiResponse<{ task: TaskRecord }>(await fetch(`/api/tasks/${encodeURIComponent(current.id)}/step`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ maxSteps: 1, task: current }) }));
+        const stepEndpoint = current.repository ? `/api/github/repository-tasks/${encodeURIComponent(current.id)}/step` : `/api/tasks/${encodeURIComponent(current.id)}/step`;
+        const stepRequest = current.repository
+          ? fetch(stepEndpoint, { method: "POST" })
+          : fetch(stepEndpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ maxSteps: 1, task: current }) });
+        const data = await readApiResponse<{ task: TaskRecord }>(await stepRequest);
         current = data.task; setTask(current); cacheTaskSnapshot(current);
         const requestedStop = stopAfterStep.current;
         if (requestedStop) {
           stopAfterStep.current = null;
-          const stopped = await readApiResponse<{ task: TaskRecord }>(await fetch(`/api/tasks/${encodeURIComponent(current.id)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: requestedStop }) }));
+          const stopEndpoint = current.repository ? `/api/github/repository-tasks/${encodeURIComponent(current.id)}` : `/api/tasks/${encodeURIComponent(current.id)}`;
+          const stopped = await readApiResponse<{ task: TaskRecord }>(await fetch(stopEndpoint, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: requestedStop }) }));
           current = stopped.task; setTask(current); cacheTaskSnapshot(current);
           setNotice(requestedStop === "pause" ? "Paused after the current step finished." : "Cancelled after the current step finished.");
           break;
@@ -157,7 +171,8 @@ export default function TaskWorkspace() {
     let taskToContinue: TaskRecord | null = null;
     setBusy(true); setError(""); setNotice("");
     try {
-      const data = await readApiResponse<{ task: TaskRecord }>(await fetch(`/api/tasks/${encodeURIComponent(task.id)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: value, value: target }) }));
+      const endpoint = task.repository ? `/api/github/repository-tasks/${encodeURIComponent(task.id)}` : `/api/tasks/${encodeURIComponent(task.id)}`;
+      const data = await readApiResponse<{ task: TaskRecord }>(await fetch(endpoint, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: value, value: target }) }));
       setTask(data.task); cacheTaskSnapshot(data.task);
       if (value === "approve") taskToContinue = data.task;
       if (value === "reject") setNotice("Permission declined. The task is paused; you can review the request and decide what to do next.");
@@ -180,7 +195,7 @@ export default function TaskWorkspace() {
   const total = task?.plan.length || 0;
   const progress = total ? Math.round((completed / total) * 100) : 0;
   const pendingApproval = task?.approvals.find((approval) => approval.status === "pending");
-  const history = recent.filter((item) => item.id !== task?.id).slice(0, 6);
+  const history = recent.filter((item) => !item.repository && item.id !== task?.id).slice(0, 6);
   const canRun = Boolean(task && ["queued", "planning", "running", "paused", "failed"].includes(task.status));
   const controlLocked = Boolean(task && ["completed", "cancelled"].includes(task.status));
 
@@ -191,7 +206,7 @@ export default function TaskWorkspace() {
         <button type="button" className="secondary task-filter" onClick={() => { router.push("/tasks"); setTask(null); setObjective(""); setError(""); setNotice(""); }}>All tasks <ChevronRight size={15} /></button>
       </header>
 
-      {!task ? <section className="task-start-guide panel quiet-card"><GradientBackdrop intensity="bold" className="task-start-guide-gradient" /><div className="task-start-mark"><img src="/branding/elias-logo.png" alt="ELIAS" /></div><span className="eyebrow">NEW TASK</span><h2>What do you want done?</h2><p>Describe the outcome. Elias will create a visible plan before you continue.</p><label className="task-start-label" htmlFor="task-start-input">Your request</label><textarea id="task-start-input" className="task-start-input" value={objective} onChange={(event) => setObjective(event.target.value)} rows={4} maxLength={20000} placeholder="Describe what you need…" onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") { event.preventDefault(); void create(); } }} /><div className="task-start-helper">You can review progress, activity, permission requests, and files from this task.</div><button type="button" className="primary task-start-button" disabled={!objective.trim() || busy} onClick={() => void create()}>{busy ? <LoaderCircle size={15} className="spin" /> : <Send size={15} />} {busy ? "Creating task" : "Create task plan"}</button><div className="task-examples"><span>Try an example</span><button type="button" onClick={() => setObjective("Audit this project, explain the highest-risk issues, and create a prioritized fix plan.")}>Audit a project <ChevronRight size={14} /></button><button type="button" onClick={() => setObjective("Research the current best practices for Next.js App Router caching and cite primary sources.")}>Research with evidence <ChevronRight size={14} /></button><button type="button" onClick={() => setObjective("Create a technical architecture document for a reliable autonomous coding agent.")}>Create a deliverable <ChevronRight size={14} /></button></div></section> : <>
+      {!task ? <section className="task-start-guide panel quiet-card"><GradientBackdrop intensity="bold" className="task-start-guide-gradient" /><div className="task-start-mark"><img src="/branding/elias-logo.png" alt="ELIAS" /></div><span className="eyebrow">{repositoryMode ? "REPOSITORY TASK" : "NEW TASK"}</span><h2>What do you want done?</h2><p>Describe the outcome. Elias will create a visible plan before you continue.</p>{repositoryMode ? <div className="repo-task-selected"><LockKeyhole size={15} /><span><strong>Selected repository</strong><code>{repositoryOwner}/{repositoryName}</code><small>Elias loads a bounded text snapshot. File edits stay isolated until you approve an exact GitHub commit and pull-request proposal.</small></span></div> : null}<label className="task-start-label" htmlFor="task-start-input">Your request</label><textarea id="task-start-input" className="task-start-input" value={objective} onChange={(event) => setObjective(event.target.value)} rows={4} maxLength={20000} placeholder="Describe what you need…" onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") { event.preventDefault(); void create(); } }} /><div className="task-start-helper">You can review progress, activity, permission requests, and files from this task.</div><button type="button" className="primary task-start-button" disabled={!objective.trim() || busy} onClick={() => void create()}>{busy ? <LoaderCircle size={15} className="spin" /> : <Send size={15} />} {busy ? "Creating task" : "Create task plan"}</button><div className="task-examples"><span>Try an example</span><button type="button" onClick={() => setObjective("Audit this project, explain the highest-risk issues, and create a prioritized fix plan.")}>Audit a project <ChevronRight size={14} /></button><button type="button" onClick={() => setObjective("Research the current best practices for Next.js App Router caching and cite primary sources.")}>Research with evidence <ChevronRight size={14} /></button><button type="button" onClick={() => setObjective("Create a technical architecture document for a reliable autonomous coding agent.")}>Create a deliverable <ChevronRight size={14} /></button></div></section> : <>
         <section className="task-focus-card panel quiet-card">
           <div className="task-focus-head"><div className="task-focus-heading-copy"><h2>{task.title || "Untitled task"}</h2><small>{task.kind} · {task.workspace.length} workspace file{task.workspace.length === 1 ? "" : "s"}</small></div><span className={`task-state-pill ${task.status}`}>{task.status === "completed" ? <Check size={13} /> : task.status === "waiting_approval" ? <ShieldCheck size={13} /> : task.status === "paused" ? <Pause size={13} /> : task.status === "failed" ? <AlertCircle size={13} /> : null}{statusLabel(task.status)}</span></div>
           <p className="task-status-description">{statusDetail(task.status)}</p>
@@ -202,10 +217,11 @@ export default function TaskWorkspace() {
           <div className="task-focus-progress-label"><strong>{completed} of {total} steps complete</strong><span>{progress}%</span></div>
           <div className="task-progress task-focus-meter" role="progressbar" aria-label="Task plan progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}><i style={{ width: `${progress}%` }} /></div>
           <details className="task-disclosure task-plan-disclosure"><summary><span>Plan details</span><small>{completed} of {total} steps</small><ChevronRight size={14} /></summary><div className="task-mock-timeline" aria-label="Task plan">{task.plan.map((step, index) => { const active = step.status === "active"; const complete = step.status === "completed"; const failed = step.status === "failed"; const evidenceCount = step.evidenceEventIds?.length || 0; return <article className={`task-mock-step ${complete ? "completed" : active ? "active" : failed ? "failed" : "pending"}`} key={step.id}><span className="task-mock-marker">{complete ? <Check size={14} /> : failed ? <AlertCircle size={14} /> : active ? <Clock3 size={14} /> : index + 1}</span><div className="task-mock-copy"><strong>{index + 1}. {step.title}</strong><small>{step.description}</small><span className={`task-plan-status ${active ? "active" : failed ? "failed" : complete ? "complete" : ""}`}>{stepStatusLabel(step.status)}{evidenceCount ? <a href="#task-activity"> · {evidenceCount} activity item{evidenceCount === 1 ? "" : "s"}</a> : null}</span></div><time>{active || complete || failed ? time(step.updatedAt) : "—"}</time></article>; })}</div></details>
-          <div className="task-focus-actions"><button type="button" className="primary" disabled={busy || !canRun || Boolean(pendingApproval)} onClick={() => void run()}>{busy ? <LoaderCircle size={15} className="spin" /> : task.status === "failed" ? <RotateCcw size={15} /> : task.status === "completed" ? <CheckCircle2 size={15} /> : task.status === "cancelled" ? <Square size={13} /> : <Play size={15} />}{busy ? "Working" : task.status === "completed" ? "Task complete" : task.status === "cancelled" ? "Task cancelled" : task.status === "failed" ? "Retry task" : task.status === "paused" ? "Resume task" : task.status === "queued" ? "Start task" : task.status === "waiting_approval" ? "Waiting for approval" : "Continue task"}</button><Link className="secondary" href={`/agent?task=${encodeURIComponent(task.id)}`}>Open workspace</Link></div>
+          <div className="task-focus-actions"><button type="button" className="primary" disabled={busy || !canRun || Boolean(pendingApproval)} onClick={() => void run()}>{busy ? <LoaderCircle size={15} className="spin" /> : task.status === "failed" ? <RotateCcw size={15} /> : task.status === "completed" ? <CheckCircle2 size={15} /> : task.status === "cancelled" ? <Square size={13} /> : <Play size={15} />}{busy ? "Working" : task.status === "completed" ? "Task complete" : task.status === "cancelled" ? "Task cancelled" : task.status === "failed" ? "Retry task" : task.status === "paused" ? "Resume task" : task.status === "queued" ? "Start task" : task.status === "waiting_approval" ? "Waiting for approval" : "Continue task"}</button>{task.repository ? <a className="secondary" href={task.repository.url} target="_blank" rel="noreferrer">Open GitHub repository</a> : <Link className="secondary" href={`/agent?task=${encodeURIComponent(task.id)}`}>Open workspace</Link>}</div>
         </section>
 
         {pendingApproval ? <section className="approval-card" aria-labelledby="approval-title"><div><LockKeyhole size={17} /><div><strong id="approval-title">Elias needs your approval</strong><p>{pendingApproval.question}</p><small>Allowing this request lets Elias {permissionLabel(pendingApproval.permission)} for this task.</small></div></div><div className="approval-actions"><button type="button" className="primary" disabled={busy} onClick={() => void action("approve", pendingApproval.id)}><Check size={14} /> Allow &amp; continue</button><button type="button" className="secondary" disabled={busy} onClick={() => void action("reject", pendingApproval.id)}>Decline</button></div></section> : null}
+        {task.repository ? <RepositoryTaskChanges task={task} /> : null}
         <details className="task-disclosure task-evidence-card panel quiet-card" id="task-activity"><summary><span><span className="eyebrow">ACTIVITY &amp; EVIDENCE</span><strong>What happened</strong></span><small>{task.events.length} recorded item{task.events.length === 1 ? "" : "s"}</small><ChevronRight size={15} /></summary><div className="evidence-list">{task.events.length ? [...task.events].reverse().map((event) => <article className={`evidence-item ${event.status}`} key={event.id}><span className="evidence-line" /><div><div className="evidence-meta"><strong>{event.label}</strong><time>{time(event.createdAt)}</time></div>{event.detail ? <p>{event.detail}</p> : null}{event.evidence ? <details className="evidence-payload"><summary>View recorded evidence</summary><pre>{typeof event.evidence.value === "string" ? event.evidence.value : JSON.stringify(event.evidence.value, null, 2)}</pre></details> : null}</div></article>) : <div className="task-empty"><img src="/branding/elias-logo.png" alt="" /><strong>No activity yet</strong><small>Start the task to see each recorded operation and evidence item here.</small></div>}</div></details>
         <details className="task-disclosure task-delivery panel quiet-card"><summary><span><span className="eyebrow">OUTPUT</span><strong>Files &amp; checkpoints</strong></span><small>{task.artifacts.length} files · {task.checkpoints.length} checkpoints</small><ChevronRight size={15} /></summary><div className="delivery-grid"><div><strong>{task.artifacts.length ? `${task.artifacts.length} artifact${task.artifacts.length === 1 ? "" : "s"}` : "No artifacts yet"}</strong><small>Downloadable outputs stay associated with this task.</small>{task.artifacts.map((artifact) => <a className="task-artifact" key={artifact.id} href={artifactHref(task.id, artifact)} download={artifact.name}><FileArchive size={14} /><span>{artifact.name}</span><small>{artifact.type}</small><Download size={13} /></a>)}</div><div><strong>{task.checkpoints.length ? `${task.checkpoints.length} checkpoints` : "No checkpoints yet"}</strong><small>Restore a saved workspace state if you need to roll back a change.</small>{task.checkpoints.slice(-3).reverse().map((checkpoint) => <button type="button" className="checkpoint-row" key={checkpoint.id} disabled={busy} onClick={() => void action("restore_checkpoint", checkpoint.id)}><Undo2 size={13} /><span>{checkpoint.label}</span><ChevronRight size={13} /></button>)}</div></div></details>
         <div className="task-controls"><button type="button" className="secondary" disabled={Boolean(stopAfterStep.current) || task.status === "paused" || controlLocked} onClick={() => void action("pause")}><Pause size={14} />{stopAfterStep.current === "pause" ? "Pausing…" : "Pause"}</button><button type="button" className="secondary" disabled={Boolean(stopAfterStep.current) || controlLocked} onClick={() => void action("cancel")}><Square size={13} />{stopAfterStep.current === "cancel" ? "Cancelling…" : "Cancel"}</button>{task.checkpoints.length ? <button type="button" className="secondary" disabled={busy} onClick={() => void action("restore_checkpoint", task.checkpoints.at(-1)?.id)}><RotateCcw size={14} /> Restore latest</button> : null}</div>

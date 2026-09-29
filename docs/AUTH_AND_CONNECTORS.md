@@ -36,6 +36,14 @@ https://YOUR-ELIAS-DOMAIN/api/auth/github/callback
 
 The login flow requests only `read:user user:email`. The repository connection requests `repo read:org`. The repository token is kept in the separate encrypted GitHub connection store and is the only GitHub credential used by repository reads and writes. Account identity is therefore not automatically treated as permission to read or modify repositories. Existing users should reconnect GitHub after deploying this change so their repository token is saved under the new repository flow.
 
+## Selected-repository tasks
+
+From a repository page, **Work with Elias on this repo** opens a task form for that specific owner/repository. The user writes the objective; the server validates the signed-in session and connected GitHub token, reads a bounded prioritized text snapshot, and pins it to the selected branch's exact commit SHA. Environment secret files and generated/vendor directories are excluded. The loaded repository text is sent to the task's selected model provider as task context.
+
+Repository tasks use separate task routes and storage keyed by both task ID and the authenticated Elias user ID. Their snapshots are excluded from generic browser-local task history. New repository tasks start read-only: ELIAS asks for per-task approval before workspace edits and separately asks before a validation command. Validation remains unavailable by default; only set `ELIAS_EXECUTION_ENABLED=true` on a trusted isolated worker with resource and process limits.
+
+After completion, the user reviews the exact before/after diff. A GitHub commit proposal is hash-bound to the exact files and creates a new feature branch from the snapshot commit SHA; it does not update the base branch. A pull request is a second exact-payload proposal with its own explicit confirmation. ELIAS does not merge pull requests. On Vercel, configure `POSTGRES_URL` so repository task records and short-lived GitHub approval proposals are durable; the API fails closed if that database setting is missing.
+
 ## Model providers
 
 Elias tries Hugging Face Inference Providers first for chat and coding through the OpenAI-compatible router. Add a server-only `HF_TOKEN` with Inference Providers permission to make Hugging Face models available through `/api/models` and the Chat model picker. Auto mode starts with Hugging Face, then can fall back to other configured providers; an explicit provider/model selection is carried into both Chat and autonomous task execution. OpenRouter and Cerebras are no longer routed.

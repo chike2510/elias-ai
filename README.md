@@ -12,6 +12,8 @@ Chat Auto uses Hugging Face Inference Providers through the OpenAI-compatible ch
 
 The agent protocol supports workspace inspection, file listing and reading, file search, dependency inspection, bounded web search and source opening, text artifact creation, validation requests, and workspace actions for writing, appending, editing, renaming, and deleting files. ZIP import rejects traversal paths, extracts bounded editable text files, and the existing editor can export the real current workspace.
 
+From a connected GitHub repository, a user can start a dedicated repository task. ELIAS verifies the account's repository connector, pins the selected branch to its commit SHA, and loads a bounded prioritized text snapshot. The task record and local task history are isolated from generic tasks. ELIAS requests approval before modifying its task workspace; a completed diff can only be committed to a new branch from that exact snapshot through a short-lived, exact-payload approval. Opening a pull request requires a separate review and confirmation. ELIAS never merges the pull request automatically.
+
 Live research provides bounded sources and excerpts with SSRF protection, timeout controls, content-type checks, source-opening errors, and a handoff into durable research tasks. Studio provides browser speech recognition with visible transcript review, direct task/chat handoff, camera preview, and local JPEG snapshot artifacts. Image analysis and video description are visibly unavailable when no compatible vision/video route is configured.
 
 ## Task persistence and execution
@@ -41,6 +43,9 @@ GITHUB_TOKEN=
 
 # Optional local/trusted-worker task persistence.
 ELIAS_TASK_STORE_PATH=.elias/tasks.json
+
+# Required on Vercel for durable repository tasks and GitHub write approvals.
+POSTGRES_URL=
 
 # Only enable on an isolated trusted execution worker.
 ELIAS_EXECUTION_ENABLED=false

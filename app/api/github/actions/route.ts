@@ -9,9 +9,10 @@ type ActionRequest = {
   repo?: string;
   branch?: string;
   base?: string;
+  baseSha?: string;
   path?: string;
   content?: string;
-  files?: Array<{ path?: string; content?: string }>;
+  files?: Array<{ path?: string; content?: string; delete?: boolean }>;
   message?: string;
   title?: string;
   body?: string;
@@ -40,8 +41,17 @@ function repoParts(input: ActionRequest) {
 
 function refName(value: string | undefined, label: string) {
   const result = value?.trim() || "";
-  if (!/^[A-Za-z0-9._/-]+$/.test(result) || result.startsWith("/") || result.endsWith("/")) throw new Error(`${label} must be a valid branch name.`);
+  if (!/^[A-Za-z0-9._/-]+$/.test(result) || result.startsWith("/") || result.endsWith("/") || result.includes("..") || result.split("/").some((part) => !part || part === ".")) throw new Error(`${label} must be a valid branch name.`);
   return result;
+}
+
+function writePath(value: string | undefined) {
+  const path = value?.trim().replaceAll("\\", "/").replace(/^\.\//, "") || "";
+  const parts = path.split("/");
+  if (!path || path.startsWith("/") || path.length > 240 || parts.some((part) => !part || part === "." || part === "..") || parts.some((part) => [".git", "node_modules"].includes(part.toLowerCase()))) throw new Error("A safe repository file path is required.");
+  const filename = parts.at(-1)!.toLowerCase();
+  if (filename === ".env" || (filename.startsWith(".env.") && filename !== ".env.example")) throw new Error("Environment secret files cannot be committed through Elias repository tasks.");
+  return path;
 }
 
 async function githubWriteAccess(token: string, owner: string, repo: string) {
@@ -65,24 +75,29 @@ function validateWriteInput(action: NonNullable<ActionRequest["action"]>, input:
   if (action === "create_branch") { refName(input.base || "main", "Base branch"); refName(input.branch, "New branch"); return; }
   if (action === "commit_file") {
     const branch = refName(input.branch || "main", "Target branch");
-    const path = input.path?.trim().replace(/^\/+/, "") || "";
+    const path = writePath(input.path);
     const content = input.content ?? "";
-    if (!path || path.includes("..") || path.endsWith("/") || !content) throw new Error("A safe file path and non-empty content are required.");
+    if (!content) throw new Error("Non-empty file content is required.");
     if (content.length > 1_000_000) throw new Error("The committed file must be under 1 MB.");
     return { branch, path, content };
   }
   if (action === "commit_files") {
     const branch = refName(input.branch || "main", "Target branch");
+    const base = input.base ? refName(input.base, "Base branch") : undefined;
+    const baseSha = input.baseSha?.trim() || undefined;
+    if (baseSha && !/^[a-f0-9]{40}$/i.test(baseSha)) throw new Error("The repository snapshot must include a valid base commit SHA.");
+    if (base && base === branch) throw new Error("The new branch must differ from its base branch.");
     const files = Array.isArray(input.files) ? input.files : [];
     if (!files.length || files.length > 50) throw new Error("Between 1 and 50 files are required for an atomic commit.");
     const normalized = files.map((file) => {
-      const path = file.path?.trim().replace(/^\/+/, "") || "";
-      const content = file.content ?? "";
-      if (!path || path.includes("..") || path.endsWith("/") || content.length > 1_000_000) throw new Error("Every committed file must have a safe path and content under 1 MB.");
-      return { path, content };
+      const path = writePath(file.path);
+      if (file.delete === true) return { path, delete: true as const };
+      if (typeof file.content !== "string" || file.content.length > 1_000_000) throw new Error("Every committed file must have safe content under 1 MB.");
+      return { path, content: file.content };
     });
-    if (normalized.reduce((total, file) => total + file.content.length, 0) > 5_000_000) throw new Error("The combined commit payload is too large.");
-    return { branch, normalized };
+    if (normalized.reduce((total, file) => total + ("content" in file ? (file.content || "").length : 0), 0) > 5_000_000) throw new Error("The combined commit payload is too large.");
+    if (new Set(normalized.map((file) => file.path)).size !== normalized.length) throw new Error("A file path can appear only once in an atomic commit.");
+    return { branch, base, baseSha, normalized };
   }
   if (action === "create_pull_request") { return { head: refName(input.head, "Head branch"), base: refName(input.base || "main", "Base branch") }; }
   if (action === "create_review_comment") {
@@ -125,12 +140,14 @@ export async function POST(request: Request) {
   try { input = await request.json() as ActionRequest; } catch { return fail("Invalid JSON request."); }
   const action = input.action;
   if (!action) return fail("A GitHub write action is required.");
-  const { owner, repo } = repoParts(input);
+  let owner = "";
+  let repo = "";
+  try { ({ owner, repo } = repoParts(input)); } catch (error) { return fail(error instanceof Error ? error.message : "A valid GitHub owner and repository are required.", 400); }
   if (!(await githubWriteAccess(token, owner, repo))) return fail("GitHub is connected, but this authorization does not grant write access to the selected repository. Reconnect GitHub and approve repository write access before committing.", 403);
 
   let claimedProposalId: string | undefined;
   try {
-    validateWriteInput(action, input);
+      validateWriteInput(action, input);
     const payload = payloadForHash(input);
     if (input.phase === "prepare") {
       const proposal = await createGitHubWriteProposal(session?.userId || "", action, payload);
@@ -160,10 +177,10 @@ export async function POST(request: Request) {
 
     if (action === "commit_file") {
       const branch = refName(input.branch || "main", "Target branch");
-      const path = input.path?.trim().replace(/^\/+/, "") || "";
+      const path = writePath(input.path);
       const content = input.content ?? "";
       const message = input.message?.trim() || `Update ${path}`;
-      if (!path || path.includes("..") || path.endsWith("/") || !content) throw new Error("A safe file path and non-empty content are required.");
+      if (!content) throw new Error("A safe file path and non-empty content are required.");
       let sha: string | undefined;
       try {
         const current = await githubFetch(token, `/repos/${owner}/${repo}/contents/${path}?ref=${encodeURIComponent(branch)}`);
@@ -176,25 +193,29 @@ export async function POST(request: Request) {
 
     if (action === "commit_files") {
       const branch = refName(input.branch || "main", "Target branch");
+      const base = input.base ? refName(input.base, "Base branch") : undefined;
+      const baseSha = input.baseSha?.trim() || undefined;
       const message = input.message?.trim() || "Update files from Elias";
       const files = Array.isArray(input.files) ? input.files : [];
       if (!files.length || files.length > 50) throw new Error("Between 1 and 50 files are required for an atomic commit.");
       const normalized = files.map((file) => {
-        const path = file.path?.trim().replace(/^\/+/, "") || "";
-        const content = file.content ?? "";
-        if (!path || path.includes("..") || path.endsWith("/") || content.length > 1_000_000) throw new Error("Every committed file must have a safe path and content under 1 MB.");
-        return { path, content };
+        const path = writePath(file.path);
+        if (file.delete === true) return { path, delete: true as const };
+        if (typeof file.content !== "string" || file.content.length > 1_000_000) throw new Error("Every committed file must have safe content under 1 MB.");
+        return { path, content: file.content };
       });
-      if (normalized.reduce((total, file) => total + file.content.length, 0) > 5_000_000) throw new Error("The combined commit payload is too large.");
-      const ref = await githubFetch(token, `/repos/${owner}/${repo}/git/ref/heads/${encodeURIComponent(branch)}`);
-      const headSha = ref.object && typeof ref.object === "object" && "sha" in ref.object ? String((ref.object as { sha?: unknown }).sha) : "";
+      if (normalized.reduce((total, file) => total + ("content" in file ? (file.content || "").length : 0), 0) > 5_000_000) throw new Error("The combined commit payload is too large.");
+      if (new Set(normalized.map((file) => file.path)).size !== normalized.length) throw new Error("A file path can appear only once in an atomic commit.");
+      const ref = baseSha ? undefined : await githubFetch(token, `/repos/${owner}/${repo}/git/ref/heads/${(base || branch).split("/").map(encodeURIComponent).join("/")}`);
+      const headSha = baseSha || (ref?.object && typeof ref.object === "object" && "sha" in ref.object ? String((ref.object as { sha?: unknown }).sha) : "");
       if (!headSha) throw new Error("Could not resolve the target branch commit.");
       const headCommit = await githubFetch(token, `/repos/${owner}/${repo}/git/commits/${headSha}`);
       const baseTree = headCommit.tree && typeof headCommit.tree === "object" && "sha" in headCommit.tree ? String((headCommit.tree as { sha?: unknown }).sha) : "";
       if (!baseTree) throw new Error("Could not resolve the target tree.");
       const tree = [];
       for (const file of normalized) {
-        const blob = await githubFetch(token, `/repos/${owner}/${repo}/git/blobs`, { method: "POST", body: JSON.stringify({ content: Buffer.from(file.content, "utf8").toString("base64"), encoding: "base64" }) });
+        if (!("content" in file)) { tree.push({ path: file.path, mode: "100644", type: "blob", sha: null }); continue; }
+        const blob = await githubFetch(token, `/repos/${owner}/${repo}/git/blobs`, { method: "POST", body: JSON.stringify({ content: Buffer.from(file.content || "", "utf8").toString("base64"), encoding: "base64" }) });
         if (typeof blob.sha !== "string") throw new Error(`Could not create a blob for ${file.path}.`);
         tree.push({ path: file.path, mode: "100644", type: "blob", sha: blob.sha });
       }
@@ -202,8 +223,9 @@ export async function POST(request: Request) {
       if (typeof createdTree.sha !== "string") throw new Error("Could not create the commit tree.");
       const commit = await githubFetch(token, `/repos/${owner}/${repo}/git/commits`, { method: "POST", body: JSON.stringify({ message, tree: createdTree.sha, parents: [headSha] }) });
       if (typeof commit.sha !== "string") throw new Error("Could not create the commit.");
-      await githubFetch(token, `/repos/${owner}/${repo}/git/refs/heads/${encodeURIComponent(branch)}`, { method: "PATCH", body: JSON.stringify({ sha: commit.sha, force: false }) });
-      return complete({ ok: true, action, branch, commitSha: commit.sha, url: commit.html_url, files: normalized.map((file) => file.path), message: `Committed ${normalized.length} files to ${branch}.` });
+      if (base) await githubFetch(token, `/repos/${owner}/${repo}/git/refs`, { method: "POST", body: JSON.stringify({ ref: `refs/heads/${branch}`, sha: commit.sha }) });
+      else await githubFetch(token, `/repos/${owner}/${repo}/git/refs/heads/${encodeURIComponent(branch)}`, { method: "PATCH", body: JSON.stringify({ sha: commit.sha, force: false }) });
+      return complete({ ok: true, action, branch, base, baseSha: headSha, commitSha: commit.sha, url: commit.html_url, files: normalized.map((file) => file.path), message: `Committed ${normalized.length} files to ${branch}.` });
     }
 
     if (action === "create_pull_request") {
@@ -237,6 +259,6 @@ export async function POST(request: Request) {
   } catch (error) {
     const message = error instanceof Error ? error.message : "GitHub write action failed.";
     if (claimedProposalId && session?.userId) await failGitHubWriteProposal(claimedProposalId, session.userId, message).catch(() => undefined);
-    return fail(message, 502);
+    return fail(message, claimedProposalId ? 502 : 400);
   }
 }
