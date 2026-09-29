@@ -11,7 +11,7 @@ import ArtifactPreviewSheet from "@/components/artifacts/ArtifactPreviewSheet";
 import GoalProgressCard from "@/components/GoalProgressCard";
 import MarkdownMessage from "@/components/MarkdownMessage";
 import { readApiResponse } from "@/lib/clientApi";
-import { cacheTaskSnapshot, listCachedTaskSnapshots } from "@/lib/clientTask";
+import { cacheTaskSnapshot, listCachedTaskSnapshots, mergeTaskSnapshots } from "@/lib/clientTask";
 import { buildSelectedDocumentContext } from "@/lib/clientDocumentContext";
 import { syncTaskArtifactToLibrary } from "@/lib/taskArtifactLibrary";
 import type { TaskRecord } from "@/lib/task";
@@ -147,7 +147,7 @@ export default function ChatScreen() {
     void getArtifacts().then((items) => setRecentArtifacts(items.slice(0, 4).map(({ id, name, type }) => ({ id, name, type })))).catch(() => setRecentArtifacts([]));
     void fetch("/api/tasks", { cache: "no-store" }).then((response) => response.ok ? response.json() as Promise<{ tasks?: TaskRecord[] }> : Promise.reject(new Error("tasks unavailable"))).then((data) => {
       const cached = listCachedTaskSnapshots();
-      setRecentTasks([...cached, ...(data.tasks || [])].filter((item, index, items) => items.findIndex((candidate) => candidate.id === item.id) === index).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 4));
+      setRecentTasks(mergeTaskSnapshots(cached, data.tasks || []).slice(0, 4));
     }).catch(() => setRecentTasks(listCachedTaskSnapshots().sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 4)));
     void fetch("/api/models").then((response) => response.ok ? response.json() as Promise<{ models?: ModelOption[]; diagnostics?: Record<string, { configured?: boolean; ok?: boolean; modelCount?: number; error?: string }> }> : Promise.reject(new Error("models unavailable"))).then((data) => {
       if (Array.isArray(data.models) && data.models.length) setModelOptions(data.models);
@@ -298,12 +298,13 @@ export default function ChatScreen() {
         const generationResponse = await fetch("/api/generation", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ prompt: text, type: "image", ...(selectedModel.startsWith("huggingface:") ? { provider: "huggingface", model: selectedModel.slice("huggingface:".length) } : {}) }),
+          body: JSON.stringify({ prompt: text, type: "image", conversationId: optimistic.id, ...(selectedModel.startsWith("huggingface:") ? { provider: "huggingface", model: selectedModel.slice("huggingface:".length) } : {}) }),
           signal: controller.signal,
         });
         const generationData = await readApiResponse<{ task?: TaskRecord; artifact?: { name?: string; type?: string; provider?: string; model?: string }; error?: { message?: string } }>(generationResponse);
         if (!generationData.task || !generationData.artifact?.name) throw new Error(generationData.error?.message || "Image generation could not be completed.");
         cacheTaskSnapshot(generationData.task);
+        setRecentTasks((current) => mergeTaskSnapshots(current, [generationData.task!]).slice(0, 4));
         setActiveTask(generationData.task);
         const generatedMessage: ConversationMessage = {
           id: makeId("msg"),

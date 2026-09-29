@@ -46,3 +46,10 @@ export function listCachedTaskSnapshots() {
   }
   return tasks.sort((a, b) => b.updatedAt - a.updatedAt);
 }
+
+export function mergeTaskSnapshots(cached: TaskRecord[], authoritative: TaskRecord[]) {
+  const tasksById = new Map<string, TaskRecord>();
+  for (const task of cached) tasksById.set(task.id, task);
+  for (const task of authoritative) tasksById.set(task.id, task);
+  return [...tasksById.values()].sort((a, b) => b.updatedAt - a.updatedAt);
+}

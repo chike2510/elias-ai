@@ -15,11 +15,12 @@ export async function POST(request: NextRequest) {
   try {
     const session = await getSession();
     if (!session) return jsonError("Sign in before generating an asset.", 401);
-    const body = await readJsonRequest<{ prompt?: unknown; type?: unknown; taskId?: unknown; provider?: unknown; model?: unknown; width?: unknown; height?: unknown }>(request);
+    const body = await readJsonRequest<{ prompt?: unknown; type?: unknown; taskId?: unknown; conversationId?: unknown; provider?: unknown; model?: unknown; width?: unknown; height?: unknown }>(request);
     const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
     const type = validType(body.type) ? body.type : "image";
     if (!prompt || prompt.length > 8_000) return jsonError("A prompt between 1 and 8,000 characters is required.", 400);
-    const task = typeof body.taskId === "string" && body.taskId ? await getTask(body.taskId) : await createTaskRecord({ objective: `Generate a ${type} asset: ${prompt}`, kind: "media", taskType: "media" });
+    const conversationId = typeof body.conversationId === "string" && body.conversationId.trim() && body.conversationId.length <= 200 ? body.conversationId.trim() : undefined;
+    const task = typeof body.taskId === "string" && body.taskId ? await getTask(body.taskId) : await createTaskRecord({ objective: `Generate a ${type} asset: ${prompt}`, kind: "media", taskType: "media", ...(conversationId ? { conversationId } : {}) });
     if (!task) return jsonError("Generation task not found.", 404);
     await setTaskStatus(task.id, "running");
     const provider = body.provider === "huggingface" ? "huggingface" : body.provider === "pollinations" ? "pollinations" : process.env.HF_TOKEN || process.env.HUGGINGFACE_API_KEY ? "huggingface" : "pollinations";
