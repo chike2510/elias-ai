@@ -1,5 +1,6 @@
 import type { AgentAction, AgentRequest, TaskType, ToolResult, WorkspaceFile } from "@/lib/types";
 import { chooseProvider, completeWithProvider, pickModel, providerOrder } from "@/lib/providers";
+import { calculatorArtifactConsistencyPrompt } from "@/lib/artifactPrompt";
 
 export type AgentInput = {
   task: string;
@@ -166,12 +167,14 @@ function normalizeAgentOutput(raw: string, provider: string, model: string): Age
 }
 
 async function call(provider: Parameters<typeof completeWithProvider>[0]["provider"], model: string, input: AgentInput) {
+  const artifactConsistencyPrompt = calculatorArtifactConsistencyPrompt(input.task);
   const response = await completeWithProvider({
     provider,
     model,
     temperature: 0.15,
     messages: [
       { role: "system", content: SYSTEM },
+      ...(artifactConsistencyPrompt ? [{ role: "system" as const, content: artifactConsistencyPrompt }] : []),
       {
         role: "user",
         content: [
