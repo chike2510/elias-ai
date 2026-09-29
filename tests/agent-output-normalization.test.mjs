@@ -18,6 +18,9 @@ function loadAgent(responseText) {
   loaded.paths = Module._nodeModulePaths(path.dirname(sourcePath));
   const originalLoad = Module._load;
   Module._load = function (request, parent, isMain) {
+    if (request === "@/lib/artifactPrompt") {
+      return { calculatorArtifactConsistencyPrompt: () => "" };
+    }
     if (request === "@/lib/providers") {
       return {
         chooseProvider: async () => "huggingface",
