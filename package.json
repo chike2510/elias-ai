@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@huggingface/inference": "^4.13.30",
     "docx": "^9.7.1",
     "jszip": "^3.10.1",
     "lucide-react": "^0.468.0",

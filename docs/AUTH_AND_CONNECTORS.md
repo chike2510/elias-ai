@@ -38,9 +38,9 @@ The login flow requests only `read:user user:email`. The repository connection r
 
 ## Model providers
 
-Elias supports provider-backed model routing through the configured OpenAI-compatible providers. Add the relevant provider API keys to Vercel to make their live models available through `/api/models` and the Chat model picker. Auto mode preserves task-based routing; an explicit provider/model selection is carried into both Chat and autonomous task execution.
+Elias tries Hugging Face Inference Providers first for chat and coding through the OpenAI-compatible router. Add a server-only `HF_TOKEN` with Inference Providers permission to make Hugging Face models available through `/api/models` and the Chat model picker. Auto mode starts with Hugging Face, then can fall back to other configured providers; an explicit provider/model selection is carried into both Chat and autonomous task execution. OpenRouter and Cerebras are no longer routed.
 
-Supported provider environment variables include `QWEN_API_KEY`, `AGENTROUTER_API_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `CEREBRAS_API_KEY`, `MISTRAL_API_KEY`, and `GITHUB_TOKEN` where applicable.
+Fallback provider environment variables include `QWEN_API_KEY`, `AGENTROUTER_API_KEY`, `GROQ_API_KEY`, `MISTRAL_API_KEY`, and `GITHUB_TOKEN` where applicable.
 
 ## Vercel as an MCP connector
 

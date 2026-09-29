@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@huggingface/inference':
+        specifier: ^4.13.30
+        version: 4.13.30
       docx:
         specifier: ^9.7.1
         version: 9.7.1
@@ -71,6 +74,17 @@ packages:
 
   '@emnapi/runtime@1.11.3':
     resolution: {integrity: sha512-Xz4Tpyki7XyrpbUK1jR1AhdAdaXyhhY4lZ3neLodmhpuWfy2PAQN5B46sAiU4liOXGLkHypn/qU+jvfWSCYYLA==}
+
+  '@huggingface/inference@4.13.30':
+    resolution: {integrity: sha512-d5iD7UxHFH5X4ndNhwn3eFT/P9M08RRcsWDoko40//9lgNCCCn87TziwcKWf7ztvoKOm8d29W+lrYO4ZZvyAnA==}
+    engines: {node: '>=18'}
+
+  '@huggingface/jinja@0.5.10':
+    resolution: {integrity: sha512-SgS1D1bglQ94ceD4ZCL6eayUDy9uV1xuyk61OjgSxU5GJh7upqZCKII0JoTYMc6wWsg3JUgaPRX0ElQzXPk3Cw==}
+    engines: {node: '>=18'}
+
+  '@huggingface/tasks@0.21.48':
+    resolution: {integrity: sha512-+ujPTb9irMxsiCYjL2Jpjs0+aCioJTTYA8Pp/I/+fm2LenzL3tDOs2/0ELj5phMAUDVoOozLviy4y/e7mBltxA==}
 
   '@img/colour@1.1.0':
     resolution: {integrity: sha512-Td76q7j57o/tLVdgS746cYARfSyxk8iEfRxewL9h4OMzYhbW4TAcppl0mT4eyqXddh6L/jwoM75mo7ixa/pCeQ==}
@@ -749,6 +763,15 @@ snapshots:
     dependencies:
       tslib: 2.8.1
     optional: true
+
+  '@huggingface/inference@4.13.30':
+    dependencies:
+      '@huggingface/jinja': 0.5.10
+      '@huggingface/tasks': 0.21.48
+
+  '@huggingface/jinja@0.5.10': {}
+
+  '@huggingface/tasks@0.21.48': {}
 
   '@img/colour@1.1.0':
     optional: true

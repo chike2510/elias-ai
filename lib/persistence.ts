@@ -49,9 +49,11 @@ export type ArtifactRecord = {
   id: string;
   projectId?: string;
   conversationId?: string;
+  taskId?: string;
   name: string;
   type: string;
   createdAt: number;
+  size?: number;
   blob?: Blob;
   text?: string;
   summary?: string;

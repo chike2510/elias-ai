@@ -22,10 +22,11 @@ export async function POST(request: NextRequest) {
     const task = typeof body.taskId === "string" && body.taskId ? await getTask(body.taskId) : await createTaskRecord({ objective: `Generate a ${type} asset: ${prompt}`, kind: "media", taskType: "media" });
     if (!task) return jsonError("Generation task not found.", 404);
     await setTaskStatus(task.id, "running");
-    await recordTaskEvent(task.id, { kind: "action", label: "Generation job submitted", status: "completed", detail: `Submitting a ${type} generation job through ${body.provider === "huggingface" ? "Hugging Face" : body.provider === "pollinations" ? "Pollinations" : "the default provider"}.` });
     const provider = body.provider === "huggingface" ? "huggingface" : body.provider === "pollinations" ? "pollinations" : process.env.HF_TOKEN || process.env.HUGGINGFACE_API_KEY ? "huggingface" : "pollinations";
+    const providerDetail = provider === "huggingface" ? "Hugging Face Inference Providers (automatically selected image backend)" : "Pollinations";
     const jobId = await submitGenerationJob(provider, prompt, { type, width: typeof body.width === "number" ? body.width : undefined, height: typeof body.height === "number" ? body.height : undefined, model: typeof body.model === "string" ? body.model : undefined });
     let job = await getJobStatus(jobId);
+    await recordTaskEvent(task.id, { kind: "action", label: "Generation job submitted", status: "completed", detail: `Submitting a ${type} generation job through provider ${providerDetail}${job?.model ? ` · model ${job.model}` : ""}.` });
     for (let attempt = 0; attempt < 8 && job && ["queued", "running"].includes(job.status); attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, 350));
       job = await getJobStatus(jobId);
@@ -37,7 +38,7 @@ export async function POST(request: NextRequest) {
       return jsonError(message, 502, "GENERATION_FAILED", { taskId: task.id, jobId });
     }
     const asset = job.assetData ? job.assetData.split(",", 2)[1] : await (async () => { const assetResponse = await fetch(job.assetUrl!, { cache: "no-store" }); if (!assetResponse.ok) throw new Error(`Generated asset download failed (${assetResponse.status}).`); return Buffer.from(await assetResponse.arrayBuffer()).toString("base64"); })();
-    const extension = type === "image" ? "jpg" : type === "video" ? "mp4" : "wav";
+    const extension = type === "image" ? job.mimeType === "image/jpeg" ? "jpg" : job.mimeType === "image/webp" ? "webp" : "png" : type === "video" ? "mp4" : "wav";
     const artifactId = `artifact_${crypto.randomUUID()}`;
     const name = `elias-generated-${Date.now()}.${extension}`;
     await updateStoredTask(task.id, (current) => {
@@ -46,7 +47,7 @@ export async function POST(request: NextRequest) {
     });
     await recordTaskEvent(task.id, { kind: "action", label: "Generated asset delivered", status: "completed", detail: `${name} is available in the task artifact pipeline.`, evidence: { type: "artifact", value: { artifactId, name, jobId } } });
     const completed = await setTaskStatus(task.id, "completed");
-    return jsonOk({ task: completed, jobId, artifact: { id: artifactId, name, type: job.mimeType } }, { status: 201 });
+    return jsonOk({ task: completed, jobId, artifact: { id: artifactId, name, type: job.mimeType, provider: job.provider, model: job.model } }, { status: 201 });
   } catch (error) {
     return jsonError(error instanceof Error ? error.message : "Generation failed.");
   }
