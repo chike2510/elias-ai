@@ -1,5 +1,6 @@
 import { fetchUrl, searchWeb } from "@/lib/webSearch";
 import { runWorkspaceValidation } from "@/lib/execution";
+import { referencesRepository } from "@/lib/repositoryIntent";
 import type { AgentAction, AgentRequest, ToolResult, WorkspaceFile } from "@/lib/types";
 import type { CreateTaskInput, PermissionLevel, TaskRecord } from "@/lib/task";
 import {
@@ -48,10 +49,6 @@ function repositoryReference(objective: string) {
   if (url) return { owner: url[1], repo: url[2].replace(/\.git$/i, "") };
   const pair = objective.match(/(?:repository|repo)\s+(?:called\s+|named\s+)?([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)/i);
   return pair ? { owner: pair[1], repo: pair[2] } : undefined;
-}
-
-function referencesRepository(objective: string) {
-  return /\b(?:github|repository|repo|codebase|code base)\b/i.test(objective);
 }
 
 const TEXT_FILE = /\.(?:md|mdx|txt|json|ya?ml|toml|ini|env(?:\.example)?|js|jsx|ts|tsx|mjs|cjs|css|scss|html|xml|svg|py|rb|go|rs|java|kt|swift|php|sql|sh|bash|zsh|dockerfile|gitignore)$/i;
