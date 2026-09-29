@@ -38,6 +38,7 @@ Please deliver actual files/artifacts with these exact filenames, not code paste
 
 const repositoryIntentPath = path.resolve("lib/repositoryIntent.ts");
 const { referencesRepository } = loadTypeScript(repositoryIntentPath);
+const taskArtifactRequirements = loadTypeScript(path.resolve("lib/taskArtifactRequirements.ts"));
 
 const artifacts = await import(pathToFileURL(path.resolve("lib/artifacts.ts")).href);
 const taskArtifactLibraryPath = path.resolve("lib/taskArtifactLibrary.ts");
@@ -119,6 +120,7 @@ function loadOrchestrator({ taskStore, runAgentStep, repositoryCalls }) {
     "@/lib/execution": { runWorkspaceValidation: async () => { throw new Error("Validation was not requested."); } },
     "@/lib/repositoryIntent": { referencesRepository },
     "@/lib/task": { buildPlan: () => [], createTask: () => ({}), inferTaskKind: () => "document", inferTaskType: () => "general" },
+    "@/lib/taskArtifactRequirements": taskArtifactRequirements,
     "@/lib/taskStore": taskStore,
     "@/lib/agent": { runAgentStep },
     "@/lib/artifacts": artifacts,
@@ -188,4 +190,98 @@ test("standalone chat artifacts create exact JS, TS, and PDF files and sync them
   assert.equal(pdf.text, undefined);
   assert.ok(pdf.size > 100);
   assert.match(Buffer.from(await pdf.blob.arrayBuffer()).toString("ascii", 0, 5), /^%PDF-/);
+});
+
+test("a progress sentence does not become one generic artifact or a completed task", async () => {
+  const task = makeTask(exactObjective);
+  const taskStore = makeTaskStore(task);
+  const repositoryCalls = { session: 0, token: 0 };
+  const { runTaskStep } = loadOrchestrator({
+    taskStore,
+    repositoryCalls,
+    runAgentStep: async () => ({ ok: true, provider: "test", model: "fixture", message: "Creating the requested files in the Library.", requests: [], actions: [], done: true }),
+  });
+
+  const result = await runTaskStep(task.id);
+  assert.equal(result.status, "queued");
+  assert.equal(task.artifacts.length, 0);
+  assert.equal(task.plan.filter((step) => step.status === "completed").length, 0);
+  assert.equal(task.plan[0].status, "active");
+  assert.match(task.toolResults.at(-1).error, /calculator\.js, calculator\.ts, calculator-guide\.pdf/);
+  assert.equal(repositoryCalls.session, 0);
+  assert.equal(repositoryCalls.token, 0);
+  assert.equal(task.workspace.length, 0);
+});
+
+test("all exact JS, TS, and PDF artifacts are required before terminal completion and each reaches Library", async () => {
+  const task = makeTask(exactObjective);
+  task.kind = "code";
+  task.taskType = "code";
+  const now = Date.now();
+  task.plan = Array.from({ length: 3 }, (_, index) => ({ id: `step_${index + 1}`, title: `Create files phase ${index + 1}`, description: "Create only requested standalone artifacts.", status: "pending", evidenceEventIds: [], createdAt: now, updatedAt: now }));
+  const taskStore = makeTaskStore(task);
+  const repositoryCalls = { session: 0, token: 0 };
+  const outputs = [
+    { message: "Created the JavaScript artifact.", requests: [{ id: "artifact_js", type: "create_artifact", name: "calculator.js", mimeType: "application/pdf", content: "export function add(a, b) { return a + b; }\nexport function subtract(a, b) { return a - b; }" }], actions: [], done: false },
+    { message: "Revised the JavaScript file and created the typed TypeScript file and PDF guide.", requests: [
+      { id: "artifact_js_revision", type: "create_artifact", name: "calculator.js", content: "// revised version\nexport function add(a, b) { return a + b; }\nexport function subtract(a, b) { return a - b; }" },
+      { id: "artifact_ts", type: "create_artifact", name: "calculator.ts", mimeType: "text/plain", content: "export type NumberInput = number;\nexport function add(a: NumberInput, b: NumberInput): number { return a + b; }\nexport function subtract(a: NumberInput, b: NumberInput): number { return a - b; }" },
+      { id: "artifact_pdf", type: "create_artifact", name: "calculator-guide.pdf", mimeType: "text/plain", content: "# Calculator guide\n\nThe add function accepts two numbers and returns their sum. The subtract function accepts two numbers and returns the first minus the second. For example, add(2, 3) returns 5 and subtract(5, 2) returns 3." },
+    ], actions: [], done: false },
+    { message: "All three named downloadable files are complete.", requests: [], actions: [], done: true },
+  ];
+  let agentCalls = 0;
+  const { runTaskStep } = loadOrchestrator({
+    taskStore,
+    repositoryCalls,
+    runAgentStep: async () => ({ ok: true, provider: "test", model: "fixture", ...outputs[agentCalls++] }),
+  });
+
+  const progress = [];
+  let initialJsCreatedAt = 0;
+  for (let step = 0; step < 3; step += 1) {
+    const result = await runTaskStep(task.id);
+    if (step === 0) initialJsCreatedAt = result.artifacts.find((artifact) => artifact.name === "calculator.js").createdAt;
+    progress.push({ status: result.status, completed: result.plan.filter((item) => item.status === "completed").length });
+  }
+
+  assert.deepEqual(progress, [
+    { status: "queued", completed: 1 },
+    { status: "queued", completed: 2 },
+    { status: "completed", completed: 3 },
+  ]);
+  assert.equal(agentCalls, 3);
+  assert.equal(task.toolResults.length, 4);
+  assert.equal(task.artifacts.length, 3);
+  assert.equal(task.toolResults[0].result.artifactId, task.toolResults[1].result.artifactId);
+  assert.ok(task.artifacts.find((artifact) => artifact.name === "calculator.js").createdAt > initialJsCreatedAt);
+  assert.deepEqual(task.artifacts.map((artifact) => artifact.name), ["calculator.js", "calculator.ts", "calculator-guide.pdf"]);
+  assert.deepEqual(task.artifacts.map((artifact) => artifact.type), ["text/javascript; charset=utf-8", "text/typescript; charset=utf-8", "application/pdf"]);
+  assert.ok(task.artifacts.every((artifact) => artifact.content && artifact.size > 0));
+  assert.equal(task.artifacts.find((artifact) => artifact.name === "calculator-guide.pdf").encoding, "base64");
+  assert.equal(Buffer.from(task.artifacts.find((artifact) => artifact.name === "calculator-guide.pdf").content, "base64").toString("ascii", 0, 5), "%PDF-");
+  assert.equal(task.workspace.length, 0);
+  assert.equal(task.checkpoints.length, 0);
+  assert.equal(repositoryCalls.session, 0);
+  assert.equal(repositoryCalls.token, 0);
+
+  const savedRecords = [];
+  for (const artifact of task.artifacts) {
+    await syncTaskArtifactToLibrary(task, artifact, {
+      fetcher: async (requestPath) => {
+        assert.equal(requestPath, `/api/tasks/${task.id}/artifact/${artifact.id}`);
+        const body = artifact.encoding === "base64" ? Buffer.from(artifact.content, "base64") : artifact.content;
+        return new Response(body, { status: 200, headers: { "content-type": artifact.type } });
+      },
+      save: async (record) => savedRecords.push(record),
+      wait: async () => {},
+    });
+  }
+  assert.deepEqual(savedRecords.map((record) => record.name), ["calculator.js", "calculator.ts", "calculator-guide.pdf"]);
+  assert.match(savedRecords.find((record) => record.name === "calculator.js").text, /revised version/);
+  assert.match(savedRecords.find((record) => record.name === "calculator.ts").text, /NumberInput/);
+  const pdfRecord = savedRecords.find((record) => record.name === "calculator-guide.pdf");
+  assert.equal(pdfRecord.type, "application/pdf");
+  assert.equal(pdfRecord.text, undefined);
+  assert.match(Buffer.from(await pdfRecord.blob.arrayBuffer()).toString("ascii", 0, 5), /^%PDF-/);
 });
