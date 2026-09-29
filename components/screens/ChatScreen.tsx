@@ -152,10 +152,10 @@ export default function ChatScreen() {
     void fetch("/api/models").then((response) => response.ok ? response.json() as Promise<{ models?: ModelOption[]; diagnostics?: Record<string, { configured?: boolean; ok?: boolean; modelCount?: number; error?: string }> }> : Promise.reject(new Error("models unavailable"))).then((data) => {
       if (Array.isArray(data.models) && data.models.length) setModelOptions(data.models);
       const huggingface = data.diagnostics?.huggingface;
-      if (huggingface?.ok && huggingface.modelCount) setModelCatalogNotice(`Hugging Face · ${huggingface.modelCount} live models loaded`);
-      else if (huggingface?.configured && huggingface.error) setModelCatalogNotice(`Hugging Face catalog unavailable: ${huggingface.error.slice(0, 140)}`);
-      else if (!huggingface?.configured) setModelCatalogNotice("Hugging Face is not configured; Auto will try another configured provider.");
-    }).catch(() => setModelCatalogNotice("Model catalog unavailable; Auto will use only providers with a reachable live catalog."));
+      if (huggingface?.ok && huggingface.modelCount) setModelCatalogNotice(`Hugging Face · ${huggingface.modelCount} live chat models loaded`);
+      else if (huggingface?.configured && huggingface.error) setModelCatalogNotice("Hugging Face chat catalog unavailable; Auto cannot route until HF_TOKEN with Inference Providers permission is available.");
+      else if (!huggingface?.configured) setModelCatalogNotice("Hugging Face Auto chat needs HF_TOKEN with Inference Providers permission.");
+    }).catch(() => setModelCatalogNotice("Model catalog unavailable; Hugging Face Auto chat cannot route until its live chat catalog is reachable."));
     let active = true;
     async function load() {
       setActiveTask(null);
@@ -301,7 +301,7 @@ export default function ChatScreen() {
           body: JSON.stringify({ prompt: text, type: "image", ...(selectedModel.startsWith("huggingface:") ? { provider: "huggingface", model: selectedModel.slice("huggingface:".length) } : {}) }),
           signal: controller.signal,
         });
-        const generationData = await readApiResponse<{ task?: TaskRecord; artifact?: { name?: string; type?: string }; error?: { message?: string } }>(generationResponse);
+        const generationData = await readApiResponse<{ task?: TaskRecord; artifact?: { name?: string; type?: string; provider?: string; model?: string }; error?: { message?: string } }>(generationResponse);
         if (!generationData.task || !generationData.artifact?.name) throw new Error(generationData.error?.message || "Image generation could not be completed.");
         cacheTaskSnapshot(generationData.task);
         setActiveTask(generationData.task);
@@ -309,7 +309,8 @@ export default function ChatScreen() {
           id: makeId("msg"),
           role: "assistant",
           content: `I generated **${generationData.artifact.name}** from your prompt. It is ready in this task and in your Library.`,
-          provider: "Pollinations",
+          provider: generationData.artifact.provider === "pollinations" ? "pollinations" : "huggingface",
+          model: generationData.artifact.model,
           status: "complete",
           createdAt: Date.now(),
         };
@@ -505,7 +506,7 @@ export default function ChatScreen() {
           </section> : null}
           {activeTask?.artifacts.length ? <div className="chat-artifact-pill"><FileText size={13} /> {activeTask.artifacts.length} Artifact{activeTask.artifacts.length === 1 ? "" : "s"}</div> : null}
 
-          {messages.map((message) => <article key={message.id} className={`chat-message ${message.role} ${message.status === "error" ? "error" : ""}`}><div className="chat-avatar">{message.role === "assistant" ? <img src="/branding/elias-logo.png" alt="ELIAS" /> : "you"}</div><div className="chat-message-body"><span className="chat-role">{message.role === "assistant" ? `ELIAS${message.provider ? ` · ${message.provider}` : ""}` : "you"}</span>{message.role === "assistant" ? <MarkdownMessage content={message.content} taskId={activeTask?.id} /> : <UserMessageContent content={message.content} />}{message.role === "assistant" && message.webEvidence ? <small className={`web-evidence-status ${message.webEvidence.status === "searched" ? "verified" : "warning"}`}>web search · {message.webEvidence.status === "searched" ? `${message.webEvidence.resultCount} results · ${message.webEvidence.fetchedSourceCount} sources fetched` : message.webEvidence.status.replaceAll("_", " ")}</small> : null}{message.role === "assistant" ? <div className="message-actions"><button type="button" onClick={() => { void navigator.clipboard?.writeText(message.content); setCopied(message.id); window.setTimeout(() => setCopied(null), 1400); }}>{copied === message.id ? <Check size={13} /> : <Copy size={13} />} {copied === message.id ? "copied" : "copy"}</button>{message.status === "error" && lastUser ? <button type="button" onClick={() => void sendMessage(lastUser.content, true)}><LoaderCircle size={13} /> retry</button> : null}</div> : null}{message.role === "assistant" && message.status !== "error" && message.content.length > 1200 && /\b(tsx|jsx|html|css|javascript|typescript|python|java|sql)\b/i.test(message.content) ? <Link href={`/agent?fromChat=${encodeURIComponent(conversation?.id ?? "")}`} className="chat-agent-action"><WandSparkles size={14} /> continue in coding workspace</Link> : null}</div></article>)}
+          {messages.map((message) => <article key={message.id} className={`chat-message ${message.role} ${message.status === "error" ? "error" : ""}`}><div className="chat-avatar">{message.role === "assistant" ? <img src="/branding/elias-logo.png" alt="ELIAS" /> : "you"}</div><div className="chat-message-body"><span className="chat-role">{message.role === "assistant" ? `ELIAS${message.provider ? ` · ${message.provider.toLowerCase() === "huggingface" ? "HUGGING FACE" : message.provider.toUpperCase()}` : ""}` : "you"}</span>{message.role === "assistant" && message.model ? <small className="chat-model-attribution">model · {message.model}</small> : null}{message.role === "assistant" ? <MarkdownMessage content={message.content} taskId={activeTask?.id} /> : <UserMessageContent content={message.content} />}{message.role === "assistant" && message.webEvidence ? <small className={`web-evidence-status ${message.webEvidence.status === "searched" ? "verified" : "warning"}`}>web search · {message.webEvidence.status === "searched" ? `${message.webEvidence.resultCount} results · ${message.webEvidence.fetchedSourceCount} sources fetched` : message.webEvidence.status.replaceAll("_", " ")}</small> : null}{message.role === "assistant" ? <div className="message-actions"><button type="button" onClick={() => { void navigator.clipboard?.writeText(message.content); setCopied(message.id); window.setTimeout(() => setCopied(null), 1400); }}>{copied === message.id ? <Check size={13} /> : <Copy size={13} />} {copied === message.id ? "copied" : "copy"}</button>{message.status === "error" && lastUser ? <button type="button" onClick={() => void sendMessage(lastUser.content, true)}><LoaderCircle size={13} /> retry</button> : null}</div> : null}{message.role === "assistant" && message.status !== "error" && message.content.length > 1200 && /\b(tsx|jsx|html|css|javascript|typescript|python|java|sql)\b/i.test(message.content) ? <Link href={`/agent?fromChat=${encodeURIComponent(conversation?.id ?? "")}`} className="chat-agent-action"><WandSparkles size={14} /> continue in coding workspace</Link> : null}</div></article>)}
 
           {busy ? <div className="chat-message assistant"><div className="chat-avatar"><LoaderCircle size={14} className="spin" /></div><div className="chat-message-body"><span className="chat-role">ELIAS</span>{taskMode && activeTask ? <LiveExecutionFeed task={activeTask} /> : taskMode ? <div className="chat-content typing-line">setting up the task…</div> : <div className="chat-content typing-line">thinking…</div>}</div></div> : null}
           {activeTask ? <section className="chat-execution-stack" aria-live="polite">

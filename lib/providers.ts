@@ -5,6 +5,8 @@ function normalizeBaseUrl(value: string) {
   return trimmed.endsWith("/v1") ? trimmed : `${trimmed}/v1`;
 }
 
+export const DEFAULT_HF_CHAT_MODEL = "Qwen/Qwen3.8-27B:fastest";
+
 const CONFIG: Record<ProviderName, ProviderConfig> = {
   huggingface: {
     name: "huggingface",
@@ -263,6 +265,11 @@ export async function pickModel(provider: ProviderName, task: TaskType): Promise
   const config = CONFIG[provider];
   if (!config.key) return null;
   const models = await listModels(provider);
+  if (provider === "huggingface") {
+    const configuredModel = process.env.HF_CHAT_MODEL?.trim() || DEFAULT_HF_CHAT_MODEL;
+    const catalogId = configuredModel.replace(/:(fastest|cheapest|preferred)$/i, "");
+    return models.some((model) => model.id === configuredModel || model.id === catalogId) ? configuredModel : null;
+  }
   const ranked = models.map((model) => model.id).sort((a, b) => score(b, task) - score(a, task));
   return ranked[0] || null;
 }
@@ -337,6 +344,10 @@ export type ModelCatalogItem = {
   capabilities?: ModelCapability[];
 };
 
+function providerDisplayName(provider: ProviderName) {
+  return provider === "huggingface" ? "Hugging Face" : provider.charAt(0).toUpperCase() + provider.slice(1);
+}
+
 export class ProviderRequestError extends Error {
   constructor(public readonly details: { provider: ProviderName; model: string; status?: number; message: string; durationMs: number }) {
     super(details.message);
@@ -349,7 +360,7 @@ export async function modelCatalog(): Promise<ModelCatalogItem[]> {
     const config = CONFIG[provider];
     const configured = Boolean(config.key);
     const live = configured ? await listModels(provider) : [];
-    return live.map((model) => ({ id: `${provider}:${model.id}`, provider, label: model.name, detail: `${provider} · ${model.capabilities.join(" / ")}${model.inferred ? " · inferred" : ""}`, configured, capabilities: model.capabilities } satisfies ModelCatalogItem));
+    return live.map((model) => ({ id: `${provider}:${model.id}`, provider, label: model.name, detail: `${providerDisplayName(provider)} provider · ${model.capabilities.join(" / ")}${model.inferred ? " · inferred" : ""}`, configured, capabilities: model.capabilities } satisfies ModelCatalogItem));
   }));
   return entries.flat();
 }

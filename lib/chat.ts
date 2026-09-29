@@ -1,18 +1,10 @@
 import type { TaskType } from "@/lib/types";
-import { completeWithProvider, pickModel, providerOrder, ProviderRequestError } from "@/lib/providers";
+import { completeWithProvider, pickModel, providerDiagnostics, ProviderRequestError, DEFAULT_HF_CHAT_MODEL } from "@/lib/providers";
 
 export type ChatInputMessage = {
   role: "user" | "assistant" | "system";
   content: string;
 };
-
-function scoreComplexity(messages: ChatInputMessage[], task: TaskType): number {
-  const text = messages.map((message) => message.content).join("\n");
-  let score = task === "code" ? 5 : 3;
-  if (/entire|complete|production|large|repository|project/i.test(text)) score += 2;
-  if (text.length > 12_000) score += 1;
-  return Math.min(10, score);
-}
 
 function systemPrompt(task: TaskType) {
   const parts = [
@@ -27,17 +19,23 @@ function systemPrompt(task: TaskType) {
 }
 
 export async function runChat({ messages, task, provider: requestedProvider, model: requestedModel, systemContext }: { messages: ChatInputMessage[]; task: TaskType; provider?: import("@/lib/types").ProviderName; model?: string; systemContext?: string }) {
-  const complexity = scoreComplexity(messages, task);
   const errors: string[] = [];
   const explicitSelection = Boolean(requestedProvider);
-  const providers = requestedProvider ? [requestedProvider] : [...new Set(providerOrder(task, complexity))];
+  const providers = requestedProvider ? [requestedProvider] : ["huggingface" as const];
 
   for (const provider of providers) {
     try {
       const model = requestedModel && provider === requestedProvider ? requestedModel : await pickModel(provider, task);
       if (!model) {
         if (explicitSelection) throw new ProviderRequestError({ provider, model: requestedModel || "unknown", message: `${provider} has no live model available in its catalog.`, durationMs: 0 });
-        continue;
+        const diagnostics = providerDiagnostics().huggingface;
+        const preferredModel = process.env.HF_CHAT_MODEL?.trim() || DEFAULT_HF_CHAT_MODEL;
+        const message = diagnostics.configured && diagnostics.ok
+          ? `Hugging Face chat model ${preferredModel} is not in the live chat catalog. Choose a current catalog model or set HF_CHAT_MODEL.`
+          : !diagnostics.configured
+            ? "Hugging Face Auto chat is not configured. Add HF_TOKEN with Hugging Face Inference Providers permission, or choose an explicit configured model."
+            : "Hugging Face Auto chat could not load a live chat model. Verify HF_TOKEN has Inference Providers permission and retry.";
+        throw new ProviderRequestError({ provider: "huggingface", model: "auto", message, durationMs: 0 });
       }
       const response = await completeWithProvider({
         provider,
@@ -62,7 +60,7 @@ export async function runChat({ messages, task, provider: requestedProvider, mod
         fallbackProviders: errors.map((item) => item.split(":")[0]).filter(Boolean),
       };
     } catch (error) {
-      if (explicitSelection) throw error;
+      if (explicitSelection || provider === "huggingface") throw error;
       errors.push(`${provider}: ${error instanceof Error ? error.message : "request failed"}`);
     }
   }

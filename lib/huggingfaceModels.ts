@@ -18,7 +18,7 @@ export const HUGGINGFACE_MODELS: HuggingFaceModelDefinition[] = [
     label: "Qwen Image",
     capability: "image-generation",
     enabled: true,
-    notes: "Primary text-to-image model routed through Hugging Face Inference Providers.",
+    notes: "Qwen image model ID; Hugging Face InferenceClient provider=auto selects a currently mapped text-to-image provider. Qwen is the model family, not the inference provider.",
   },
   {
     id: "black-forest-labs/FLUX.1-Krea-dev",
