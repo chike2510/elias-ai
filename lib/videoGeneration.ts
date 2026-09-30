@@ -136,9 +136,12 @@ async function workerRequest(url: string, init: RequestInit = {}, timeoutMs: num
   if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   let response: Response;
   try {
-    response = await fetch(url, { ...init, headers, cache: "no-store", redirect: "error", signal: AbortSignal.timeout(timeoutMs) });
+    response = await fetch(url, { ...init, headers, cache: "no-store", redirect: "manual", signal: AbortSignal.timeout(timeoutMs) });
   } catch {
     throw new VideoGenerationError("The configured video worker could not be reached before the request timed out.", 502, "VIDEO_PROVIDER_UNREACHABLE", true);
+  }
+  if (response.status >= 300 && response.status < 400) {
+    throw new VideoGenerationError("The configured video worker endpoint redirected. Set ELIAS_VIDEO_API_URL to its final HTTPS URL.", 502, "VIDEO_PROVIDER_REDIRECT", false);
   }
   return response;
 }

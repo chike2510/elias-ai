@@ -174,6 +174,26 @@ test("terminal provider failure is persisted with retryable task status and a fa
   } finally { globalThis.fetch = originalFetch; restore(); }
 });
 
+test("provider redirects fail terminally and the worker client does not follow them", async () => {
+  const restore = setProviderEnv();
+  const originalFetch = globalThis.fetch;
+  const fixture = makeFixture();
+  let pollCount = 0;
+  try {
+    await submitQueued(fixture);
+    globalThis.fetch = async (_input, init = {}) => {
+      pollCount += 1;
+      assert.equal(init.redirect, "manual");
+      return Response.redirect("https://untrusted.example/redirect-target", 302);
+    };
+    const result = await fixture.pollVideoGeneration("task_video_fixture", "user-alice");
+    assert.equal(pollCount, 1);
+    assert.equal(result.videoGeneration.status, "failed");
+    assert.equal(result.videoGeneration.error, "The configured video worker endpoint redirected. Set ELIAS_VIDEO_API_URL to its final HTTPS URL.");
+    assert.equal(result.error, result.videoGeneration.error);
+  } finally { globalThis.fetch = originalFetch; restore(); }
+});
+
 test("completed MP4 bytes are stored separately and the task exposes only a Library-compatible artifact reference", async () => {
   const restore = setProviderEnv();
   const originalFetch = globalThis.fetch;
