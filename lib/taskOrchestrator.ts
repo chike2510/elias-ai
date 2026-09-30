@@ -150,6 +150,12 @@ export async function getTask(id: string) {
   return await getStoredTask(id);
 }
 
+export async function getTaskForUser(id: string, userId?: string) {
+  const task = await getStoredTask(id);
+  if (!task || (task.ownerId && task.ownerId !== userId)) return undefined;
+  return task;
+}
+
 export function listTasks(projectId?: string, conversationId?: string) {
   return import("@/lib/taskStore").then(({ listStoredTasks }) => listStoredTasks(projectId, conversationId));
 }

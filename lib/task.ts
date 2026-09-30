@@ -78,12 +78,31 @@ export type TaskArtifactRef = {
   content?: string;
 };
 
+export type VideoGenerationState = {
+  status: "submitting" | "queued" | "running" | "finalizing" | "completed" | "failed";
+  prompt: string;
+  durationSeconds: number;
+  width: number;
+  height: number;
+  progress: number;
+  providerJobId?: string;
+  artifactId: string;
+  error?: string;
+  lastPollError?: string;
+  lastPolledAt?: number;
+  createdAt: number;
+  updatedAt: number;
+  retryCount: number;
+};
+
 export type TaskRecord = {
   id: string;
   title: string;
   objective: string;
   kind: TaskKind;
   taskType: TaskType;
+  ownerId?: string;
+  videoGeneration?: VideoGenerationState;
   repository?: {
     owner: string;
     repo: string;

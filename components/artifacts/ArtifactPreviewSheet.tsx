@@ -41,6 +41,7 @@ export default function ArtifactPreviewSheet({ artifact, href, onClose, onDownlo
     <header className="artifact-preview-head"><div><span className="eyebrow">ARTIFACT PREVIEW</span><h2>{artifact.name}</h2><p>{extension}{artifact.pageCount ? ` · ${artifact.pageCount} pages` : ""}{artifact.chunks?.length ? ` · ${artifact.chunks.length} chunks` : ""}</p></div><button type="button" className="icon-btn" onClick={onClose} aria-label="Close artifact preview"><X size={18} /></button></header>
     <div className={`artifact-preview-body artifact-preview-${kind}`}>
       {kind === "image" && source ? <img src={source} alt={artifact.name} /> : null}
+      {kind === "video" && source ? <video src={source} controls playsInline preload="metadata" /> : null}
       {kind === "pdf" && source ? <iframe title={`Preview ${artifact.name}`} src={source} /> : null}
       {text !== undefined ? <pre>{text}</pre> : null}
       {!source && text === undefined ? <div className="artifact-preview-unavailable"><span className="artifact-preview-large-icon"><Check size={20} /></span><strong>Ready to open</strong><p>This file is stored safely in your Elias Library. Use the action below to download it.</p></div> : null}

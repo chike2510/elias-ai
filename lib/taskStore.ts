@@ -15,7 +15,7 @@ import type { AgentActivity, ToolResult, WorkspaceFile } from "@/lib/types";
 
 type StoreState = { tasks: Map<string, TaskRecord>; loaded: boolean };
 
-declare global { var __eliasTaskStore: StoreState | undefined; var __eliasTaskDb: ReturnType<typeof postgres> | undefined; var __eliasTaskSchema: Promise<void> | undefined; }
+declare global { var __eliasTaskStore: StoreState | undefined; var __eliasTaskDb: ReturnType<typeof postgres> | undefined; var __eliasTaskSchema: Promise<void> | undefined; var __eliasVideoFinalizing: Set<string> | undefined; }
 
 function storePath() { return process.env.ELIAS_TASK_STORE_PATH || join(process.cwd(), ".elias", "tasks.json"); }
 function useRemoteStore() {
@@ -29,6 +29,7 @@ async function ensureSchema() {
   globalThis.__eliasTaskSchema ||= (async () => {
     await db()`create table if not exists public.elias_task_records (id text primary key, task jsonb not null, updated_at timestamptz not null default now())`;
     await db()`create index if not exists elias_task_records_updated_idx on public.elias_task_records(updated_at desc)`;
+    await db()`create table if not exists public.elias_task_artifact_blobs (task_id text not null, artifact_id text not null, owner_id text not null, mime_type text not null, content bytea not null, size bigint not null, created_at timestamptz not null default now(), primary key (task_id, artifact_id))`;
   })();
   await globalThis.__eliasTaskSchema;
 }
@@ -79,6 +80,64 @@ export async function listStoredTasks(projectId?: string, conversationId?: strin
 }
 
 export async function snapshotStoredTask(id: string): Promise<TaskSnapshot | undefined> { const task = await getStoredTask(id); return task ? taskSnapshot(task) : undefined; }
+
+const MAX_TASK_ARTIFACT_BLOB_BYTES = 16 * 1024 * 1024;
+function safeArtifactSegment(value: string) { return /^[a-zA-Z0-9_-]{1,128}$/.test(value); }
+function artifactBlobPath(taskId: string, artifactId: string) {
+  if (!safeArtifactSegment(taskId) || !safeArtifactSegment(artifactId)) throw new Error("Invalid artifact identifier.");
+  return join(process.env.ELIAS_TASK_ARTIFACT_PATH || join(process.cwd(), ".elias", "artifact-blobs"), taskId, artifactId);
+}
+
+export async function storeTaskArtifactBlob(taskId: string, artifactId: string, ownerId: string, mimeType: string, content: Buffer) {
+  const task = await getStoredTask(taskId);
+  if (!task || task.ownerId !== ownerId || !safeArtifactSegment(artifactId)) throw new Error("Artifact owner or identifier is invalid.");
+  if (content.byteLength < 1 || content.byteLength > MAX_TASK_ARTIFACT_BLOB_BYTES) throw new Error("Artifact exceeds the configured storage limit.");
+  if (useRemoteStore()) {
+    await ensureSchema();
+    await db()`insert into public.elias_task_artifact_blobs (task_id, artifact_id, owner_id, mime_type, content, size) values (${taskId}, ${artifactId}, ${ownerId}, ${mimeType}, ${content}, ${content.byteLength}) on conflict (task_id, artifact_id) do update set owner_id = excluded.owner_id, mime_type = excluded.mime_type, content = excluded.content, size = excluded.size, created_at = now()`;
+    return;
+  }
+  const path = artifactBlobPath(taskId, artifactId);
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  writeFileSync(path, content, { mode: 0o600 });
+}
+
+export async function getTaskArtifactBlob(taskId: string, artifactId: string, ownerId: string): Promise<Buffer | undefined> {
+  const task = await getStoredTask(taskId);
+  if (!task || task.ownerId !== ownerId || !safeArtifactSegment(artifactId)) return undefined;
+  if (useRemoteStore()) {
+    await ensureSchema();
+    const rows = await db()<Array<{ content: Buffer }>>`select content from public.elias_task_artifact_blobs where task_id = ${taskId} and artifact_id = ${artifactId} and owner_id = ${ownerId} limit 1`;
+    return rows[0] ? Buffer.from(rows[0].content) : undefined;
+  }
+  const path = artifactBlobPath(taskId, artifactId);
+  if (!existsSync(path)) return undefined;
+  return readFileSync(path);
+}
+
+export async function claimVideoArtifactFinalization(taskId: string, ownerId: string, providerJobId: string) {
+  if (!ownerId || !providerJobId) return undefined;
+  if (useRemoteStore()) {
+    await ensureSchema();
+    const rows = await db()<Array<{ task: unknown }>>`update public.elias_task_records set task = jsonb_set(jsonb_set(task, '{videoGeneration,status}', '"finalizing"'::jsonb, true), '{videoGeneration,updatedAt}', to_jsonb((extract(epoch from clock_timestamp()) * 1000)::bigint), true), updated_at = now() where id = ${taskId} and task->>'ownerId' = ${ownerId} and task->'videoGeneration'->>'providerJobId' = ${providerJobId} and task->'videoGeneration'->>'status' in ('queued', 'running', 'submitting') returning task`;
+    return rows[0] ? decodeTask(rows[0].task) : undefined;
+  }
+  globalThis.__eliasVideoFinalizing ||= new Set<string>();
+  const locks = globalThis.__eliasVideoFinalizing;
+  if (locks.has(taskId)) return undefined;
+  locks.add(taskId);
+  try {
+    const task = await getStoredTask(taskId);
+    if (!task || task.ownerId !== ownerId || !task.videoGeneration || task.videoGeneration.providerJobId !== providerJobId || !["queued", "running", "submitting"].includes(task.videoGeneration.status)) return undefined;
+    return await updateStoredTask(taskId, (current) => {
+      if (!current.videoGeneration || current.ownerId !== ownerId || current.videoGeneration.providerJobId !== providerJobId || !["queued", "running", "submitting"].includes(current.videoGeneration.status)) return;
+      current.videoGeneration.status = "finalizing";
+      current.videoGeneration.updatedAt = Date.now();
+    });
+  } finally {
+    locks.delete(taskId);
+  }
+}
 
 export async function updateStoredTask(id: string, update: (task: TaskRecord) => void) {
   const task = await getStoredTask(id); if (!task) throw new Error("Task not found."); update(task); return useRemoteStore() ? remoteSave(task) : localSave(task);

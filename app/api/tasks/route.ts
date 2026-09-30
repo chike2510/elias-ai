@@ -2,6 +2,7 @@ import { after, NextRequest } from "next/server";
 import { jsonError, jsonOk, readJsonRequest } from "@/lib/http";
 import { createTaskRecord, listTasks, runTaskLoop } from "@/lib/taskOrchestrator";
 import type { CreateTaskInput } from "@/lib/task";
+import { getSession } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -16,7 +17,9 @@ function validWorkspace(value: unknown) {
 
 export async function GET(request: NextRequest) {
   try {
-    return jsonOk({ tasks: await listTasks(request.nextUrl.searchParams.get("projectId") || undefined, request.nextUrl.searchParams.get("conversationId") || undefined) });
+    const session = await getSession();
+    const tasks = await listTasks(request.nextUrl.searchParams.get("projectId") || undefined, request.nextUrl.searchParams.get("conversationId") || undefined);
+    return jsonOk({ tasks: tasks.filter((task) => !task.ownerId || task.ownerId === session?.userId) });
   } catch (error) {
     return jsonError(error instanceof Error ? error.message : "Could not list tasks.");
   }
