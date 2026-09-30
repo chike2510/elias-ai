@@ -1,6 +1,6 @@
 "use client";
 
-import { Archive, ArrowDownToLine, ArrowUpRight, CheckCircle2, FileCode2, FileImage, FileText, Presentation, ScrollText } from "lucide-react";
+import { Archive, ArrowDownToLine, ArrowUpRight, CheckCircle2, FileCode2, FileImage, FileText, Presentation, ScrollText, Video } from "lucide-react";
 import type { ReactNode } from "react";
 
 export type ArtifactCardData = {
@@ -41,6 +41,7 @@ export function artifactKind(name: string, type = "") {
   if (extension === "ppt" || extension === "pptx" || type.includes("presentation")) return "slides";
   if (["ts", "tsx", "js", "jsx", "css", "html", "py", "java", "sql", "json"].includes(extension)) return "code";
   if (["png", "jpg", "jpeg", "webp", "gif", "svg"].includes(extension) || type.startsWith("image/")) return "image";
+  if (["mp4", "mov", "webm", "m4v"].includes(extension) || type.startsWith("video/")) return "video";
   if (["zip", "tar", "gz"].includes(extension)) return "archive";
   if (["md", "txt"].includes(extension)) return "text";
   return "file";
@@ -52,16 +53,17 @@ function iconFor(kind: string) {
   if (kind === "slides") return <Presentation size={18} />;
   if (kind === "archive") return <Archive size={18} />;
   if (kind === "text") return <ScrollText size={18} />;
+  if (kind === "video") return <Video size={18} />;
   return <FileText size={18} />;
 }
 
 function labelFor(kind: string) {
-  return ({ pdf: "PDF", doc: "DOC", slides: "SLIDES", code: "CODE", image: "IMAGE", archive: "ARCHIVE", text: "TEXT", file: "FILE" } as Record<string, string>)[kind] || "FILE";
+  return ({ pdf: "PDF", doc: "DOC", slides: "SLIDES", code: "CODE", image: "IMAGE", video: "VIDEO", archive: "ARCHIVE", text: "TEXT", file: "FILE" } as Record<string, string>)[kind] || "FILE";
 }
 
 function fileTypeLabel(name: string, kind: string) {
   const extension = artifactExtension(name);
-  return ({ tsx: "TSX", ts: "TS", jsx: "JSX", js: "JS", css: "CSS", html: "HTML", json: "JSON", md: "MD", txt: "TXT", py: "PY", pdf: "PDF", docx: "DOCX", pptx: "PPTX" } as Record<string, string>)[extension] || labelFor(kind);
+  return ({ tsx: "TSX", ts: "TS", jsx: "JSX", js: "JS", css: "CSS", html: "HTML", json: "JSON", md: "MD", txt: "TXT", py: "PY", pdf: "PDF", docx: "DOCX", pptx: "PPTX", mp4: "MP4", mov: "MOV", webm: "WEBM", m4v: "M4V" } as Record<string, string>)[extension] || labelFor(kind);
 }
 
 function formatSize(size?: number) {

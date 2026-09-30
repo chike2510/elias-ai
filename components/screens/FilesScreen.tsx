@@ -5,13 +5,41 @@ import { useEffect, useState } from "react";
 import AppShell from "@/components/AppShell";
 import ArtifactCard from "@/components/artifacts/ArtifactCard";
 import ArtifactPreviewSheet from "@/components/artifacts/ArtifactPreviewSheet";
-import { deleteArtifact, getArtifacts, type ArtifactRecord } from "@/lib/persistence";
+import { deleteArtifact, getArtifacts, saveArtifact, type ArtifactRecord } from "@/lib/persistence";
+import { readApiResponse } from "@/lib/clientApi";
+import { syncTaskArtifactToLibrary } from "@/lib/taskArtifactLibrary";
+import type { TaskRecord } from "@/lib/task";
 
 export default function FilesScreen() {
   const [artifacts, setArtifacts] = useState<ArtifactRecord[]>([]);
   const [preview, setPreview] = useState<ArtifactRecord | null>(null);
   const [query, setQuery] = useState("");
-  async function reload() { try { setArtifacts(await getArtifacts()); } catch { setArtifacts([]); } }
+  async function reload() {
+    try {
+      const local = await getArtifacts();
+      setArtifacts(local);
+      try {
+        const data = await readApiResponse<{ tasks?: TaskRecord[] }>(await fetch("/api/tasks", { cache: "no-store" }));
+        const videoTasks = (data.tasks || []).filter((task) => task.videoGeneration?.status === "completed" && task.videoGeneration.artifactId)
+          .sort((a, b) => b.updatedAt - a.updatedAt)
+          .filter((task) => {
+            const artifact = task.artifacts.find((item) => item.id === task.videoGeneration?.artifactId);
+            return Boolean(artifact && !local.some((item) => item.id === `task_${task.id}_${artifact.id}`));
+          }).slice(0, 10);
+        let changed = false;
+        for (const task of videoTasks) {
+          const videoArtifact = task.artifacts.find((artifact) => artifact.id === task.videoGeneration?.artifactId);
+          if (!videoArtifact || local.some((artifact) => artifact.id === `task_${task.id}_${videoArtifact.id}`)) continue;
+          try {
+            const record = await syncTaskArtifactToLibrary(task, videoArtifact, { save: saveArtifact, maxRetries: 1 });
+            local.push(record as ArtifactRecord);
+            changed = true;
+          } catch { /* keep the task download available if local browser storage is full */ }
+        }
+        if (changed) setArtifacts(await getArtifacts());
+      } catch { /* a local Library remains available when the task service is offline */ }
+    } catch { setArtifacts([]); }
+  }
   useEffect(() => { void reload(); }, []);
   function download(artifact: ArtifactRecord) {
     if (!artifact.blob && artifact.text === undefined) return;

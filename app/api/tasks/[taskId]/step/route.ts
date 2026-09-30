@@ -1,8 +1,9 @@
 import { NextRequest } from "next/server";
 import { jsonError, jsonOk, readJsonRequest } from "@/lib/http";
-import { runTaskLoop } from "@/lib/taskOrchestrator";
+import { getTask, runTaskLoop } from "@/lib/taskOrchestrator";
 import { restoreStoredTask } from "@/lib/taskStore";
 import type { TaskRecord } from "@/lib/task";
+import { getSession } from "@/lib/auth";
 
 type Context = { params: Promise<{ taskId: string }> };
 
@@ -12,9 +13,14 @@ export const maxDuration = 300;
 export async function POST(request: NextRequest, context: Context) {
   try {
     const { taskId } = await context.params;
+    const session = await getSession();
+    const existing = await getTask(taskId);
+    if (existing?.ownerId && existing.ownerId !== session?.userId) return jsonError("Task not found.", 404, "NOT_FOUND");
+    if (existing?.videoGeneration) return jsonError("Video jobs are managed through Studio.", 409, "VIDEO_JOB_MANAGED_SEPARATELY");
     const body: { maxSteps?: unknown; task?: unknown } = await readJsonRequest<{ maxSteps?: unknown; task?: unknown }>(request).catch(() => ({}) as { maxSteps?: unknown; task?: unknown });
     if (body.task && typeof body.task === "object" && (body.task as { id?: unknown }).id === taskId) {
       const candidate = body.task as TaskRecord;
+      if (candidate.ownerId || candidate.videoGeneration) return jsonError("Owner-tagged tasks cannot be restored from client input.", 400, "INVALID_TASK_RESTORE");
       if (typeof candidate.objective === "string" && Array.isArray(candidate.plan) && Array.isArray(candidate.workspace) && Array.isArray(candidate.events) && Array.isArray(candidate.toolResults)) await restoreStoredTask(candidate);
     }
     // Keep each serverless invocation bounded. The chat client schedules the next
