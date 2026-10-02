@@ -9,7 +9,7 @@ import { detectExtendedSkills, extendedSkillInstruction } from "@/lib/extendedSk
 export type EliasMode = "auto" | "instant" | "deep" | "code" | "research" | "agent";
 
 type ChatInput = { messages: ChatInputMessage[]; task: TaskType; provider?: ProviderName; model?: string };
-type ChatOutput = { ok: true; provider: string; model: string; content: string; finishReason?: string };
+type ChatOutput = { ok: true; provider: string; model: string; content: string; recommendation?: string; reasons?: string[]; risks?: string[]; suggestedReplies?: string[]; finishReason?: string };
 
 type WebEvidenceStatus = "not_requested" | "searched" | "no_results" | "search_failed" | "insufficient_relevance";
 
