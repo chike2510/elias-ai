@@ -8,6 +8,10 @@ export type ConversationMessage = {
   provider?: string;
   model?: string;
   status?: "complete" | "error";
+  recommendation?: string;
+  reasons?: string[];
+  risks?: string[];
+  suggestedReplies?: string[];
   webEvidence?: { status: string; resultCount: number; fetchedSourceCount: number; sourceUrls: string[]; errors: string[] };
 };
 

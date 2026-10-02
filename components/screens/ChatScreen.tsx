@@ -9,8 +9,9 @@ import StepTracker, { type Step } from "@/components/StepTracker";
 import ArtifactCard from "@/components/artifacts/ArtifactCard";
 import ArtifactPreviewSheet from "@/components/artifacts/ArtifactPreviewSheet";
 import GoalProgressCard from "@/components/GoalProgressCard";
-import MarkdownMessage from "@/components/MarkdownMessage";
+import StructuredChatResponse from "@/components/StructuredChatResponse";
 import { readApiResponse } from "@/lib/clientApi";
+import { selectSuggestedReply } from "@/lib/chatResponse";
 import { cacheTaskSnapshot, listCachedTaskSnapshots } from "@/lib/clientTask";
 import { inferChatTask as inferTask } from "@/lib/chatTaskRouting";
 import { buildSelectedDocumentContext } from "@/lib/clientDocumentContext";
@@ -28,6 +29,8 @@ import { getArtifacts,
   type ConversationRecord,
 } from "@/lib/persistence";
 
+type ChatResponseData = { content?: string; provider?: string; model?: string; fallbackProviders?: string[]; recommendation?: string; reasons?: string[]; risks?: string[]; suggestedReplies?: string[]; runtime?: { webEvidence?: { status: string; resultCount: number; fetchedSourceCount: number; sourceUrls: string[]; errors: string[] }; groundingWarning?: boolean } };
+type ChatResponseEnvelope = ChatResponseData & { result?: ChatResponseData };
 type ModelOption = { id: string; provider: string; label: string; detail: string; configured?: boolean; capabilities?: string[] };
 type VercelMcpStatus = { configured?: boolean; connected?: boolean; message?: string; tools?: Array<{ name: string; description?: string }> };
 type Attachment = { name: string; context?: string; status?: "uploading" | "ready" | "error"; progress?: number; error?: string; documentId?: string; source?: File };
@@ -132,6 +135,7 @@ export default function ChatScreen() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const uploadRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const sendInFlightRef = useRef(false);
   const librarySyncInFlight = useRef(new Set<string>());
   const librarySynced = useRef(new Set<string>());
   const librarySyncFailed = useRef(new Set<string>());
@@ -279,7 +283,8 @@ export default function ChatScreen() {
 
   async function sendMessage(value: string, retry = false) {
     const text = value.trim();
-    if (!text || busy || !conversation) return;
+    if (!text || busy || sendInFlightRef.current || !conversation) return;
+    sendInFlightRef.current = true;
 
     const base = retry
       ? { ...conversation, messages: conversation.messages.filter((message) => message.status !== "error") }
@@ -377,7 +382,7 @@ export default function ChatScreen() {
         }),
         signal: controller.signal,
       });
-      const data = await readApiResponse<{ content?: string; provider?: string; model?: string; fallbackProviders?: string[]; runtime?: { webEvidence?: { status: string; resultCount: number; fetchedSourceCount: number; sourceUrls: string[]; errors: string[] }; groundingWarning?: boolean }; result?: { content?: string; provider?: string; model?: string; fallbackProviders?: string[]; runtime?: { webEvidence?: { status: string; resultCount: number; fetchedSourceCount: number; sourceUrls: string[]; errors: string[] }; groundingWarning?: boolean } } }>(response);
+      const data = await readApiResponse<ChatResponseEnvelope>(response);
       const reply = data.result || data;
       if (Array.isArray(reply.fallbackProviders) && reply.fallbackProviders.length) setProviderNotice(`Auto routing used ${reply.provider || "another provider"} after ${reply.fallbackProviders.join(", ")} was unavailable.`);
       else setProviderNotice("");
@@ -389,7 +394,11 @@ export default function ChatScreen() {
         provider: reply.provider,
         model: reply.model,
         status: "complete",
-        webEvidence: reply.runtime?.webEvidence,
+        recommendation: typeof reply.recommendation === "string" ? reply.recommendation : undefined,
+        reasons: Array.isArray(reply.reasons) ? reply.reasons.filter((item): item is string => typeof item === "string").slice(0, 4) : undefined,
+        risks: Array.isArray(reply.risks) ? reply.risks.filter((item): item is string => typeof item === "string").slice(0, 3) : undefined,
+        suggestedReplies: Array.isArray(reply.suggestedReplies) ? reply.suggestedReplies.filter((item): item is string => typeof item === "string").slice(0, 3) : undefined,
+        webEvidence: (reply.runtime || data.runtime)?.webEvidence,
         createdAt: Date.now(),
       };
       await persist({ ...optimistic, updatedAt: Date.now(), messages: [...optimistic.messages, assistant] });
@@ -406,6 +415,7 @@ export default function ChatScreen() {
       await persist({ ...optimistic, updatedAt: Date.now(), messages: [...optimistic.messages, assistant] });
     } finally {
       if (abortRef.current === controller) abortRef.current = null;
+      sendInFlightRef.current = false;
       setBusy(false);
     }
   }
@@ -542,7 +552,7 @@ export default function ChatScreen() {
           </section> : null}
           {activeTask?.artifacts.length ? <div className="chat-artifact-pill"><FileText size={13} /> {activeTask.artifacts.length} Artifact{activeTask.artifacts.length === 1 ? "" : "s"}</div> : null}
 
-          {messages.map((message) => <article key={message.id} className={`chat-message ${message.role} ${message.status === "error" ? "error" : ""}`}><div className="chat-avatar">{message.role === "assistant" ? <img src="/branding/elias-logo.png" alt="ELIAS" /> : "you"}</div><div className="chat-message-body"><span className="chat-role">{message.role === "assistant" ? `ELIAS${message.provider ? ` · ${message.provider.toLowerCase() === "huggingface" ? "HUGGING FACE" : message.provider.toUpperCase()}` : ""}` : "you"}</span>{message.role === "assistant" && message.model ? <small className="chat-model-attribution">model · {message.model}</small> : null}{message.role === "assistant" ? <MarkdownMessage content={message.content} taskId={activeTask?.id} /> : <UserMessageContent content={message.content} />}{message.role === "assistant" && message.webEvidence ? <small className={`web-evidence-status ${message.webEvidence.status === "searched" ? "verified" : "warning"}`}>web search · {message.webEvidence.status === "searched" ? `${message.webEvidence.resultCount} results · ${message.webEvidence.fetchedSourceCount} sources fetched` : message.webEvidence.status.replaceAll("_", " ")}</small> : null}{message.role === "assistant" ? <div className="message-actions"><button type="button" onClick={() => { void navigator.clipboard?.writeText(message.content); setCopied(message.id); window.setTimeout(() => setCopied(null), 1400); }}>{copied === message.id ? <Check size={13} /> : <Copy size={13} />} {copied === message.id ? "copied" : "copy"}</button>{message.status === "error" && lastUser ? <button type="button" onClick={() => void sendMessage(lastUser.content, true)}><LoaderCircle size={13} /> retry</button> : null}</div> : null}{message.role === "assistant" && message.status !== "error" && message.content.length > 1200 && /\b(tsx|jsx|html|css|javascript|typescript|python|java|sql)\b/i.test(message.content) ? <Link href={`/agent?fromChat=${encodeURIComponent(conversation?.id ?? "")}`} className="chat-agent-action"><WandSparkles size={14} /> continue in coding workspace</Link> : null}</div></article>)}
+          {messages.map((message) => <article key={message.id} className={`chat-message ${message.role} ${message.status === "error" ? "error" : ""}`}><div className="chat-avatar">{message.role === "assistant" ? <img src="/branding/elias-logo.png" alt="ELIAS" /> : "you"}</div><div className="chat-message-body"><span className="chat-role">{message.role === "assistant" ? `ELIAS${message.provider ? ` · ${message.provider.toLowerCase() === "huggingface" ? "HUGGING FACE" : message.provider.toUpperCase()}` : ""}` : "you"}</span>{message.role === "assistant" && message.model ? <small className="chat-model-attribution">model · {message.model}</small> : null}{message.role === "assistant" ? <StructuredChatResponse content={message.content} taskId={activeTask?.id} recommendation={message.recommendation} reasons={message.reasons} risks={message.risks} suggestedReplies={message.suggestedReplies} busy={busy} onSelectReply={(index) => { const selected = selectSuggestedReply(message.suggestedReplies, index); if (selected) void sendMessage(selected); }} /> : <UserMessageContent content={message.content} />}{message.role === "assistant" && message.webEvidence ? <small className={`web-evidence-status ${message.webEvidence.status === "searched" ? "verified" : "warning"}`}>web search · {message.webEvidence.status === "searched" ? `${message.webEvidence.resultCount} results · ${message.webEvidence.fetchedSourceCount} sources fetched` : message.webEvidence.status.replaceAll("_", " ")}</small> : null}{message.role === "assistant" ? <div className="message-actions"><button type="button" onClick={() => { void navigator.clipboard?.writeText(message.content); setCopied(message.id); window.setTimeout(() => setCopied(null), 1400); }}>{copied === message.id ? <Check size={13} /> : <Copy size={13} />} {copied === message.id ? "copied" : "copy"}</button>{message.status === "error" && lastUser ? <button type="button" onClick={() => void sendMessage(lastUser.content, true)}><LoaderCircle size={13} /> retry</button> : null}</div> : null}{message.role === "assistant" && message.status !== "error" && message.content.length > 1200 && /\b(tsx|jsx|html|css|javascript|typescript|python|java|sql)\b/i.test(message.content) ? <Link href={`/agent?fromChat=${encodeURIComponent(conversation?.id ?? "")}`} className="chat-agent-action"><WandSparkles size={14} /> continue in coding workspace</Link> : null}</div></article>)}
 
           {busy ? <div className="chat-message assistant"><div className="chat-avatar"><LoaderCircle size={14} className="spin" /></div><div className="chat-message-body"><span className="chat-role">ELIAS</span>{taskMode && activeTask ? <LiveExecutionFeed task={activeTask} /> : taskMode ? <div className="chat-content typing-line">setting up the task…</div> : <div className="chat-content typing-line">thinking…</div>}</div></div> : null}
           {activeTask ? <section className="chat-execution-stack" aria-live="polite">
