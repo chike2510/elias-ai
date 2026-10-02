@@ -1,7 +1,7 @@
 "use client";
 
-import { AlertCircle, Check, CheckCircle2, ChevronRight, Clock3, FileText, Pause, Pencil, Play, Search, ShieldCheck, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { AlertCircle, Check, CheckCircle2, ChevronRight, Clock3, FileText, Pause, Pencil, Play, Search, ShieldCheck } from "lucide-react";
+import { useId, useState } from "react";
 
 export interface Step {
   id: string;
@@ -45,33 +45,24 @@ function statusLabel(status: StepTrackerProps["status"]) {
 
 export default function StepTracker({ summary, steps, status }: StepTrackerProps) {
   const [expanded, setExpanded] = useState(false);
-  const closeRef = useRef<HTMLButtonElement>(null);
+  const expandedId = useId();
   const completed = steps.filter((step) => step.status === "complete").length;
   const stepCount = `${steps.length} ${steps.length === 1 ? "step" : "steps"}`;
   const progress = steps.length ? Math.round((completed / steps.length) * 100) : 0;
 
-  useEffect(() => {
-    if (!expanded) return;
-    const previousOverflow = document.body.style.overflow;
-    const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") setExpanded(false); };
-    document.body.style.overflow = "hidden";
-    document.addEventListener("keydown", onKeyDown);
-    window.setTimeout(() => closeRef.current?.focus(), 0);
-    return () => { document.body.style.overflow = previousOverflow; document.removeEventListener("keydown", onKeyDown); };
-  }, [expanded]);
-
-  return <>
-    <button type="button" className={`step-tracker-collapsed step-tracker-${status}`} aria-expanded={expanded} aria-haspopup="dialog" onClick={() => setExpanded(true)}>
+  return <div className={`step-tracker step-tracker-${status}`}>
+    <button type="button" className={`step-tracker-collapsed step-tracker-${status}`} aria-expanded={expanded} aria-controls={expandedId} onClick={() => setExpanded((value) => !value)}>
       <span className="step-tracker-status-icon" aria-hidden="true">{statusIcon(status)}</span>
       <span className="step-tracker-collapsed-copy"><span className="step-tracker-summary">{summary}</span><span className="step-tracker-count" aria-live="polite">{stepCount} · {statusLabel(status)}</span></span>
-      <ChevronRight size={15} className="step-tracker-chevron" aria-hidden="true" />
+      <ChevronRight size={15} className={`step-tracker-chevron ${expanded ? "expanded" : ""}`} aria-hidden="true" />
     </button>
-    {expanded ? <div className="step-tracker-backdrop" role="presentation" onMouseDown={() => setExpanded(false)}>
-      <section className="step-tracker-sheet" role="dialog" aria-modal="true" aria-labelledby="step-tracker-title" onMouseDown={(event) => event.stopPropagation()}>
-        <div className="step-tracker-drag-handle" aria-hidden="true" />
-        <header className="step-tracker-sheet-header"><button ref={closeRef} type="button" className="step-tracker-close" onClick={() => setExpanded(false)} aria-label="Close task summary"><X size={19} /></button><h2 id="step-tracker-title">Task summary</h2><span className={`step-tracker-sheet-status step-tracker-${status}`}>{statusIcon(status)}<span>{statusLabel(status)}</span></span></header>
-        <div className="step-tracker-sheet-body"><p className="step-tracker-expanded-summary">{summary}</p><div className="step-tracker-progress-caption"><span>{stepCount}</span><span>{completed} of {steps.length} complete</span></div><div className="step-tracker-modal-progress" role="progressbar" aria-label="Task plan progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}><i style={{ width: `${progress}%` }} /></div><ol className="step-tracker-steps">{steps.map((step, index) => <li className={`step-tracker-step step-tracker-step-${step.status}`} key={step.id}><span className="step-tracker-step-icon" aria-hidden="true">{stepIcon(step.icon, step.status)}</span><span className="step-tracker-step-copy"><strong>{step.label}</strong><small>{step.status === "complete" ? "Complete" : step.status === "active" ? "In progress" : step.status === "error" ? "Needs attention" : "Pending"}</small></span><span className="step-tracker-step-number">{index + 1}</span></li>)}</ol>{status === "interrupted" ? <div className="step-tracker-interrupted-note"><AlertCircle size={15} /><span>This task stopped before all planned steps were complete. Review the latest activity and retry when you’re ready.</span></div> : status === "waiting" ? <div className="step-tracker-interrupted-note"><ShieldCheck size={15} /><span>Work is paused until you approve or decline the request in the task workspace.</span></div> : status === "paused" ? <div className="step-tracker-interrupted-note"><Pause size={15} /><span>The task is paused. You can resume it from the task workspace.</span></div> : null}</div>
-      </section>
-    </div> : null}
-  </>;
+    {expanded ? <section id={expandedId} className="step-tracker-expanded-card" aria-label="Task plan and progress">
+      <header className="step-tracker-expanded-header"><div><span className="step-tracker-eyebrow">TASK PLAN</span><h2>Work in progress</h2></div><span className={`step-tracker-sheet-status step-tracker-${status}`}>{statusIcon(status)}<span>{statusLabel(status)}</span></span></header>
+      <p className="step-tracker-expanded-summary">{summary}</p>
+      <div className="step-tracker-progress-caption"><span>{stepCount}</span><span>{completed} of {steps.length} complete</span></div>
+      <div className="step-tracker-modal-progress" role="progressbar" aria-label="Task plan progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}><i style={{ width: `${progress}%` }} /></div>
+      <ol className="step-tracker-steps">{steps.map((step, index) => <li className={`step-tracker-step step-tracker-step-${step.status}`} key={step.id}><span className="step-tracker-step-icon" aria-hidden="true">{stepIcon(step.icon, step.status)}</span><span className="step-tracker-step-copy"><strong>{step.label}</strong><small>{step.status === "complete" ? "Complete" : step.status === "active" ? "In progress" : step.status === "error" ? "Needs attention" : "Pending"}</small></span><span className="step-tracker-step-number">{index + 1}</span></li>)}</ol>
+      {status === "interrupted" ? <div className="step-tracker-interrupted-note"><AlertCircle size={15} /><span>This task stopped before all planned steps were complete. Review the latest activity and retry when you’re ready.</span></div> : status === "waiting" ? <div className="step-tracker-interrupted-note"><ShieldCheck size={15} /><span>Work is paused until you approve or decline the request in the task workspace.</span></div> : status === "paused" ? <div className="step-tracker-interrupted-note"><Pause size={15} /><span>The task is paused. You can resume it from the task workspace.</span></div> : null}
+    </section> : null}
+  </div>;
 }
