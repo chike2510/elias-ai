@@ -22,6 +22,7 @@ function loadProviderModule() {
 }
 
 process.env.HF_TOKEN = "synthetic-hf-token-for-tests";
+process.env.QWEN_API_KEY = "synthetic-qwen-token-for-tests";
 delete process.env.OPENROUTER_API_KEY;
 delete process.env.CEREBRAS_API_KEY;
 const providers = loadProviderModule();
@@ -68,6 +69,76 @@ test("Hugging Face model discovery and completion accept synthetic provider resp
     assert.equal(new Headers(requests[0].options.headers).get("authorization"), "Bearer synthetic-hf-token-for-tests");
     assert.equal(new Headers(requests[1].options.headers).get("authorization"), "Bearer synthetic-hf-token-for-tests");
     assert.equal(new Headers(requests[1].options.headers).has("http-referer"), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Hugging Face request puts merged system instructions first and preserves conversation turn order", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestBody;
+  const messages = [
+    { role: "system", content: "ELIAS base instructions." },
+    { role: "system", content: "Runtime task context." },
+    { role: "user", content: "First user turn." },
+    { role: "assistant", content: "First assistant turn." },
+    { role: "system", content: "Repository and skill context appended by runtime." },
+    { role: "user", content: "Second user turn." },
+    { role: "assistant", content: "Second assistant turn." },
+    { role: "system", content: "Late live-evidence context." },
+  ];
+  globalThis.fetch = async (url, options = {}) => {
+    assert.equal(String(url), "https://router.huggingface.co/v1/chat/completions");
+    requestBody = JSON.parse(options.body);
+    return new Response(JSON.stringify({ choices: [{ message: { content: "Synthetic response." } }] }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  try {
+    await providers.completeWithProvider({ provider: "huggingface", model: "Qwen/Qwen3.8-27B:fastest", messages });
+    assert.deepEqual(requestBody.messages, [
+      {
+        role: "system",
+        content: [
+          "ELIAS base instructions.",
+          "Runtime task context.",
+          "Repository and skill context appended by runtime.",
+          "Late live-evidence context.",
+        ].join("\n\n"),
+      },
+      { role: "user", content: "First user turn." },
+      { role: "assistant", content: "First assistant turn." },
+      { role: "user", content: "Second user turn." },
+      { role: "assistant", content: "Second assistant turn." },
+    ]);
+    assert.deepEqual(requestBody.messages.map((message) => message.role), ["system", "user", "assistant", "user", "assistant"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("non-Hugging Face provider request message order is unchanged", async () => {
+  const originalFetch = globalThis.fetch;
+  const messages = [
+    { role: "user", content: "A user turn." },
+    { role: "system", content: "Provider-specific context." },
+    { role: "assistant", content: "An assistant turn." },
+  ];
+  let requestBody;
+  globalThis.fetch = async (url, options = {}) => {
+    assert.equal(String(url), "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions");
+    requestBody = JSON.parse(options.body);
+    return new Response(JSON.stringify({ choices: [{ message: { content: "Synthetic response." } }] }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  try {
+    await providers.completeWithProvider({ provider: "qwen", model: "synthetic-model", messages });
+    assert.deepEqual(requestBody.messages, messages);
   } finally {
     globalThis.fetch = originalFetch;
   }

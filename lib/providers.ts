@@ -290,6 +290,22 @@ export async function chooseProvider(task: TaskType, complexity: number): Promis
   return null;
 }
 
+function normalizeHuggingFaceMessages(messages: Array<{ role: string; content: string }>) {
+  const systemInstructions: string[] = [];
+  const conversationMessages: Array<{ role: string; content: string }> = [];
+
+  for (const message of messages) {
+    if (message.role === "system") systemInstructions.push(message.content);
+    else conversationMessages.push(message);
+  }
+
+  if (!systemInstructions.length) return messages;
+  return [
+    { role: "system", content: systemInstructions.join("\n\n") },
+    ...conversationMessages,
+  ];
+}
+
 export async function completeWithProvider({
   provider,
   model,
@@ -310,10 +326,13 @@ export async function completeWithProvider({
   const started = Date.now();
   const timeoutSignal = signal ?? AbortSignal.timeout(60_000);
   const headers: Record<string, string> = { "Content-Type": "application/json", ...authHeaders(provider, config.key) };
+  // Runtime enrichment can append system context after conversation turns. Hugging Face
+  // chat templates require system instructions first, so coalesce them without changing turn order.
+  const requestMessages = provider === "huggingface" ? normalizeHuggingFaceMessages(messages) : messages;
   const response = await fetch(`${config.baseUrl}/chat/completions`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ model, temperature: temperature ?? 0.2, messages, stream }),
+    body: JSON.stringify({ model, temperature: temperature ?? 0.2, messages: requestMessages, stream }),
     cache: "no-store",
     signal: timeoutSignal,
   });
