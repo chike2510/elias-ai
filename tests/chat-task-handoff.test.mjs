@@ -38,6 +38,7 @@ const task = loadTypeScript(path.resolve("lib/task.ts"), {
 const chatRouting = loadTypeScript(path.resolve("lib/chatTaskRouting.ts"), {
   "@/lib/taskIntent": taskIntent,
 });
+const persistedTasks = new Map();
 const taskRoute = loadTypeScript(path.resolve("app/api/tasks/route.ts"), {
   "next/server": { after: () => { throw new Error("autoStart was not requested."); } },
   "@/lib/http": {
@@ -47,7 +48,11 @@ const taskRoute = loadTypeScript(path.resolve("app/api/tasks/route.ts"), {
   },
   "@/lib/task": { inferTaskKind: task.inferTaskKind, inferTaskType: task.inferTaskType },
   "@/lib/taskOrchestrator": {
-    createTaskRecord: async (input) => task.createTask(input),
+    createTaskRecord: async (input) => {
+      const created = task.createTask(input);
+      persistedTasks.set(created.id, structuredClone(created));
+      return created;
+    },
     listTasks: async () => [],
     runTaskLoop: async () => undefined,
   },
@@ -68,32 +73,48 @@ async function createThroughTaskApi(payload) {
   return body.task;
 }
 
-test("ordinary chat hands rich football research to a server-classified research-only plan", async () => {
-  assert.equal(chatRouting.inferChatTask(richResearchPrompt), "research");
-  assert.equal(chatRouting.shouldHandoffToTask(richResearchPrompt), true);
-
-  // A stale browser could still send the old/wrong kind; conversation tasks are reclassified at the API boundary.
-  const created = await createThroughTaskApi({
-    objective: richResearchPrompt,
-    kind: "code",
-    taskType: "code",
-    conversationId: "chat_carrick_research_fixture",
-  });
-
+function assertResearchOnlyTask(created) {
   assert.equal(created.kind, "research");
   assert.equal(created.taskType, "research");
   assert.deepEqual(created.plan.map((step) => step.id.split("_")[0]), ["scope", "search", "read", "synthesize", "deliver"]);
   const planText = created.plan.map((step) => `${step.title} ${step.description}`).join(" ");
   assert.doesNotMatch(planText, /\b(repository|repo|workspace|code|file|dependency|inspect project)\b/i);
   assert.ok(created.plan.every((step) => step.requires !== "write" && step.requires !== "execute"));
-  assert.deepEqual(created.workspace, []);
+  assert.equal(created.workspace.length, 0);
   assert.equal(created.permissions.find((permission) => permission.level === "write")?.granted, false);
   assert.equal(created.permissions.find((permission) => permission.level === "execute")?.granted, false);
   assert.equal(created.permissions.find((permission) => permission.level === "external_side_effect")?.granted, false);
   assert.equal(created.permissions.find((permission) => permission.level === "network")?.granted, true);
+  assert.deepEqual(persistedTasks.get(created.id)?.plan.map((step) => step.id.split("_")[0]), ["scope", "search", "read", "synthesize", "deliver"]);
+}
+
+test("ordinary chat hands rich football research to a server-classified research-only plan", async () => {
+  assert.equal(chatRouting.inferChatTask(richResearchPrompt), "research");
+  assert.equal(chatRouting.shouldHandoffToTask(richResearchPrompt), true);
+
+  // This matches ChatScreen's POST shape: objective and conversationId, with no client kind hint.
+  const created = await createThroughTaskApi({
+    objective: richResearchPrompt,
+    conversationId: "chat_carrick_research_fixture",
+  });
+
+  assertResearchOnlyTask(created);
 });
 
-test("ordinary chat coding requests still get code plans with the existing write gate", async () => {
+test("task API corrects a stale Code hint on a non-chat request for the same football research", async () => {
+  // Agent Workspace's task creation path has project/workspace context but no conversationId.
+  const created = await createThroughTaskApi({
+    objective: richResearchPrompt,
+    kind: "code",
+    taskType: "code",
+    projectId: "project_current",
+    workspace: [],
+  });
+
+  assertResearchOnlyTask(created);
+});
+
+test("explicit coding requests retain coding plans and leave write permission ungranted", async () => {
   assert.equal(chatRouting.inferChatTask(codingPrompt), "code");
   assert.equal(chatRouting.shouldHandoffToTask(codingPrompt), true);
 
@@ -101,7 +122,8 @@ test("ordinary chat coding requests still get code plans with the existing write
     objective: codingPrompt,
     kind: "research",
     taskType: "research",
-    conversationId: "chat_code_fixture",
+    projectId: "project_current",
+    workspace: [],
   });
 
   assert.equal(created.kind, "code");
@@ -112,7 +134,7 @@ test("ordinary chat coding requests still get code plans with the existing write
   assert.equal(created.permissions.find((permission) => permission.level === "execute")?.granted, false);
 });
 
-test("non-chat callers retain their explicit task kinds", async () => {
+test("non-chat callers retain an explicit media task kind when the objective is otherwise unclassified", async () => {
   const created = await createThroughTaskApi({
     objective: "Generate a landscape illustration of a quiet coast.",
     kind: "media",

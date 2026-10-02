@@ -32,11 +32,12 @@ export async function POST(request: NextRequest) {
     const { autoStart, ...input } = body;
     const objective = body.objective.trim();
     const isChatHandoff = typeof input.conversationId === "string" && input.conversationId.trim().length > 0;
-    // A conversation can outlive its browser bundle, so the server owns its task classification.
+    const inferredKind = inferTaskKind(objective);
+    // Use objective intent whenever it is clear; callers may send stale kind/taskType hints.
+    // Chat handoffs also need server classification when the objective is otherwise general.
     let taskInput: CreateTaskInput = input;
-    if (isChatHandoff) {
-      const kind = inferTaskKind(objective);
-      taskInput = { ...input, kind, taskType: inferTaskType(kind) };
+    if (isChatHandoff || inferredKind !== "chat") {
+      taskInput = { ...input, kind: inferredKind, taskType: inferTaskType(inferredKind) };
     }
     const task = await createTaskRecord({ ...taskInput, objective });
     if (autoStart === true) {
