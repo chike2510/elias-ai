@@ -25,7 +25,9 @@ export default function StructuredChatResponse({ content, taskId, recommendation
       <div className="assistant-structure-heading"><span><Lightbulb size={14} /> Recommendation</span><Sparkles size={14} /></div>
       <p>{recommendation}</p>
     </aside> : null}
-    <MarkdownMessage content={content} taskId={taskId} />
+    <div className="assistant-answer-card">
+      <MarkdownMessage content={content} taskId={taskId} />
+    </div>
     {reasons?.length ? <section className="assistant-rationale" aria-label="Why this recommendation">
       <strong>Why it fits</strong>
       <ul>{reasons.slice(0, 4).map((reason, index) => <li key={`${index}-${reason}`}>{reason}</li>)}</ul>
