@@ -3283,29 +3283,33 @@ input::placeholder, textarea::placeholder { color: #77827b !important; }
 
 /* Structured assistant advice and one-tap next steps */
 .assistant-structured-response { min-width: 0; display: grid; gap: 13px; }
-.assistant-recommendation-card { padding: 12px 14px; border: 1px solid rgba(166, 132, 225, .26); border-radius: 12px; background: linear-gradient(125deg, rgba(126, 95, 176, .14), rgba(25, 23, 32, .74) 68%); }
-.assistant-structure-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: #baa5e9; font-size: 10px; font-weight: 650; letter-spacing: .045em; text-transform: uppercase; }
+.assistant-answer-card { min-width: 0; padding: 12px 14px; border: 1px solid rgba(208, 211, 203, .17); border-radius: 14px; background-color: #15171b; background: linear-gradient(145deg, rgba(255, 255, 255, .035), rgba(255, 255, 255, .012)), rgba(22, 24, 27, .84); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .035), 0 8px 22px rgba(0, 0, 0, .12); -webkit-backdrop-filter: blur(8px) saturate(1.04); backdrop-filter: blur(8px) saturate(1.04); }
+.assistant-answer-card .markdown-message { color: #e3e2dc; }
+.assistant-recommendation-card { padding: 12px 14px; border: 1px solid rgba(199, 177, 231, .22); border-radius: 12px; background-color: #17161d; background: linear-gradient(125deg, rgba(126, 95, 176, .2), rgba(35, 32, 43, .82) 70%), rgba(23, 22, 29, .84); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .045), 0 8px 20px rgba(0, 0, 0, .12); -webkit-backdrop-filter: blur(8px) saturate(1.06); backdrop-filter: blur(8px) saturate(1.06); }
+.assistant-structure-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: #d3c4ec; font-size: 10px; font-weight: 650; letter-spacing: .045em; text-transform: uppercase; }
 .assistant-structure-heading span { display: inline-flex; align-items: center; gap: 6px; }
-.assistant-structure-heading > svg { color: #8570aa; }
-.assistant-recommendation-card p { margin: 6px 0 0; color: #f0ebf6; font-size: 13px; font-weight: 550; line-height: 1.5; overflow-wrap: anywhere; }
+.assistant-structure-heading > svg { color: #ad9bc7; }
+.assistant-recommendation-card p { margin: 6px 0 0; color: #f4f1f7; font-size: 13px; font-weight: 550; line-height: 1.5; overflow-wrap: anywhere; }
 .assistant-rationale, .assistant-risks { padding: 0 2px; }
-.assistant-rationale > strong { display: block; margin-bottom: 5px; color: #bcb6c7; font-size: 10px; font-weight: 650; }
-.assistant-rationale ul, .assistant-risks ul { margin: 0; padding-left: 17px; color: #a9a4b0; font-size: 11px; line-height: 1.55; }
+.assistant-rationale > strong { display: block; margin-bottom: 5px; color: #d0ccd7; font-size: 11px; font-weight: 650; }
+.assistant-rationale ul, .assistant-risks ul { margin: 0; padding-left: 17px; color: #c0bcc6; font-size: 12px; line-height: 1.55; }
 .assistant-rationale li, .assistant-risks li { margin: 3px 0; overflow-wrap: anywhere; }
-.assistant-risks > strong { display: inline-flex; align-items: center; gap: 5px; margin-bottom: 5px; color: #d5ad8c; font-size: 10px; font-weight: 650; }
-.assistant-risks > strong svg { color: #c78d6b; }
+.assistant-risks > strong { display: inline-flex; align-items: center; gap: 5px; margin-bottom: 5px; color: #ecc6a8; font-size: 11px; font-weight: 650; }
+.assistant-risks > strong svg { color: #d9a88a; }
 .assistant-reply-choices { min-width: 0; }
-.assistant-reply-choices > span { display: block; margin: 0 0 7px 2px; color: #817c8a; font-size: 9px; letter-spacing: .045em; text-transform: uppercase; }
+.assistant-reply-choices > span { display: block; margin: 0 0 7px 2px; color: #bcb8c4; font-size: 10px; letter-spacing: .045em; text-transform: uppercase; }
 .assistant-reply-choices > div { display: flex; flex-wrap: wrap; gap: 7px; }
-.assistant-reply-choices button { min-height: 36px; max-width: 100%; display: inline-flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 11px; border: 1px solid #393543; border-radius: 11px; background: #17151e; color: #d2c7e7; font-size: 10px; line-height: 1.4; text-align: left; overflow-wrap: anywhere; transition: border-color .16s, background .16s, color .16s; }
+.assistant-reply-choices > div button { min-height: 44px; max-width: 100%; display: inline-flex; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 12px; border: 1px solid #4a4652; border-radius: 10px; background: #26252c; color: #f1eff5; box-shadow: inset 0 1px 0 rgba(255, 255, 255, .055); font-size: 11px; line-height: 1.45; text-align: left; overflow-wrap: anywhere; transition: transform .16s var(--m-ease), border-color .16s, background .16s, color .16s; }
 .assistant-reply-choices button:hover:not(:disabled) { border-color: #766095; background: #211b2c; color: #f0e8ff; }
 .assistant-reply-choices button:disabled { cursor: wait; opacity: .55; }
 .assistant-reply-choices button svg { flex: 0 0 auto; color: #9581bc; }
+.assistant-reply-choices > div button:focus-visible { outline: 2px solid #d1b9ff; outline-offset: 3px; border-color: #d1b9ff; }
 @media (max-width: 600px) {
   .assistant-structured-response { gap: 11px; }
+  .assistant-answer-card { padding: 10px 11px; border-radius: 12px; }
   .assistant-recommendation-card { padding: 11px 12px; border-radius: 11px; }
   .assistant-recommendation-card p { font-size: 12px; }
-  .assistant-rationale ul, .assistant-risks ul { font-size: 10px; }
+  .assistant-rationale ul, .assistant-risks ul { font-size: 11px; }
   .assistant-reply-choices > div { display: grid; grid-template-columns: 1fr; }
   .assistant-reply-choices button { width: 100%; min-height: 40px; }
 }
