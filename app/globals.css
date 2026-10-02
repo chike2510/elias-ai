@@ -3887,6 +3887,10 @@ input::placeholder, textarea::placeholder, .composer > textarea::placeholder, .c
 .screen .repo-task-change { border-color: #e8e6e1; background: #fff; }
 .screen .repo-task-selected { border-color: #e8e6e1; background: #f5f4f0; color: #444; }
 .screen .repo-task-selected code { color: #333; }
+/* The paper-theme grid override follows the earlier breakpoint; keep the hidden rail from reserving mobile width. */
+@media (max-width: 1100px) {
+  .chat-workbench-grid { grid-template-columns: minmax(0, 1fr); }
+}
 .screen .repo-task-change-summary, .screen .repo-task-publish-grid label, .screen .repo-task-pr-field { color: #666; }
 .screen .repo-task-committed { color: #28633e; }
 
