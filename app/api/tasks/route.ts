@@ -1,5 +1,6 @@
 import { after, NextRequest } from "next/server";
 import { jsonError, jsonOk, readJsonRequest } from "@/lib/http";
+import { inferTaskKind, inferTaskType } from "@/lib/task";
 import { createTaskRecord, listTasks, runTaskLoop } from "@/lib/taskOrchestrator";
 import type { CreateTaskInput } from "@/lib/task";
 
@@ -29,7 +30,15 @@ export async function POST(request: NextRequest) {
     if (body.objective.length > 20_000) return jsonError("objective is too large", 413, "PAYLOAD_TOO_LARGE");
     if (body.workspace !== undefined && !validWorkspace(body.workspace)) return jsonError("workspace is invalid or too large", 413, "PAYLOAD_TOO_LARGE");
     const { autoStart, ...input } = body;
-    const task = await createTaskRecord({ ...input, objective: body.objective.trim() });
+    const objective = body.objective.trim();
+    const isChatHandoff = typeof input.conversationId === "string" && input.conversationId.trim().length > 0;
+    // A conversation can outlive its browser bundle, so the server owns its task classification.
+    let taskInput: CreateTaskInput = input;
+    if (isChatHandoff) {
+      const kind = inferTaskKind(objective);
+      taskInput = { ...input, kind, taskType: inferTaskType(kind) };
+    }
+    const task = await createTaskRecord({ ...taskInput, objective });
     if (autoStart === true) {
       after(async () => {
         try { await runTaskLoop(task.id, 1); } catch { /* task state records the failure for the Chat poller */ }
