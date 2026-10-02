@@ -14,7 +14,7 @@ import { readApiResponse } from "@/lib/clientApi";
 import { selectSuggestedReply } from "@/lib/chatResponse";
 import { formatChatTimestamp } from "@/lib/chatTimestamp.mjs";
 import { cacheTaskSnapshot, listCachedTaskSnapshots } from "@/lib/clientTask";
-import { inferChatTask as inferTask } from "@/lib/chatTaskRouting";
+import { inferChatTask as inferTask, shouldHandoffToTask } from "@/lib/chatTaskRouting";
 import { buildSelectedDocumentContext } from "@/lib/clientDocumentContext";
 import { continueTaskSteps, selectActiveTaskSnapshot, taskArtifactSyncKey, upsertRecentTaskSnapshot } from "@/lib/clientTaskRunner";
 import { syncTaskArtifactToLibrary } from "@/lib/taskArtifactLibrary";
@@ -37,15 +37,6 @@ type VercelMcpStatus = { configured?: boolean; connected?: boolean; message?: st
 type Attachment = { name: string; context?: string; status?: "uploading" | "ready" | "error"; progress?: number; error?: string; documentId?: string; source?: File };
 
 const FALLBACK_MODEL_OPTIONS: ModelOption[] = [{ id: "auto", provider: "auto", label: "Auto", detail: "Best model for the task", configured: true }];
-
-function shouldHandoffToTask(value: string, attachments: Attachment[]) {
-  if (attachments.length > 0) return true;
-  const text = value.trim();
-  if (text.length < 12) return false;
-  const explicitWork = /\b(create|generate|build|make|write|produce|download|develop|implement|refactor|debug|review|research|study|analy[sz]e|compare|summari[sz]e)\b/i.test(text);
-  const liveResearch = /\b(latest|current|today|yesterday|recent|live)\b/i.test(text) && /\b(update|news|result|score|fixture|match|source|sources|citation|verify|research|report)\b/i.test(text);
-  return (explicitWork || liveResearch) && /\b(report|pdf|document|file|artifact|website|web app|app|page|screen|dashboard|repository|repo|project|code|source|paper|slides|presentation|chapter|notes|exam|course|latest|current|sources|citations|interface|ui|ux|design|feature|bug|component|update|news|result|score|fixture|match|verify)\b/i.test(text);
-}
 
 function normalizeConversation(value: ConversationRecord): ConversationRecord {
   const messages = Array.isArray(value.messages) ? value.messages.filter((message) => message && typeof message.content === "string" && !/^I turned this into a live task inside this conversation\./.test(message.content.trim())).map((message) => ({ ...message, role: (message.role === "assistant" || message.role === "system" ? message.role : "user") as ConversationMessage["role"], content: message.content })) : [];
@@ -353,7 +344,7 @@ export default function ChatScreen() {
         return;
       }
 
-      if (shouldHandoffToTask(text, attachments)) {
+      if (shouldHandoffToTask(text, attachments.length > 0)) {
         setTaskMode(true);
         const handoffBudget = Math.max(0, 20_000 - text.length - 2);
         const handoffObjective = text.length >= 20_000 ? text.slice(0, 20_000) : `${text}\n\n${documentContext.slice(0, handoffBudget)}`;
@@ -362,7 +353,6 @@ export default function ChatScreen() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             objective: handoffObjective,
-            kind: inferTask(text),
             conversationId: optimistic.id,
             ...(selectedModel !== "auto" ? { preferredProvider: selectedModel.split(":")[0], preferredModel: selectedModel.split(":").slice(1).join(":") } : {}),
           }),
