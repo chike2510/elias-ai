@@ -106,6 +106,7 @@ export default function ChatScreen() {
   const params = useSearchParams();
   const requestedId = params.get("id");
   const requestedPrompt = params.get("prompt");
+  const requestedDraft = params.get("draft");
   const requestedDocumentId = params.get("documentId");
   const [conversation, setConversation] = useState<ConversationRecord | null>(null);
   const [history, setHistory] = useState<ConversationRecord[]>([]);
@@ -182,11 +183,11 @@ export default function ChatScreen() {
       if (!active) return;
       const now = Date.now();
       setConversation({ id: requestedId || makeId("chat"), title: "New conversation", createdAt: now, updatedAt: now, messages: [] });
-      if (requestedPrompt) setInput(requestedPrompt);
+      if (requestedPrompt || requestedDraft) setInput(requestedPrompt || requestedDraft || "");
     }
     void load();
     return () => { active = false; };
-  }, [requestedId, requestedPrompt, requestedDocumentId]);
+  }, [requestedId, requestedPrompt, requestedDraft, requestedDocumentId]);
 
   useEffect(() => {
     if (!conversation?.id) return;
@@ -276,6 +277,7 @@ export default function ChatScreen() {
       // Chat must remain usable when browser storage is blocked, unavailable, or corrupted.
       // The conversation remains in React state for the current session.
     }
+    window.dispatchEvent(new Event("elias:conversation-updated"));
   }
 
   async function sendMessage(value: string, retry = false) {
@@ -404,7 +406,7 @@ export default function ChatScreen() {
       const assistant: ConversationMessage = {
         id: makeId("msg"),
         role: "assistant",
-        content: error instanceof Error ? error.message : "ELIAS failed to respond.",
+        content: "Couldn't send",
         status: "error",
         createdAt: Date.now(),
       };
@@ -548,7 +550,18 @@ export default function ChatScreen() {
           </section> : null}
           {activeTask?.artifacts.length ? <div className="chat-artifact-pill"><FileText size={13} /> {activeTask.artifacts.length} Artifact{activeTask.artifacts.length === 1 ? "" : "s"}</div> : null}
 
-          {messages.map((message) => <article key={message.id} className={`chat-message ${message.role} ${message.status === "error" ? "error" : ""}`}><div className="chat-avatar">{message.role === "assistant" ? <img src="/branding/elias-logo.png" alt="ELIAS" /> : "you"}</div><div className="chat-message-body"><span className="chat-role">{message.role === "assistant" ? `ELIAS${message.provider ? ` · ${message.provider.toLowerCase() === "huggingface" ? "HUGGING FACE" : message.provider.toUpperCase()}` : ""}` : "you"}</span>{message.role === "assistant" && message.model ? <small className="chat-model-attribution">model · {message.model}</small> : null}{message.role === "assistant" ? <StructuredChatResponse content={message.content} taskId={activeTask?.id} recommendation={message.recommendation} reasons={message.reasons} risks={message.risks} suggestedReplies={message.suggestedReplies} busy={busy} onSelectReply={(index) => { const selected = selectSuggestedReply(message.suggestedReplies, index); if (selected) void sendMessage(selected); }} /> : <UserMessageContent content={message.content} />}{message.role === "assistant" && message.webEvidence ? <small className={`web-evidence-status ${message.webEvidence.status === "searched" ? "verified" : "warning"}`}>web search · {message.webEvidence.status === "searched" ? `${message.webEvidence.resultCount} results · ${message.webEvidence.fetchedSourceCount} sources fetched` : message.webEvidence.status.replaceAll("_", " ")}</small> : null}<MessageTimestamp createdAt={message.createdAt} />{message.role === "assistant" ? <div className="message-actions"><button type="button" onClick={() => { void navigator.clipboard?.writeText(message.content); setCopied(message.id); window.setTimeout(() => setCopied(null), 1400); }}>{copied === message.id ? <Check size={13} /> : <Copy size={13} />} {copied === message.id ? "copied" : "copy"}</button>{message.status === "error" && lastUser ? <button type="button" onClick={() => void sendMessage(lastUser.content, true)}><LoaderCircle size={13} /> retry</button> : null}</div> : null}{message.role === "assistant" && message.status !== "error" && message.content.length > 1200 && /\b(tsx|jsx|html|css|javascript|typescript|python|java|sql)\b/i.test(message.content) ? <Link href={`/agent?fromChat=${encodeURIComponent(conversation?.id ?? "")}`} className="chat-agent-action"><WandSparkles size={14} /> continue in coding workspace</Link> : null}</div></article>)}
+          {messages.map((message) => <article key={message.id} className={`chat-message ${message.role} ${message.status === "error" ? "error" : ""}`}>
+            <div className="chat-avatar">{message.role === "assistant" ? <img src="/branding/elias-logo.png" alt="ELIAS" /> : "you"}</div>
+            <div className="chat-message-body">
+              <span className="chat-role">{message.role === "assistant" ? `ELIAS${message.provider ? ` · ${message.provider.toLowerCase() === "huggingface" ? "HUGGING FACE" : message.provider.toUpperCase()}` : ""}` : "you"}</span>
+              {message.role === "assistant" && message.model ? <small className="chat-model-attribution">model · {message.model}</small> : null}
+              {message.status === "error" ? <div className="chat-error-line" role="alert"><span className="chat-error-dot" aria-hidden="true" />Couldn't send — {lastUser ? <button type="button" onClick={() => void sendMessage(lastUser.content, true)}>retry</button> : <span>retry</span>}</div> : message.role === "assistant" ? <StructuredChatResponse content={message.content} taskId={activeTask?.id} recommendation={message.recommendation} reasons={message.reasons} risks={message.risks} suggestedReplies={message.suggestedReplies} busy={busy} onSelectReply={(index) => { const selected = selectSuggestedReply(message.suggestedReplies, index); if (selected) void sendMessage(selected); }} /> : <UserMessageContent content={message.content} />}
+              {message.role === "assistant" && message.status !== "error" && message.webEvidence ? <small className={`web-evidence-status ${message.webEvidence.status === "searched" ? "verified" : "warning"}`}>web search · {message.webEvidence.status === "searched" ? `${message.webEvidence.resultCount} results · ${message.webEvidence.fetchedSourceCount} sources fetched` : message.webEvidence.status.replaceAll("_", " ")}</small> : null}
+              <MessageTimestamp createdAt={message.createdAt} />
+              <div className="message-actions"><button type="button" aria-label={`Copy ${message.role} message`} onClick={() => { void navigator.clipboard?.writeText(message.content); setCopied(message.id); window.setTimeout(() => setCopied(null), 1400); }}>{copied === message.id ? <Check size={13} /> : <Copy size={13} />} {copied === message.id ? "Copied" : "Copy"}</button></div>
+              {message.role === "assistant" && message.status !== "error" && message.content.length > 1200 && /\b(tsx|jsx|html|css|javascript|typescript|python|java|sql)\b/i.test(message.content) ? <Link href={`/agent?fromChat=${encodeURIComponent(conversation?.id ?? "")}`} className="chat-agent-action"><WandSparkles size={14} /> continue in coding workspace</Link> : null}
+            </div>
+          </article>)}
 
           {busy ? <div className="chat-message assistant"><div className="chat-avatar"><LoaderCircle size={14} className="spin" /></div><div className="chat-message-body"><span className="chat-role">ELIAS</span>{taskMode && activeTask ? <LiveExecutionFeed task={activeTask} /> : taskMode ? <div className="chat-content typing-line">setting up the task…</div> : <div className="chat-content typing-line">thinking…</div>}</div></div> : null}
           {activeTask ? <section className="chat-execution-stack" aria-live="polite">
