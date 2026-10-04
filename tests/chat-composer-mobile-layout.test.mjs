@@ -25,8 +25,15 @@ function px(block, property) {
   return Number(match[1]);
 }
 
-test("mobile chat input clears all overlaid controls without becoming too narrow", () => {
-  const input = lastRuleBlock(".chat-route-screen .chat-composer-input");
+test("mobile chat input clears overlaid controls at the screenshot's CSS viewport", () => {
+  const rasterWidth = 720;
+  const devicePixelRatio = 2;
+  const cssViewportWidth = rasterWidth / devicePixelRatio;
+  assert.equal(cssViewportWidth, 360, "720 raster pixels at 2x DPR correspond to a 360px CSS viewport");
+
+  // The input's direct-child rule has higher specificity than the broad mobile selector.
+  // Read that rule so a declaration that loses the cascade cannot make this test pass.
+  const input = lastRuleBlock(".chat-route-screen .chat-composer > .chat-composer-input");
   const padding = input.match(/(?:^|;)\s*padding\s*:\s*([^;]+);/m)?.[1].trim().split(/\s+/);
   assert.equal(padding?.length, 4, "mobile input needs explicit four-sided padding");
   const top = Number.parseFloat(padding[0]);
@@ -44,5 +51,6 @@ test("mobile chat input clears all overlaid controls without becoming too narrow
 
   assert.ok(left >= barInset + addButton + leftGap + voiceButton + 8, "placeholder must start beyond the add and voice controls with breathing room");
   assert.ok(right >= barInset + sendButton + 8, "input text must end before the send button with breathing room");
+  assert.ok(cssViewportWidth - 24 - 2 - left - right >= 150, "the screenshot-sized viewport must retain at least 150px of editable text width");
   assert.ok(320 - 24 - 2 - left - right >= 120, "a 320px viewport must retain at least 120px of editable text width");
 });
