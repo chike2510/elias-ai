@@ -1,0 +1,12 @@
+# Artwork image credits
+
+The Digital Art Museum starter room uses local 1280 px copies of files whose Wikimedia Commons file metadata lists **Public domain**. The three Art Institute of Chicago works are also checked against the museum's official API records, each of which returns `is_public_domain: true`. File/API records were checked before adding these assets.
+
+| Local file | Artwork credit | Public-domain source record | Museum collection record |
+|---|---|---|---|
+| `bedroom.jpg` | Vincent van Gogh. *The Bedroom*, 1888. Wikimedia Commons. | [Commons file page](https://commons.wikimedia.org/wiki/File:Vincent_van_Gogh_-_De_slaapkamer_-_Google_Art_Project.jpg) — Public domain | — |
+| `poets-garden.jpg` | Vincent van Gogh. *The Poet’s Garden*, 1888. The Art Institute of Chicago. | [Commons file page](https://commons.wikimedia.org/wiki/File:Vincent_van_Gogh_-_The_Poet%27s_Garden_-_1933.433_-_Art_Institute_of_Chicago.jpg) — Public domain | [AIC object 14586](https://www.artic.edu/artworks/14586/the-poet-s-garden), [API record](https://api.artic.edu/api/v1/artworks/14586?fields=id,title,artist_display,date_display,is_public_domain,image_id) |
+| `self-portrait.jpg` | Vincent van Gogh. *Self-Portrait*, 1887. The Art Institute of Chicago. | [Commons file page](https://commons.wikimedia.org/wiki/File:Vincent_van_Gogh_-_Self-Portrait_-_1954.326_-_Art_Institute_of_Chicago.jpg) — Public domain | [AIC object 80607](https://www.artic.edu/artworks/80607/self-portrait), [API record](https://api.artic.edu/api/v1/artworks/80607?fields=id,title,artist_display,date_display,is_public_domain,image_id) |
+| `sunday-la-grande-jatte.jpg` | Georges Seurat. *A Sunday on La Grande Jatte — 1884*, 1884–86. The Art Institute of Chicago. | [Commons file page](https://commons.wikimedia.org/wiki/File:Georges_Seurat_-_A_Sunday_on_La_Grande_Jatte_--_1884_-_Google_Art_Project.jpg) — Public domain | [AIC object 27992](https://www.artic.edu/artworks/27992/a-sunday-on-la-grande-jatte-1884), [API record](https://api.artic.edu/api/v1/artworks/27992?fields=id,title,artist_display,date_display,is_public_domain,image_id) |
+
+The Art Institute describes its Open Access collection as CC0 for designated public-domain images: [Open Access images](https://www.artic.edu/open-access/open-access-images). Commons/file records and credits remain linked beside each work in the museum experience. The Bedroom is a separately sourced 1888 version from Commons; it is not presented as the Art Institute's 1889 object.

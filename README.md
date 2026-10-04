@@ -89,3 +89,10 @@ ELIAS should treat Hugging Face as a model gateway, not as one universal chat mo
 - **Audio/video:** add separate task adapters for text-to-speech, speech recognition, and text-to-video. Each adapter should declare input/output MIME types, maximum duration, provider/model, timeout, polling or callback behavior, and a fallback.
 
 For production, model selection should be capability-based: `text`, `code`, `vision`, `image-generation`, `audio-generation`, `video-generation`, or `tool-use`. Automations should select a text/tool model for planning and a specialist media adapter for asset generation, with an approval step before external side effects.
+
+
+## Standalone product idea previews
+
+Four distinct, local-first app experiences share this codebase without replacing ELIAS: **`/outfit`** (sample closet and rule-based outfit mixes), **`/museum`** (a curated public-domain collection), **`/budget`** (manual transactions and category limits), and **`/screenshots`** (selected images saved in browser IndexedDB with manual notes/tags). The budget preview does not connect to banks; screenshot files are not uploaded or OCR-indexed. These are early product-validation prototypes, not evidence for the creator's revenue claims. See [`docs/four-standalone-apps.md`](docs/four-standalone-apps.md) and [artwork credits](public/idea-apps/artworks/credits.md).
+
+Run them with the existing `npm run dev` command and visit the routes above. The existing `npm run typecheck`, `npm test`, and `npm run build` commands validate the complete app; no new service or environment variable is needed.
