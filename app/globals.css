@@ -3895,3 +3895,28 @@ input::placeholder, textarea::placeholder, .composer > textarea::placeholder, .c
 .screen .repo-task-committed { color: #28633e; }
 
 .command-action-item { width: 100%; border: 0; background: transparent; font: inherit; text-align: left; cursor: pointer; }
+
+
+/* A quiet workline makes the task engine's actual sequence visible without adding a new interaction. */
+.task-start-flow {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); list-style: none;
+  margin: 18px 0 20px; padding: 13px 0; border-block: 1px solid #e8e6e1;
+}
+.task-start-flow li {
+  position: relative; min-width: 0; display: flex; flex-direction: column; gap: 4px; padding: 0 14px;
+}
+.task-start-flow li:first-child { padding-left: 0; }
+.task-start-flow li:not(:last-child)::after {
+  content: ""; position: absolute; top: 2px; right: 0; width: 1px; height: 36px; background: #e8e6e1;
+}
+.task-start-flow .task-flow-index { color: #b85b4c; font: 9px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .08em; }
+.task-start-flow strong { color: #252525; font-size: 11px; font-weight: 650; line-height: 1.2; }
+.task-start-flow li small { font-size: 9px; line-height: 1.3; }
+@media (max-width: 540px) {
+  .task-start-flow { grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 16px 0 18px; }
+  .task-start-flow li:first-child, .task-start-flow li:nth-child(3) { padding-left: 0; }
+  .task-start-flow li:nth-child(2n) { padding-right: 0; padding-left: 16px; }
+  .task-start-flow li:not(:last-child)::after { display: none; }
+  .task-start-flow li:nth-child(odd)::after { display: block; top: 0; height: 100%; }
+  .task-start-flow li:nth-child(n + 3) { padding-top: 12px; border-top: 1px solid #e8e6e1; }
+}
