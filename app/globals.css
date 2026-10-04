@@ -3789,7 +3789,7 @@ input::placeholder, textarea::placeholder, .composer > textarea::placeholder, .c
   .chat-route-screen .chat-composer { min-height: 54px; }
   /* Keep the message text clear of the left attachment and trailing voice/send controls. */
   .chat-route-screen .chat-composer > .chat-composer-input { min-height: 50px; height: 50px; padding: 15px 90px 7px 56px; font-size: 13px; }
-  .chat-route-screen .chat-composer-bar { inset: 0 6px; }
+  .chat-route-screen .chat-composer-bar { inset: 0 6px; width: auto; }
   .chat-route-screen .composer-plus { width: 34px; height: 34px; }
   .chat-route-screen .composer-utility { width: 31px; height: 31px; }
   .chat-route-screen .chat-send { width: 36px !important; height: 36px !important; flex-basis: 36px !important; }
