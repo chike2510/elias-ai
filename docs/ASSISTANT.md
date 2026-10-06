@@ -25,7 +25,7 @@ A Hark-style personal assistant built on one tool-calling loop.
 
 ## Storage (Supabase Postgres, created automatically)
 
-`elias_conversations`, `elias_messages`, `elias_memories` (tsvector full-text), `elias_oauth_tokens` (AES-GCM encrypted), `elias_schedules`, `elias_approvals`, `elias_browser_sessions`.
+`elias_conversations`, `elias_messages`, `elias_memories` (tsvector full-text), `elias_oauth_tokens` (AES-GCM encrypted), `elias_schedules`, `elias_approvals`, `elias_assistant_browsers`.
 
 ## Scheduler
 

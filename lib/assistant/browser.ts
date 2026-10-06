@@ -41,7 +41,7 @@ export async function openBrowser(userId: string, conversationId: string, cache:
   const db = await ready();
   const keepAlive = process.env.BROWSERBASE_KEEP_ALIVE === "true";
   if (keepAlive) {
-    const saved = (await db`select * from public.elias_browser_sessions where user_id = ${userId} and conversation_id = ${conversationId}`)[0];
+    const saved = (await db`select * from public.elias_assistant_browsers where user_id = ${userId} and conversation_id = ${conversationId}`)[0];
     if (saved) {
       try {
         const handle = { ...(await connect(saved.connect_url as string)), sessionId: saved.session_id as string };
@@ -51,7 +51,7 @@ export async function openBrowser(userId: string, conversationId: string, cache:
     }
   }
   const session = await bb("/sessions", { method: "POST", body: JSON.stringify({ projectId: process.env.BROWSERBASE_PROJECT_ID, ...(keepAlive ? { keepAlive: true } : {}) }) }) as { id: string; connectUrl: string };
-  await db`insert into public.elias_browser_sessions (user_id, conversation_id, session_id, connect_url) values (${userId}, ${conversationId}, ${session.id}, ${session.connectUrl})
+  await db`insert into public.elias_assistant_browsers (user_id, conversation_id, session_id, connect_url) values (${userId}, ${conversationId}, ${session.id}, ${session.connectUrl})
     on conflict (user_id, conversation_id) do update set session_id = excluded.session_id, connect_url = excluded.connect_url, updated_at = now()`;
   const handle = { ...(await connect(session.connectUrl)), sessionId: session.id };
   cache.set(conversationId, handle);
@@ -86,7 +86,7 @@ export async function closeAll(cache: Map<string, BrowserHandle>) {
 
 export async function endBrowser(userId: string, conversationId: string, cache: Map<string, BrowserHandle>) {
   const db = await ready();
-  const saved = (await db`delete from public.elias_browser_sessions where user_id = ${userId} and conversation_id = ${conversationId} returning session_id`)[0];
+  const saved = (await db`delete from public.elias_assistant_browsers where user_id = ${userId} and conversation_id = ${conversationId} returning session_id`)[0];
   const handle = cache.get(conversationId);
   if (handle) { await handle.browser.close().catch(() => undefined); cache.delete(conversationId); }
   if (saved) await bb(`/sessions/${saved.session_id}`, { method: "POST", body: JSON.stringify({ projectId: process.env.BROWSERBASE_PROJECT_ID, status: "REQUEST_RELEASE" }) }).catch(() => undefined);

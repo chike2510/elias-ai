@@ -48,7 +48,7 @@ export async function ready() {
       summary text not null, status text not null default 'pending', result text,
       created_at timestamptz not null default now(), decided_at timestamptz)`;
     await db`create index if not exists elias_approvals_user_idx on public.elias_approvals(user_id, status, created_at desc)`;
-    await db`create table if not exists public.elias_browser_sessions (
+    await db`create table if not exists public.elias_assistant_browsers (
       user_id text not null, conversation_id text not null, session_id text not null, connect_url text not null,
       updated_at timestamptz not null default now(), primary key (user_id, conversation_id))`;
   })().catch((error) => { globalThis.__eliasAssistantSchema = undefined; throw error; });
