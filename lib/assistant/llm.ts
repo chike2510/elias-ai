@@ -69,6 +69,112 @@ async function callProvider(provider: ProviderName | "custom", messages: LlmMess
   return { content: toolCalls.length ? content.replace(/<tool_call>[\s\S]*?<\/tool_call>/g, "").trim() : content, toolCalls, provider, model };
 }
 
+type StreamDelta = { index?: number; id?: string; type?: string; function?: { name?: string; arguments?: string } };
+
+/** Text the user may see while a reply streams: thinking blocks, tool-call markup and partial tags are held back. */
+export function visibleStreamText(full: string) {
+  let text = full.replace(/<think>[\s\S]*?<\/think>/gi, "");
+  const openThink = text.search(/<think>/i);
+  if (openThink >= 0) text = text.slice(0, openThink);
+  const toolTag = text.indexOf("<tool_call");
+  if (toolTag >= 0) text = text.slice(0, toolTag);
+  text = text.replace(/<[a-z_/]*$/i, "");
+  return text.replace(/^\s+/, "");
+}
+
+async function streamProvider(provider: ProviderName | "custom", messages: LlmMessage[], tools: ToolSchema[], temperature: number, onDelta: (text: string) => void): Promise<LlmResult> {
+  const custom = provider === "custom" ? customConfig() : null;
+  const config = custom || providerConfig(provider as ProviderName);
+  const model = custom ? custom.model : DEFAULT_MODELS[provider as ProviderName]!();
+  const response = await fetch(`${config.baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "text/event-stream", Authorization: `Bearer ${config.key}` },
+    body: JSON.stringify({ model, messages, temperature, stream: true, ...(tools.length ? { tools, tool_choice: "auto" } : {}) }),
+    cache: "no-store",
+    signal: AbortSignal.timeout(60_000),
+  });
+  if (!response.ok) throw new Error(`${provider}/${model} HTTP ${response.status}: ${(await response.text()).slice(0, 400)}`);
+  const contentType = response.headers.get("content-type") || "";
+  if (!contentType.includes("event-stream") || !response.body) {
+    // Provider ignored stream:true; treat it as a normal completion.
+    const data = JSON.parse(await response.text()) as { choices?: Array<{ message?: { content?: string | null; tool_calls?: ToolCall[] } }> };
+    const message = data.choices?.[0]?.message;
+    if (!message) throw new Error(`${provider}/${model} returned no message.`);
+    return finish(provider, model, message.content || "", message.tool_calls || [], tools, onDelta, "");
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let content = "";
+  let emitted = "";
+  const calls: Array<{ id?: string; name: string; args: string }> = [];
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let newline: number;
+    while ((newline = buffer.indexOf("\n")) >= 0) {
+      const line = buffer.slice(0, newline).trim();
+      buffer = buffer.slice(newline + 1);
+      if (!line.startsWith("data:")) continue;
+      const payload = line.slice(5).trim();
+      if (!payload || payload === "[DONE]") continue;
+      let chunk: { choices?: Array<{ delta?: { content?: string | null; tool_calls?: StreamDelta[] } }> };
+      try { chunk = JSON.parse(payload); } catch { continue; }
+      const delta = chunk.choices?.[0]?.delta;
+      if (!delta) continue;
+      if (delta.content) {
+        content += delta.content;
+        const visible = visibleStreamText(content);
+        if (visible.length > emitted.length && visible.startsWith(emitted)) { onDelta(visible.slice(emitted.length)); emitted = visible; }
+      }
+      for (const part of delta.tool_calls || []) {
+        const index = part.index ?? calls.length;
+        calls[index] ||= { name: "", args: "" };
+        if (part.id) calls[index].id = part.id;
+        if (part.function?.name) calls[index].name += part.function.name;
+        if (part.function?.arguments) calls[index].args += part.function.arguments;
+      }
+    }
+  }
+  const toolCalls: ToolCall[] = calls.filter(Boolean).filter((call) => call.name).map((call, index) => ({ id: call.id || `call_${index}_${Date.now()}`, type: "function", function: { name: call.name, arguments: call.args || "{}" } }));
+  return finish(provider, model, content, toolCalls, tools, onDelta, emitted);
+}
+
+function finish(provider: ProviderName | "custom", model: string, raw: string, rawCalls: ToolCall[], tools: ToolSchema[], onDelta: (text: string) => void, emitted: string): LlmResult {
+  const content = stripThinking(raw);
+  let toolCalls = rawCalls.map((call, index) => ({ ...call, id: call.id || `call_${index}_${Date.now()}`, type: "function" as const }));
+  if (!toolCalls.length && content.includes("<tool_call>")) toolCalls = recoverTextToolCalls(content, tools);
+  const text = toolCalls.length ? content.replace(/<tool_call>[\s\S]*?<\/tool_call>/g, "").trim() : content;
+  if (!toolCalls.length && !emitted && text) onDelta(text);
+  return { content: text, toolCalls, provider, model };
+}
+
+/**
+ * Same as complete() but streams visible reply text through onDelta. Falls back to the next
+ * provider only when nothing has been streamed yet, so the user never sees two half-answers.
+ */
+export async function completeStream(messages: LlmMessage[], tools: ToolSchema[], onDelta: (text: string) => void, options: { temperature?: number } = {}): Promise<LlmResult> {
+  const providers = agentProviders();
+  if (!providers.length) throw new Error("No tool-capable model provider is configured. Set HF_TOKEN, GROQ_API_KEY or MISTRAL_API_KEY.");
+  const errors: string[] = [];
+  for (const provider of providers) {
+    let streamed = false;
+    try { return await streamProvider(provider, messages, tools, options.temperature ?? 0.3, (text) => { streamed = true; onDelta(text); }); }
+    catch (error) {
+      if (streamed) throw error;
+      errors.push(error instanceof Error ? error.message : String(error));
+    }
+    // Some providers reject stream+tools; the same provider without streaming is the next best thing.
+    try {
+      const result = await callProvider(provider, messages, tools, options.temperature ?? 0.3);
+      if (!result.toolCalls.length && result.content) onDelta(result.content);
+      return result;
+    } catch (error) { errors.push(error instanceof Error ? error.message : String(error)); }
+  }
+  throw new Error(`All agent providers failed. ${errors.join(" | ")}`);
+}
+
 export async function complete(messages: LlmMessage[], tools: ToolSchema[] = [], options: { temperature?: number; preferred?: ProviderName | "custom" } = {}): Promise<LlmResult> {
   const providers = agentProviders();
   if (options.preferred && providers.includes(options.preferred)) providers.unshift(...providers.splice(providers.indexOf(options.preferred), 1));

@@ -12,7 +12,7 @@ export function hasDb() {
 
 export function sql() {
   if (!process.env.POSTGRES_URL) throw new Error("POSTGRES_URL is not configured. Elias needs Postgres (Supabase) for memory, conversations, schedules and approvals.");
-  globalThis.__eliasAssistantDb ||= postgres(process.env.POSTGRES_URL, { max: 1, prepare: false });
+  globalThis.__eliasAssistantDb ||= postgres(process.env.POSTGRES_URL, { max: 1, prepare: false, onnotice: () => undefined });
   return globalThis.__eliasAssistantDb;
 }
 
@@ -51,6 +51,16 @@ export async function ready() {
     await db`create table if not exists public.elias_assistant_browsers (
       user_id text not null, conversation_id text not null, session_id text not null, connect_url text not null,
       updated_at timestamptz not null default now(), primary key (user_id, conversation_id))`;
+    // v2 (additive): schedule kinds + per-schedule options, per-user settings, rate limits, imports.
+    await db`alter table public.elias_schedules add column if not exists kind text not null default 'custom'`;
+    await db`alter table public.elias_schedules add column if not exists options jsonb not null default '{}'::jsonb`;
+    await db`create table if not exists public.elias_user_settings (
+      user_id text primary key, timezone text, daily_brief_seeded_at timestamptz, legacy_import_at timestamptz,
+      data jsonb not null default '{}'::jsonb, updated_at timestamptz not null default now())`;
+    await db`create table if not exists public.elias_rate_events (
+      id bigserial primary key, bucket text not null, at timestamptz not null default now())`;
+    await db`create index if not exists elias_rate_events_bucket_idx on public.elias_rate_events(bucket, at)`;
+    await db`alter table public.elias_conversations add column if not exists source text not null default 'server'`;
   })().catch((error) => { globalThis.__eliasAssistantSchema = undefined; throw error; });
   await globalThis.__eliasAssistantSchema;
   return db;

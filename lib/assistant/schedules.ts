@@ -6,7 +6,7 @@ export type ScheduleSpec =
   | { type: "daily"; time: string }
   | { type: "weekly"; days: number[]; time: string }; // days: 0=Sunday..6=Saturday
 
-export type Schedule = { id: string; name: string; prompt: string; spec: ScheduleSpec; timezone: string; status: string; nextRunAt: string | null; lastRunAt: string | null; lastResult: string | null; conversationId: string | null };
+export type Schedule = { id: string; name: string; prompt: string; spec: ScheduleSpec; timezone: string; status: string; nextRunAt: string | null; lastRunAt: string | null; lastResult: string | null; conversationId: string | null; kind: string };
 
 function parts(date: Date, timezone: string) {
   const values = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: timezone, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", weekday: "short" })
@@ -53,7 +53,7 @@ export function describeSpec(spec: ScheduleSpec, timezone: string) {
   return `${spec.days.map((day) => names[day]).join(", ")} at ${spec.time} (${timezone})`;
 }
 
-function normalizeSpec(input: Record<string, unknown>): ScheduleSpec {
+export function normalizeSpec(input: Record<string, unknown>): ScheduleSpec {
   const type = String(input.type || "");
   const time = String(input.time || "08:00");
   if (type !== "once" && !/^\d{1,2}:\d{2}$/.test(time) && type !== "interval") throw new Error("time must be HH:MM.");
@@ -66,7 +66,7 @@ function normalizeSpec(input: Record<string, unknown>): ScheduleSpec {
 
 function row(item: Record<string, unknown>): Schedule {
   const iso = (value: unknown) => value ? new Date(value as string).toISOString() : null;
-  return { id: String(item.id), name: String(item.name), prompt: String(item.prompt), spec: item.spec as ScheduleSpec, timezone: String(item.timezone), status: String(item.status), nextRunAt: iso(item.next_run_at), lastRunAt: iso(item.last_run_at), lastResult: (item.last_result as string) || null, conversationId: (item.conversation_id as string) || null };
+  return { id: String(item.id), name: String(item.name), prompt: String(item.prompt), spec: item.spec as ScheduleSpec, timezone: String(item.timezone), status: String(item.status), nextRunAt: iso(item.next_run_at), lastRunAt: iso(item.last_run_at), lastResult: (item.last_result as string) || null, conversationId: (item.conversation_id as string) || null, kind: (item.kind as string) || "custom" };
 }
 
 export async function createSchedule(userId: string, input: { name: string; prompt: string; schedule: Record<string, unknown>; timezone?: string; conversationId?: string }) {
@@ -96,10 +96,34 @@ export async function setScheduleStatus(userId: string, id: string, status: "act
   return rows[0] ? row(rows[0]) : null;
 }
 
-/** Claims due schedules atomically so overlapping ticks never run one twice. */
-export async function claimDueSchedules(limit = 5) {
+/** Edits a schedule's name, prompt, time or timezone and recomputes its next run. */
+export async function updateSchedule(userId: string, id: string, input: { name?: string; prompt?: string; time?: string; days?: number[]; timezone?: string }) {
   const db = await ready();
-  const rows = await db`update public.elias_schedules set next_run_at = null
+  const current = (await db`select * from public.elias_schedules where id = ${id} and user_id = ${userId}`)[0];
+  if (!current) return null;
+  const schedule = row(current);
+  let spec = schedule.spec;
+  if (input.time !== undefined || input.days !== undefined) {
+    if (spec.type !== "daily" && spec.type !== "weekly") throw new Error("Only daily and weekly tasks have a time to change.");
+    const time = input.time ?? spec.time;
+    if (!/^([01]?\d|2[0-3]):[0-5]\d$/.test(time)) throw new Error("time must be HH:MM (24h).");
+    spec = spec.type === "weekly" ? { type: "weekly", time, days: input.days ?? spec.days } : { type: "daily", time };
+  }
+  const timezone = input.timezone && validTimezone(input.timezone) ? input.timezone : schedule.timezone;
+  const next = schedule.status === "active" ? nextRun(spec, timezone) : null;
+  const rows = await db`update public.elias_schedules set name = ${(input.name ?? schedule.name).slice(0, 120)}, prompt = ${(input.prompt ?? schedule.prompt).slice(0, 4000)},
+    spec = ${db.json(spec as never)}, timezone = ${timezone}, next_run_at = ${schedule.status === "active" ? next : current.next_run_at as Date | null} where id = ${id} and user_id = ${userId} returning *`;
+  return row(rows[0]);
+}
+
+/** Claims due schedules atomically so overlapping ticks never run one twice. Optionally only one user's. */
+export async function claimDueSchedules(limit = 5, userId?: string) {
+  const db = await ready();
+  const rows = userId
+    ? await db`update public.elias_schedules set next_run_at = null
+    where id in (select id from public.elias_schedules where status = 'active' and user_id = ${userId} and next_run_at <= now() order by next_run_at limit ${limit} for update skip locked)
+    returning *, user_id`
+    : await db`update public.elias_schedules set next_run_at = null
     where id in (select id from public.elias_schedules where status = 'active' and next_run_at <= now() order by next_run_at limit ${limit} for update skip locked)
     returning *, user_id`;
   return rows.map((item) => ({ ...row(item), userId: String(item.user_id) }));

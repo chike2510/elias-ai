@@ -4,6 +4,7 @@ import { calendarCreate, calendarDelete, calendarList, gmailDraft, gmailRead, gm
 import { createSchedule, describeSpec, listSchedules, setScheduleStatus } from "@/lib/assistant/schedules";
 import { elementLabel, endBrowser, looksConsequential, openBrowser, snapshot, type BrowserHandle } from "@/lib/assistant/browser";
 import { fetchUrl, searchWeb } from "@/lib/webSearch";
+import { cityFromTimezone, gatherBrief, getSettings, weatherFor } from "@/lib/assistant/brief";
 
 export type ToolContext = {
   userId: string;
@@ -39,6 +40,14 @@ const TOOLS: Record<string, Tool> = {
   web_open: {
     schema: { name: "web_open", description: "Fetch a public web page as text. Use to read a search result before relying on it.", parameters: obj({ url: s("https URL") }, ["url"]) },
     run: async (args) => ({ url: args.url, text: (await fetchUrl(str(args.url))).slice(0, 12_000) }),
+  },
+  weather: {
+    schema: { name: "weather", description: "Current weather and today's high/low/rain chance for a place (free open-meteo). Defaults to the user's saved city or their timezone's city.", parameters: obj({ place: s("City or town, e.g. 'Owerri' or 'Lagos, Nigeria'") }) },
+    run: async (args, ctx) => weatherFor(str(args.place) || (await getSettings(ctx.userId).catch(() => null))?.city || cityFromTimezone(ctx.timezone)),
+  },
+  daily_brief: {
+    schema: { name: "daily_brief", description: "Gather the user's day in one call: today's calendar and important unread email (when Google is connected), reminders due today, approvals waiting, and the weather. Use for 'plan my day', 'brief me', 'what's my day like'.", parameters: obj({ place: s("Optional weather place") }) },
+    run: async (args, ctx) => gatherBrief(ctx.userId, ctx.timezone, str(args.place) || null),
   },
 
   memory_save: {
