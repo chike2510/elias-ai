@@ -3896,3 +3896,41 @@ input::placeholder, textarea::placeholder, .composer > textarea::placeholder, .c
 .screen .repo-task-committed { color: #28633e; }
 
 .command-action-item { width: 100%; border: 0; background: transparent; font: inherit; text-align: left; cursor: pointer; }
+
+/* ---------- Elias assistant (tool-calling chat) ---------- */
+.assistant-screen { display: flex; flex-direction: column; gap: 12px; max-width: 760px; margin: 0 auto; width: 100%; min-height: calc(100dvh - var(--app-topbar-height, 56px)); padding: 12px 14px 0; }
+.assistant-top { display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; align-items: center; }
+.assistant-tabs, .assistant-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.assistant-tabs button, .assistant-chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--m-line); background: var(--m-surface); color: var(--m-muted); border-radius: 999px; padding: 6px 12px; font-size: 13px; cursor: pointer; text-decoration: none; }
+.assistant-tabs button.active { color: var(--m-text); border-color: var(--m-purple); }
+.assistant-chip.ok { color: var(--m-text); }
+.assistant-history { display: flex; flex-direction: column; gap: 4px; border: 1px solid var(--m-line); border-radius: 16px; padding: 8px; background: var(--m-surface); max-height: 40dvh; overflow: auto; }
+.assistant-history button { display: flex; justify-content: space-between; gap: 8px; text-align: left; background: none; border: 0; color: var(--m-text); padding: 8px 10px; border-radius: 10px; cursor: pointer; font-size: 14px; }
+.assistant-history button.active, .assistant-history button:hover { background: rgba(135, 89, 255, .12); }
+.assistant-history em { font-style: normal; background: var(--m-purple); color: #fff; border-radius: 999px; padding: 0 7px; font-size: 12px; }
+.assistant-error { display: flex; justify-content: space-between; gap: 8px; border: 1px solid #ff5d6c55; color: #ffb3ba; background: #ff5d6c14; border-radius: 12px; padding: 10px 12px; font-size: 14px; }
+.assistant-error button { background: none; border: 0; color: inherit; cursor: pointer; }
+.assistant-thread { flex: 1; display: flex; flex-direction: column; gap: 10px; padding-bottom: 12px; }
+.assistant-empty { margin: 8vh auto 0; text-align: center; max-width: 520px; color: var(--m-muted); }
+.assistant-empty h2 { color: var(--m-text); font-size: 22px; margin-bottom: 8px; }
+.assistant-suggestions { display: grid; gap: 8px; margin-top: 18px; }
+.assistant-suggestions button { border: 1px solid var(--m-line); background: var(--m-surface); color: var(--m-text); border-radius: 14px; padding: 10px 12px; text-align: left; cursor: pointer; font-size: 14px; }
+.assistant-bubble { max-width: 86%; padding: 10px 14px; border-radius: 18px; line-height: 1.45; font-size: 15px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.assistant-bubble.user { align-self: flex-end; background: var(--m-purple); color: #fff; border-bottom-right-radius: 6px; }
+.assistant-bubble.assistant { align-self: flex-start; background: var(--m-surface); color: var(--m-text); border: 1px solid var(--m-line); border-bottom-left-radius: 6px; white-space: normal; }
+.assistant-bubble.typing { display: inline-flex; align-items: center; gap: 8px; color: var(--m-muted); }
+.assistant-approval { align-self: stretch; border: 1px solid var(--m-purple); border-radius: 16px; padding: 12px; background: rgba(135, 89, 255, .08); color: var(--m-text); }
+.assistant-approval pre { white-space: pre-wrap; font-family: inherit; font-size: 14px; margin: 8px 0 10px; color: var(--m-text); max-height: 260px; overflow: auto; }
+.assistant-approval div { display: flex; gap: 8px; }
+.assistant-approval button { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 8px 14px; border: 1px solid var(--m-line); background: var(--m-surface); color: var(--m-text); cursor: pointer; }
+.assistant-approval button.approve { background: var(--m-purple); border-color: var(--m-purple); color: #fff; }
+.assistant-composer { position: sticky; bottom: 0; display: flex; gap: 8px; align-items: flex-end; padding: 10px 0 calc(12px + env(safe-area-inset-bottom)); background: linear-gradient(transparent, var(--m-bg) 30%); }
+.assistant-composer textarea { flex: 1; resize: none; min-height: 46px; max-height: 160px; border-radius: 23px; border: 1px solid var(--m-line); background: var(--m-surface); color: var(--m-text); padding: 12px 16px; font: inherit; font-size: 15px; }
+.assistant-composer button { flex: none; width: 46px; height: 46px; border-radius: 50%; border: 0; background: var(--m-purple); color: #fff; display: grid; place-items: center; cursor: pointer; }
+.assistant-composer button:disabled { opacity: .45; cursor: default; }
+.assistant-list { display: flex; flex-direction: column; gap: 8px; padding-bottom: 24px; }
+.assistant-muted { color: var(--m-muted); font-size: 14px; }
+.assistant-row { display: flex; gap: 10px; align-items: flex-start; border: 1px solid var(--m-line); border-radius: 14px; padding: 10px 12px; background: var(--m-surface); color: var(--m-text); }
+.assistant-row p { flex: 1; margin: 0; font-size: 14px; line-height: 1.45; }
+.assistant-row .tag { flex: none; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--m-purple-soft); padding-top: 2px; min-width: 70px; }
+.assistant-row button { background: none; border: 0; color: var(--m-muted); cursor: pointer; }

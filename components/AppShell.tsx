@@ -8,6 +8,7 @@ import HistoryDrawer from "@/components/HistoryDrawer";
 import { getConversations, type ConversationRecord } from "@/lib/persistence";
 
 const navigation = [
+  { href: "/assistant", label: "Elias", icon: Sparkles, id: "assistant" },
   { href: "/chat", label: "New convo", icon: Plus, id: "new" },
   { href: "/projects", label: "Projects", icon: Folder, id: "projects" },
   { href: "/agent", label: "Coding workspace", icon: Code2, id: "coding" },
@@ -77,6 +78,7 @@ export default function AppShell({ children, title }: { children: React.ReactNod
   }
 
   const isActive = (id: typeof navigation[number]["id"]) => {
+    if (id === "assistant") return pathname.startsWith("/assistant");
     if (id === "new") return pathname === "/" || pathname.startsWith("/chat");
     if (id === "projects") return pathname.startsWith("/projects");
     if (id === "coding") return pathname.startsWith("/agent");
