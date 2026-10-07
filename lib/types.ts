@@ -1,6 +1,6 @@
 export type TaskType = "general" | "code" | "research" | "study" | "media";
 
-export type ProviderName = "huggingface" | "experiential" | "qwen" | "agentrouter" | "groq" | "mistral" | "github";
+export type ProviderName = "huggingface" | "experiential" | "qwen" | "agentrouter" | "groq" | "mistral" | "github" | "cerebras" | "openrouter";
 
 export type ModelCapability = "text" | "reasoning" | "code" | "vision" | "image-generation" | "tool-use" | "streaming";
 

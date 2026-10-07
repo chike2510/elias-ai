@@ -38,6 +38,16 @@ const CONFIG: Record<ProviderName, ProviderConfig> = {
     key: process.env.MISTRAL_API_KEY,
     baseUrl: "https://api.mistral.ai/v1",
   },
+  cerebras: {
+    name: "cerebras",
+    key: process.env.CEREBRAS_API_KEY,
+    baseUrl: "https://api.cerebras.ai/v1",
+  },
+  openrouter: {
+    name: "openrouter",
+    key: process.env.OPENROUTER_API_KEY,
+    baseUrl: "https://openrouter.ai/api/v1",
+  },
   github: {
     name: "github",
     key: process.env.GITHUB_TOKEN,

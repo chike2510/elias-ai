@@ -279,7 +279,16 @@ export default function ChatView() {
 export function ErrorCard({ text, onRetry }: { text: string; onRetry?: () => void }) {
   return <section className="el-error-card" role="alert">
     <AlertCircle size={18} />
-    <div><strong>That didn't go through</strong><small>{text}</small></div>
+    <div><strong>That didn't go through</strong>{friendly(text).short ? <small>{friendly(text).short}</small> : null}{friendly(text).details ? <details className="el-error-details"><summary>Details</summary><small>{friendly(text).details}</small></details> : null}</div>
     {onRetry ? <button type="button" className="el-btn" onClick={onRetry}><RefreshCw size={15} /> Retry</button> : null}
   </section>;
+}
+
+/** Turns raw provider dumps into one plain sentence, keeping the raw text behind Details. */
+function friendly(text: string): { short: string; details?: string } {
+  if (/All agent providers failed|No tool-capable model provider/i.test(text)) {
+    return { short: "Elias couldn't reach any AI model just now. Try again in a minute.", details: text };
+  }
+  if (text.length > 160) return { short: `${text.slice(0, 140).trim()}…`, details: text };
+  return { short: text };
 }

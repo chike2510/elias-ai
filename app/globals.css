@@ -2655,3 +2655,7 @@ a.el-list-row:hover, button.el-list-row:hover { background: var(--surface-2); }
 
 /* Secondary screens (legacy layouts) inside the new shell */
 .el-content > main.screen, .el-content > .screen { min-height: 100%; }
+
+.el-error-details{margin-top:6px}
+.el-error-details summary{cursor:pointer;font-size:13px;color:var(--m-muted);min-height:32px;display:flex;align-items:center}
+.el-error-details small{display:block;max-height:180px;overflow:auto;word-break:break-word;font-family:var(--font-mono);font-size:11px}
