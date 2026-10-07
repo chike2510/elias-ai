@@ -3,6 +3,7 @@ import { briefCards, fallbackBrief, gatherBrief, getSettings } from "@/lib/assis
 import { claimDueSchedules, finishScheduleRun, type Schedule } from "@/lib/assistant/schedules";
 import { getGitHubConnection } from "@/lib/githubConnectionStore";
 import { captureError } from "@/lib/observability";
+import { notifyUser } from "@/lib/assistant/push";
 
 type Due = Schedule & { userId: string };
 
@@ -35,6 +36,7 @@ export async function runDueSchedules(limit = 3, userId?: string) {
         ? await runDailyBrief(schedule)
         : await runTurn({ userId: schedule.userId, conversationId: schedule.conversationId || undefined, text: schedule.prompt, timezone: schedule.timezone, githubToken: await getGitHubConnection(schedule.userId).then((item) => item?.token).catch(() => undefined), origin: "schedule" });
       await finishScheduleRun(schedule, turn.reply, turn.conversationId);
+      await notifyScheduleRun(schedule, turn);
       results.push({ id: schedule.id, ok: true });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -44,4 +46,13 @@ export async function runDueSchedules(limit = 3, userId?: string) {
     }
   }
   return results;
+}
+
+/** Push for a finished scheduled run: the brief or a reminder, plus any approval it left waiting. */
+async function notifyScheduleRun(schedule: Due, turn: { reply: string; conversationId: string; approvals?: Array<{ id: string; summary: string }> }) {
+  const url = `/chat?id=${turn.conversationId}`;
+  const brief = schedule.kind === "daily_brief";
+  await notifyUser(schedule.userId, brief ? "brief" : "reminders", { title: brief ? "Your daily brief" : schedule.name, body: turn.reply.replace(/[*#`>_]/g, ""), url, tag: `schedule-${schedule.id}` });
+  const approval = turn.approvals?.[0];
+  if (approval) await notifyUser(schedule.userId, "approvals", { title: "Waiting on your OK", body: approval.summary.split("\n")[0], url, tag: `approval-${approval.id}` });
 }

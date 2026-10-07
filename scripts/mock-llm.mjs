@@ -19,6 +19,21 @@ function decide(data) {
   const text = (content) => ({ role: "assistant", content });
   if (!data.tools) return text(lastUser.includes("long-term memory") ? '{"facts":[{"kind":"preference","content":"Prefers window seats on flights."}]}' : "Summary.");
   if (msgs[0].content.includes("MORNING BRIEF DATA")) return text("Morning! Mild day ahead. Nothing urgent before noon, so start with the hard thing.");
+  // Background job slices (the job brief rides in the system prompt).
+  const job = msgs[0].content.match(/TASK: ([\w-]+)/)?.[1];
+  if (msgs[0].content.includes("BACKGROUND JOB") && job) {
+    const starting = lastUser.includes("Start the job");
+    if (job === "multi-research") {
+      if (last.role === "tool") return text("Checked the time.\nSTATUS: CONTINUE\nNotes: time checked, next compare suya spots.");
+      return starting ? call("get_time", {}) : text("STATUS: DONE\n**Glover Court Suya** is the pick: consistent, open late.");
+    }
+    if (job === "email-task") {
+      if (last.role === "tool") return text("Drafted it; waiting for the go-ahead.");
+      return starting ? call("gmail_send", { to: "ada@example.com", subject: "Friday", body: "Hi Ada, still on for Friday?" }) : text("STATUS: DONE\nThe email step is settled.");
+    }
+    if (job === "slow-task") return text("Still going.\nSTATUS: CONTINUE\nMore notes.");
+    if (job === "crash-task") throw new Error("mock crash");
+  }
   if (last.role === "tool") {
     const tools = msgs.filter((m) => m.role === "tool");
     if (lastUser.includes("plan my day")) return text("Here's your day: a light one. Block the morning for deep work and clear email after lunch.");
@@ -30,6 +45,7 @@ function decide(data) {
     if (process.env.MOCK_LLM_FRIENDLY && lastUser.includes("search")) return text("Lagos has great options. Glover Court Suya keeps topping the lists. Want directions?");
     return text(`OK after ${tools.length} tool(s): ${last.content.slice(0, 120)}`);
   }
+  if (lastUser.includes("start a background job")) return call("start_background_job", { title: "Suya research", prompt: "multi-research the best suya in Lagos", kind: "research" });
   if (lastUser.includes("remember")) return call("memory_save", { content: "Chikeziri lives in Port Harcourt.", kind: "profile" });
   if (lastUser.includes("every morning") && lastUser.includes("Remind")) return call("schedule_create", { name: "Drink water", prompt: "Remind me to drink water.", schedule: { type: "daily", time: "08:00" } });
   if (lastUser.includes("every morning")) return call("schedule_create", { name: "Brief", prompt: "Brief me", schedule: { type: "daily", time: "08:00" } });
@@ -58,7 +74,8 @@ http.createServer(async (req, res) => {
     res.end(JSON.stringify({ error: { message: `model ${data.model} does not support image input` } }));
     return;
   }
-  const message = decide(data);
+  let message;
+  try { message = decide(data); } catch (error) { res.statusCode = 500; res.setHeader("content-type", "application/json"); res.end(JSON.stringify({ error: { message: String(error.message) } })); return; }
   if (!data.stream) { res.setHeader("content-type", "application/json"); res.end(JSON.stringify({ choices: [{ message }] })); return; }
   res.writeHead(200, { "content-type": "text/event-stream" });
   const send = (delta) => res.write(`data: ${JSON.stringify({ choices: [{ delta }] })}\n\n`);

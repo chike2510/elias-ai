@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import "./background.css";
 import AuthGate from "@/components/AuthGate";
 import PwaRegistration from "@/components/PwaRegistration";
 

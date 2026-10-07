@@ -1,5 +1,6 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 import postgres from "postgres";
+import { migrateBackground } from "@/lib/assistant/schemaBackground";
 
 declare global {
   var __eliasAssistantDb: ReturnType<typeof postgres> | undefined;
@@ -61,6 +62,7 @@ export async function ready() {
       id bigserial primary key, bucket text not null, at timestamptz not null default now())`;
     await db`create index if not exists elias_rate_events_bucket_idx on public.elias_rate_events(bucket, at)`;
     await db`alter table public.elias_conversations add column if not exists source text not null default 'server'`;
+    await migrateBackground(db);
   })().catch((error) => { globalThis.__eliasAssistantSchema = undefined; throw error; });
   await globalThis.__eliasAssistantSchema;
   return db;

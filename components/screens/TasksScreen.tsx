@@ -6,6 +6,7 @@ import { ChevronRight, Clock3, MapPin, Pause, Pencil, Play, ShieldCheck, SquareK
 import { useCallback, useEffect, useState } from "react";
 import AppShell, { ListSkeleton } from "@/components/AppShell";
 import TaskWorkspace from "@/components/screens/TaskWorkspace";
+import JobsSection from "@/components/screens/JobsSection";
 import { ErrorCard } from "@/components/chat/ChatView";
 import { api, userTimezone, type Approval } from "@/lib/chatClient";
 
@@ -59,7 +60,7 @@ function TasksHome() {
 
   return <AppShell title="Tasks">
     <main className="el-page">
-      <header className="el-page-head"><h1>Tasks</h1><p>What Elias does for you on a schedule, and what's waiting on your OK.</p></header>
+      <header className="el-page-head"><h1>Tasks</h1><p>What Elias is working on in the background, does on a schedule, and what's waiting on your OK.</p></header>
       {error ? <ErrorCard text={error} onRetry={() => void load()} /> : null}
 
       <section className="el-section">
@@ -72,6 +73,8 @@ function TasksHome() {
           <ChevronRight size={17} className="el-list-trail" />
         </Link></li>)}</ul> : null}
       </section>
+
+      <JobsSection />
 
       <section className="el-section">
         <h2>Scheduled</h2>

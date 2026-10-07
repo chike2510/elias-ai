@@ -1,7 +1,7 @@
 "use client";
 
 import { AlertCircle, ArrowUp, Brain, CalendarDays, Check, Clock3, Mail, RefreshCw, Square, Sun } from "lucide-react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import AppShell from "@/components/AppShell";
 import MarkdownMessage from "@/components/MarkdownMessage";
@@ -11,6 +11,7 @@ import MemorySheet from "@/components/chat/MemorySheet";
 import { AttachMenu, AttachmentStrip, choiceName, MessageAttachments, MicButton, ModelSheet, RecordingBar, ReplyMeta, useVoice, type DraftAttachment } from "@/components/chat/ComposerTools";
 import { announceConversationsChanged, api, haptic, sendChat, userTimezone, type Approval, type Card, type ChatAttachment, type ConnectCard as ConnectInfo, type MemoryChip, type StoredAttachment, type StoredMessage, type TurnEvent } from "@/lib/chatClient";
 import { isImageFile, MAX_ATTACHMENT_BYTES, prepareImage, uploadDocument } from "@/lib/chatMedia";
+import NotificationPrompt from "@/components/NotificationPrompt";
 import { importedIdFor, migrateLegacyConversations } from "@/lib/legacyImport";
 import { formatChatTimestamp } from "@/lib/chatTimestamp.mjs";
 
@@ -30,6 +31,8 @@ type UiMessage = {
   attachments?: StoredAttachment[];
   model?: string;
   createdAt?: string;
+  /** Set when this turn scheduled something or started a background job: a good moment to offer notifications. */
+  nudgePush?: boolean;
 };
 
 const MODEL_KEY = "elias:model";
@@ -86,6 +89,7 @@ function setUrlId(id: string | null) {
 
 export default function ChatView() {
   const params = useSearchParams();
+  const router = useRouter();
   const idParam = params.get("id");
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<UiMessage[]>([]);
@@ -160,6 +164,10 @@ export default function ChatView() {
     if (prompt) void send(prompt);
     try { const saved = localStorage.getItem(MODEL_KEY); if (saved) setModelChoice(saved); } catch { /* private mode */ }
     void api<{ choice: string }>("/api/assistant/models?only=choice").then((data) => { setModelChoice(data.choice); try { localStorage.setItem(MODEL_KEY, data.choice); } catch { /* ignore */ } }).catch(() => undefined);
+    // First run: send new users through the short onboarding (skippable; redo from You).
+    if (!search.get("id") && !prompt && !draft && !error && !search.get("connected")) {
+      void api<{ onboarding: { needed: boolean } }>("/api/assistant/onboarding").then((data) => { if (data.onboarding.needed) router.replace("/welcome"); }).catch(() => undefined);
+    }
     const timezone = userTimezone();
     void api(`/api/assistant/status?timezone=${encodeURIComponent(timezone)}`).catch(() => undefined);
     void api<{ ran: Array<{ ok: boolean }> }>("/api/assistant/tick", { method: "POST", body: "{}" }).then((data) => {
@@ -167,6 +175,21 @@ export default function ChatView() {
     }).catch(() => undefined);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Background results (jobs, schedules) land while the app is open or in the background:
+  // refresh quietly when a push arrives or the tab becomes visible again.
+  useEffect(() => {
+    const refresh = () => { announceConversationsChanged(); if (conversationRef.current && !abortRef.current) void loadConversation(conversationRef.current, true); };
+    const onMessage = (event: MessageEvent) => {
+      const data = event.data as { type?: string; url?: string } | null;
+      if (data?.type === "elias:push") refresh();
+      else if (data?.type === "elias:navigate" && typeof data.url === "string" && data.url.startsWith("/")) window.location.assign(data.url);
+    };
+    const onVisible = () => { if (document.visibilityState === "visible") refresh(); };
+    navigator.serviceWorker?.addEventListener("message", onMessage);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { navigator.serviceWorker?.removeEventListener("message", onMessage); document.removeEventListener("visibilitychange", onVisible); };
+  }, [loadConversation]);
 
   useLayoutEffect(() => {
     const thread = threadRef.current;
@@ -191,7 +214,7 @@ export default function ChatView() {
   function onEvent(event: TurnEvent) {
     if (event.type === "conversation") {
       if (conversationRef.current !== event.conversationId) { conversationRef.current = event.conversationId; setConversationId(event.conversationId); setUrlId(event.conversationId); announceConversationsChanged(); }
-    } else if (event.type === "status") patchLast((message) => ({ ...message, statusLine: event.label }));
+    } else if (event.type === "status") patchLast((message) => ({ ...message, statusLine: event.label, nudgePush: message.nudgePush || event.tool === "schedule_create" || event.tool === "start_background_job" }));
     else if (event.type === "tool_done") patchLast((message) => ({ ...message, statusLine: "Thinking…" }));
     else if (event.type === "delta") patchLast((message) => ({ ...message, content: message.content + event.text, statusLine: undefined }));
     else if (event.type === "reset") patchLast((message) => ({ ...message, content: "" }));
@@ -314,6 +337,7 @@ export default function ChatView() {
               {message.approvalIds.map((id) => approvalsById.get(id)).filter((item): item is Approval => Boolean(item)).map((approval) => <ApprovalCard key={approval.id} approval={approval} onDecide={(decision, edits) => decide(approval, decision, edits)} />)}
               {message.status !== "streaming" && message.status !== "error" ? <MessageTimestamp createdAt={message.createdAt} /> : null}
               {message.status !== "streaming" && message.status !== "error" && message.content ? <ReplyMeta content={message.content} model={message.model} /> : null}
+              {message.nudgePush && message.status === "done" ? <NotificationPrompt /> : null}
               {message.memories.length ? <div className="el-memory-chips">{message.memories.map((chip) => <button type="button" key={chip.id} className="el-memory-chip" title={chip.content} onClick={() => setMemory({ chip, messageKey: message.key })}><Brain size={13} /> {message.memories.length > 1 ? chip.content.slice(0, 28) + (chip.content.length > 28 ? "…" : "") : "Saved to memory"}</button>)}</div> : null}
             </div>)}
           {orphanPending.map((approval) => <div key={approval.id} className="el-row assistant"><ApprovalCard approval={approval} onDecide={(decision, edits) => decide(approval, decision, edits)} /></div>)}
