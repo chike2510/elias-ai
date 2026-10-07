@@ -5,10 +5,12 @@ A Hark-style personal assistant built on one tool-calling loop.
 ## How a turn works
 
 1. `POST /api/assistant/chat` → `runTurn` (`lib/assistant/agent.ts`).
-2. Loads the last 30 messages of the conversation (Postgres), the memory block (core profile/preference/person facts + full-text matches for this message), and connection status.
+2. Loads the last 30 messages of the conversation (Postgres), the memory block (core profile/preference/person facts + hybrid vector/full-text matches for this message), and connection status.
 3. Calls the model with OpenAI-style `tools` (`lib/assistant/llm.ts`), falling back across providers (`ELIAS_AGENT_PROVIDERS`). Up to 10 tool steps.
 4. Tools live in `lib/assistant/tools.ts`. A tool with `needsApproval` is not executed: an `elias_approvals` row is created and the user gets an Approve/Decline card.
-5. After the reply, a cheap model call extracts durable facts into memory (`extractMemories`).
+5. After the reply, a cheap model call extracts durable facts (with a category and entity) into memory (`extractMemories`).
+   Every tool call with side effects is written to the audit log (`lib/assistant/audit.ts`), and hard safety rules
+   (no card numbers, no passwords/OTPs typed, no money-moving tools) are enforced before any tool runs.
 6. `POST /api/assistant/approvals/:id` executes (or declines) the stored call, records the result in the conversation, and lets Elias follow up.
 
 ## Chat input (v3): attachments, voice, model picker
@@ -40,12 +42,61 @@ A Hark-style personal assistant built on one tool-calling loop.
 | Calendar | calendar_list, calendar_create, calendar_delete | create with attendees, delete |
 | Schedules | schedule_create, schedule_list, schedule_update | – |
 | Browser | browser_open, browser_snapshot, browser_click, browser_type, browser_select, browser_close | final clicks (pay/order/book/send), detected by flag or button text |
-| GitHub | github_api (GET) | – |
+| GitHub | github_api (GET), github_issues, github_issue_create, github_prs, github_pr_status, github_ci_status | issue create |
+| Vercel | vercel_projects, vercel_deployments, vercel_redeploy | redeploy |
+| Supabase | supabase_health | – |
 | Background | start_background_job, background_jobs | – (the job's own tool calls keep their approval gates) |
+| Payments (read-only) | paystack_transactions, paystack_balance, flutterwave_transactions, flutterwave_balance, payments_summary | never moves money |
+
+Connector tools live in `lib/assistant/connectors.ts` and render as compact status cards in chat (`components/chat/ExtraCards.tsx`).
+The Connectors screen shows each one's status (`/api/assistant/status` → `connectors`).
 
 ## Storage (Supabase Postgres, created automatically)
 
-`elias_conversations`, `elias_messages`, `elias_memories` (tsvector full-text), `elias_oauth_tokens` (AES-GCM encrypted), `elias_schedules`, `elias_approvals`, `elias_assistant_browsers`, `elias_user_settings` (timezone, `data` JSON: city, `notify` prefs, `preferredName`, `onboardedAt`), `elias_push_subscriptions`, `elias_jobs`. The v3 tables live in `lib/assistant/schemaBackground.ts` and are created by `ready()`.
+`elias_conversations`, `elias_messages`, `elias_memories` (tsvector full-text + optional pgvector `embedding`, `entity`, `confirmed_at`), `elias_oauth_tokens` (AES-256-GCM encrypted), `elias_schedules`, `elias_approvals`, `elias_assistant_browsers`, `elias_user_settings`, `elias_rate_events`, `elias_audit_log`, `elias_telegram_links`, `elias_telegram_codes`, `elias_push_subscriptions`, `elias_jobs`. `elias_user_settings` keeps timezone plus a `data` JSON (city, `notify` prefs, `preferredName`, `onboardedAt`). Background-job and push tables live in `lib/assistant/schemaBackground.ts` (`migrateBackground`), memory/audit/Telegram ones in `lib/assistant/schemaV3.ts` (`migrateV3`); both run from `ready()`.
+
+Row Level Security is enabled on every `elias_*` table with **no policies**: the app connects as `postgres` through `POSTGRES_URL` (which bypasses RLS), while Supabase's public `anon`/`authenticated` roles (PostgREST) can't read or write anything. `migrateV3` (`lib/assistant/schemaV3.ts`) re-enables RLS on any new `elias_*` table.
+
+## Memory (v3)
+
+- **Categories and entities.** Each memory has a `kind` (person, place, project, preference, profile, fact) and an optional `entity` (who/what it's about). The Memory screen groups by category with filters; edits can re-file a memory.
+- **Hybrid recall.** `searchMemories` merges full-text (tsvector) and vector (pgvector cosine) results with reciprocal-rank fusion. Without pgvector or an embeddings provider it is plain full-text (that's what PGlite tests use by default).
+- **Embeddings are free.** First available wins (`lib/assistant/embeddings.ts`):
+  1. Supabase Edge Function `elias-embed` (`supabase/functions/elias-embed`, Supabase.ai **gte-small**, 384 dims). The app calls `${POSTGRES_SUPABASE_URL}/functions/v1/elias-embed` with header `x-elias-embed-secret: ELIAS_EMBED_SECRET` (or Bearer service-role key). Deployed with `verify_jwt=false`; the function checks the secret itself.
+  2. Gemini `text-embedding-004` at 384 dims when `GEMINI_API_KEY` is set.
+  3. Mistral `mistral-embed` (free tier) with `MISTRAL_API_KEY`.
+  Vectors are stored with their model name (`embedding_model`) and only compared within one model; switching providers re-embeds in the background. `ELIAS_EMBED_PROVIDER=off|supabase|gemini|mistral|hash` forces one (`hash` is a deterministic test embedder).
+- **Backfill.** New/edited memories are embedded on save; older ones are backfilled by the cron tick (48 per tick) and when the Memory screen loads.
+- **Weekly review.** Every user gets a "What I learned this week" schedule (kind `memory_review`, Sundays 18:00 in their timezone, seeded once like the daily brief; deleting it keeps it deleted). It posts a card into chat listing unconfirmed memories from the last 7 days, each with **Right / Edit / Forget**. Nothing is posted on weeks with nothing new.
+
+Redeploying the edge function (management API):
+
+```bash
+curl -X POST "https://api.supabase.com/v1/projects/<ref>/functions/deploy?slug=elias-embed" \
+  -H "Authorization: Bearer <SUPABASE_ACCESS_TOKEN>" \
+  -F 'metadata={"entrypoint_path":"index.ts","name":"elias-embed","verify_jwt":false};type=application/json' \
+  -F "file=@supabase/functions/elias-embed/index.ts;type=application/typescript"
+# and the function secret:
+curl -X POST "https://api.supabase.com/v1/projects/<ref>/secrets" -H "Authorization: Bearer <SUPABASE_ACCESS_TOKEN>" \
+  -H "content-type: application/json" -d '[{"name":"ELIAS_EMBED_SECRET","value":"<same value as the Vercel env>"}]'
+```
+
+## Security (v3)
+
+- **Tokens at rest.** Google OAuth tokens and GitHub connection tokens are AES-256-GCM encrypted with `ELIAS_ENCRYPTION_KEY` (32 bytes, base64 or hex; format `v2:iv.tag.data`, `lib/assistant/crypto.ts`). Rows written with the old session-derived key, or in plaintext, are still read and are re-encrypted the first time they're used. Don't rotate `ELIAS_ENCRYPTION_KEY` without re-encrypting (stored tokens would become unreadable and users would need to reconnect).
+- **Audit log.** `elias_audit_log` records every side-effect tool call (memory, Gmail, Calendar, schedules, browser input, GitHub issue, Vercel redeploy): user, tool, a redacted argument summary (secrets and card numbers masked), status (`ok`, `error`, `pending_approval`, `declined`, `blocked`), result, approval id, channel. Shown under **You → Activity** (`/you/activity`, `GET /api/assistant/activity`).
+- **Hard rules.** `unsafeCall` refuses any call containing a Luhn-valid card number, typing passwords/OTPs, and any tool whose name moves money (transfer/payout/charge/refund).
+
+## Telegram
+
+A second way to talk to Elias: same memory, tools and audit log. Approvals still happen in the app.
+
+1. In Telegram, message **@BotFather** → `/newbot` (free) → copy the token.
+2. Vercel env (Production): `TELEGRAM_BOT_TOKEN=<token>`, `TELEGRAM_WEBHOOK_SECRET=<random 32+ chars, A-Z a-z 0-9 _ ->`, optional `TELEGRAM_BOT_USERNAME=<bot username without @>` (for the "Open Telegram" button). Redeploy.
+3. Register the webhook once: `curl -X POST -H "Authorization: Bearer $ELIAS_HEALTH_TOKEN" https://<domain>/api/telegram/setup` (calls `setWebhook` with the secret token; Telegram then sends `X-Telegram-Bot-Api-Secret-Token` on every update and `/api/telegram/webhook` rejects anything else).
+4. In Elias: **You → Telegram → Link Telegram** shows a one-time 8-character code (15 minutes). Send it to the bot (or tap Open Telegram). `/new` starts a fresh conversation, `/unlink` disconnects.
+
+WhatsApp is not supported: the WhatsApp Business Cloud API needs a Meta business account and a verified number.
 
 ## Scheduler
 
@@ -85,7 +136,20 @@ Long work the user hands off ("research this in the background", the **New job**
 
 First run (redirected from chat when `data.onboardedAt` and `data.onboardingSkippedAt` are both empty), skippable, redo from You → "Redo setup". Steps: what to call you (saved as a profile memory), timezone (auto-detected) + brief time + weather city (updates or creates the daily brief), connect Google (shows "Not configured yet" without `GOOGLE_CLIENT_ID`) and notifications, then four tap-to-answer preference questions plus an optional note, each saved as a preference memory. API: `GET/POST /api/assistant/onboarding` with `action` = profile | routine | preferences | complete | skip | reset.
 
-## Setup checklist
+## Setup checklist (env-gated connectors)
+
+| Connector | Env | Notes |
+|---|---|---|
+| Memory embeddings | `ELIAS_EMBED_SECRET` (+ `POSTGRES_SUPABASE_URL`, already set) | or `GEMINI_API_KEY` / `MISTRAL_API_KEY` |
+| Token encryption | `ELIAS_ENCRYPTION_KEY` | `openssl rand -base64 32`; Production + Preview |
+| GitHub tools | per-user GitHub connection, else `GITHUB_TOKEN` | optional `GITHUB_DEFAULT_REPO=owner/name` |
+| Vercel tools | `VERCEL_API_TOKEN` | optional `VERCEL_TEAM_ID` |
+| Supabase health | `POSTGRES_URL` (DB check) | `SUPABASE_ACCESS_TOKEN` (personal access token from supabase.com/dashboard/account/tokens) for service health + security advisors; `SUPABASE_PROJECT_REF` if it can't be derived from `POSTGRES_SUPABASE_URL` |
+| Telegram | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `TELEGRAM_BOT_USERNAME` | see Telegram above |
+| Paystack (read-only) | `PAYSTACK_SECRET_KEY` | Elias only calls GET endpoints |
+| Flutterwave (read-only) | `FLUTTERWAVE_SECRET_KEY` | Elias only calls GET endpoints |
+
+## Core setup
 
 - `POSTGRES_URL` (already provided by the Supabase integration).
 - A tool-capable model: `HF_TOKEN` (default), `GROQ_API_KEY`, `MISTRAL_API_KEY`, or `ELIAS_AGENT_BASE_URL` + key for any OpenAI-compatible API.
@@ -97,4 +161,6 @@ First run (redirected from chat when `data.onboardedAt` and `data.onboardingSkip
 
 ## Testing
 
-`scripts/test-assistant.ts` runs the core end to end against Postgres and a scripted OpenAI-compatible mock (see header of the file). The mock rejects image parts unless the model name contains "vision", which exercises the vision fallback; the test covers the fast/strong/vision tiers, a pinned model override, stored attachment metadata and document context. `tests/chat-input-v3.test.mjs` unit-tests the router and attachment validation. It covers jobs (slices, lease exclusivity, approval pause/resume, cancel, lease expiry, failure, limits), the push send path (with `setPushSender` mocking the network: 410 pruning, muted types, brief push) and onboarding. `tests/push-service-worker.test.mjs` checks the service worker's push and click handlers.
+- `scripts/test-assistant.ts` runs the core end to end against Postgres and a scripted OpenAI-compatible mock (see header of the file). CI runs it twice: on plain PGlite (full-text fallback) and on PGlite with pgvector + `ELIAS_EMBED_PROVIDER=hash TEST_EXPECT_VECTOR=1` (hybrid recall). The mock rejects image parts unless the model name contains "vision", which exercises the vision fallback; the test covers the fast/strong/vision tiers, a pinned model override, stored attachment metadata and document context; it also covers jobs (slices, lease exclusivity, approval pause/resume, cancel, lease expiry, failure, limits), the push send path (with `setPushSender` mocking the network: 410 pruning, muted types, brief push) onboarding, and v3 memory, connectors, audit, Telegram and refusals. `tests/chat-input-v3.test.mjs` unit-tests the router and attachment validation. `tests/push-service-worker.test.mjs` checks the service worker's push and click handlers.
+- `evals/prompts.jsonl` (59 cases: tone/brevity, search, memory save/recall, schedules, Gmail when connected, approval gating, refusals, connectors) and `evals/run.ts` (`pnpm test:evals`). By default a scripted model plays each case so the score is deterministic and measures Elias's routing and gating; `ELIAS_EVAL_LIVE=1` runs the same cases against the real providers in env (pass threshold `ELIAS_EVAL_MIN`, default 0.7 live, 1.0 mock).
+- `.github/workflows/ci.yml` runs typecheck, unit tests, both integration runs and the evals on every PR and push to main.

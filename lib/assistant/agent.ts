@@ -8,6 +8,7 @@ import { browserConfigured, closeAll, type BrowserHandle } from "@/lib/assistant
 import { googleConfigured, googleConnection } from "@/lib/assistant/google";
 import { approvalDetails, cardFor, EDITABLE_ARGS, statusLabel, type ApprovalDetails, type Card, type ConnectCard, type MemoryChip } from "@/lib/assistant/cards";
 import { briefCards, type BriefData } from "@/lib/assistant/brief";
+import { recordAudit } from "@/lib/assistant/audit";
 
 const MAX_STEPS = 10;
 const HISTORY_MESSAGES = 30;
@@ -35,6 +36,8 @@ type RunOptions = {
   origin?: "chat" | "schedule" | "approval" | "job";
   /** Tool-loop bound for this turn (background job slices use fewer). */
   maxSteps?: number;
+  /** Where the message came from when not the web app (e.g. "telegram"), for the audit log. */
+  channel?: string;
   onEvent?: (event: TurnEvent) => void;
   /** Turn-only context appended to the system prompt (not stored in the conversation). */
   extraContext?: string;
@@ -85,6 +88,7 @@ RULES
 - Sending email, inviting people, deleting events, paying, ordering or booking all go through an approval card: just call the tool; the system pauses it for the user. Then tell the user in one line what is waiting on their tap. Never claim something was sent or bought unless the tool result says so.
 - Never ask for or type passwords, card numbers or one-time codes in chat.
 - For "remind me", "every morning", "check daily" requests, use schedule_create with a self-contained prompt.
+- Dev and money tools: github_* (issues, PRs, CI), vercel_* (projects, deployments, redeploy), supabase_health, and read-only paystack_*/flutterwave_*/payments_summary. You can read balances and transactions but never move money; refuse transfers or payments plainly.
 - If a tool fails, try another way once, then say plainly what blocked you and the next option.
 ${input.origin === "schedule" ? "- This turn was started by a scheduled task, not by the user typing. Do the job and reply with the result only. If nothing noteworthy, say so in one line." : ""}${input.origin === "job" ? "- This turn is one slice of a background job the user handed off. Nobody is watching live: work through the steps, then follow the job instructions for how to end your reply." : "- For long work (deep research across many sources, or a multi-step task that will take a while), offer or use start_background_job so the user can get on with their day; the result is posted back here with a notification."}${input.extra ? `\n\n${input.extra}` : ""}`;
 }
@@ -193,7 +197,7 @@ export async function runTurn(options: RunOptions): Promise<TurnResult> {
   ];
 
   const browsers = new Map<string, BrowserHandle>();
-  const ctx: ToolContext = { userId: options.userId, conversationId, timezone, githubToken: options.githubToken, browsers };
+  const ctx: ToolContext = { userId: options.userId, conversationId, timezone, githubToken: options.githubToken, browsers, origin: options.channel || origin };
   const tools = toolSchemas();
   const approvals: Approval[] = [];
   const actions: TurnResult["actions"] = [];
@@ -208,7 +212,7 @@ export async function runTurn(options: RunOptions): Promise<TurnResult> {
   const db = await ready();
   const addCard = (card: Card | null) => {
     if (!card) return;
-    const index = cards.findIndex((item) => item.kind === card.kind);
+    const index = cards.findIndex((item) => item.kind === card.kind && (card.kind !== "list" || (item as { title?: string }).title === card.title));
     if (index >= 0) cards[index] = card; else cards.push(card);
     emit({ type: "card", card });
   };
@@ -252,6 +256,7 @@ export async function runTurn(options: RunOptions): Promise<TurnResult> {
               const rows = await db`insert into public.elias_approvals (id, user_id, conversation_id, tool, args, summary) values (${id}, ${options.userId}, ${conversationId}, ${name}, ${db.json(args as never)}, ${summary}) returning *`;
               const approval = approvalRow(rows[0]);
               approvals.push(approval);
+              await recordAudit({ userId: options.userId, tool: name, args, status: "pending_approval", approvalId: id, conversationId, origin: options.channel || origin });
               emit({ type: "approval", approval });
               output = `PAUSED FOR APPROVAL (id ${id}). The user now sees an approval card with: ${summary}. Do not retry this call. Tell the user in one short line what is waiting for their go-ahead.`;
             } else {
@@ -324,11 +329,12 @@ export async function decideApproval(input: { userId: string; userName?: string;
   let note: string;
   if (input.decision === "decline") {
     note = `User DECLINED: ${summary}`;
+    await recordAudit({ userId: input.userId, tool, args, status: "declined", approvalId: input.approvalId, conversationId, origin: "approval" });
   } else {
     const browsers = new Map<string, BrowserHandle>();
     try {
       const { _context: _ignored, ...callArgs } = args;
-      const output = await runTool(tool, callArgs, { userId: input.userId, conversationId, timezone: input.timezone || "Africa/Lagos", githubToken: input.githubToken, browsers, approved: true });
+      const output = await runTool(tool, callArgs, { userId: input.userId, conversationId, timezone: input.timezone || "Africa/Lagos", githubToken: input.githubToken, browsers, approved: true, approvalId: input.approvalId, origin: "approval" });
       const text = compact(output).slice(0, 4000);
       await db`update public.elias_approvals set status = 'done', result = ${text} where id = ${input.approvalId}`;
       note = `User APPROVED and it was executed: ${summary}\nResult: ${text}`;

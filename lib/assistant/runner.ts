@@ -4,6 +4,7 @@ import { claimDueSchedules, finishScheduleRun, type Schedule } from "@/lib/assis
 import { getGitHubConnection } from "@/lib/githubConnectionStore";
 import { captureError } from "@/lib/observability";
 import { notifyUser } from "@/lib/assistant/push";
+import { runMemoryReview } from "@/lib/assistant/review";
 
 type Due = Schedule & { userId: string };
 
@@ -34,9 +35,11 @@ export async function runDueSchedules(limit = 3, userId?: string) {
     try {
       const turn = schedule.kind === "daily_brief"
         ? await runDailyBrief(schedule)
+        : schedule.kind === "memory_review"
+        ? await runMemoryReview(schedule)
         : await runTurn({ userId: schedule.userId, conversationId: schedule.conversationId || undefined, text: schedule.prompt, timezone: schedule.timezone, githubToken: await getGitHubConnection(schedule.userId).then((item) => item?.token).catch(() => undefined), origin: "schedule" });
       await finishScheduleRun(schedule, turn.reply, turn.conversationId);
-      await notifyScheduleRun(schedule, turn);
+      if (!("skipped" in turn && turn.skipped)) await notifyScheduleRun(schedule, turn);
       results.push({ id: schedule.id, ok: true });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

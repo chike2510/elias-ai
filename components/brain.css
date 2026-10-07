@@ -1,0 +1,60 @@
+/* Elias v3 "brain & trust": connector cards, memory review, grouped memory, activity, Telegram link.
+   Uses the app's tokens, so light and dark mode follow globals.css. Mobile-first (390px). */
+.el-status-dot { width: 9px; height: 9px; flex: 0 0 auto; border-radius: 50%; background: var(--faint); }
+.el-status-dot.ok { background: var(--ok); }
+.el-status-dot.warn { background: var(--warn); }
+.el-status-dot.error { background: var(--danger); }
+.el-status-dot.pending { background: var(--accent); animation: el-pulse 1.4s ease-in-out infinite; }
+.el-status-dot.info { background: var(--line-strong); }
+@keyframes el-pulse { 50% { opacity: .35; } }
+.el-card-foot { padding: 8px 14px 12px; color: var(--muted); font-size: 12.5px; border-top: 1px solid var(--line); }
+.el-card-row .el-card-text small { -webkit-line-clamp: 1; }
+
+.el-review { display: grid; gap: 0; }
+.el-review-item { display: grid; gap: 8px; padding: 12px 14px; }
+.el-review-item + .el-review-item { border-top: 1px solid var(--line); }
+.el-review-item p { margin: 0; font-size: 14.5px; line-height: 1.45; overflow-wrap: anywhere; }
+.el-review-meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; color: var(--muted); font-size: 12.5px; }
+.el-review-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.el-review-actions .el-btn { min-height: 36px; }
+.el-review-done { color: var(--ok); font-size: 13px; font-weight: 600; }
+.el-review-gone { color: var(--muted); font-size: 13px; }
+.el-review textarea { width: 100%; min-height: 72px; }
+
+.el-mem-group { display: grid; gap: 8px; margin-top: 18px; }
+.el-mem-group > h2 { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--muted); font-size: 13px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.el-mem-group > h2 small { color: var(--faint); font-weight: 600; }
+.el-mem-entity { display: inline-flex; align-items: center; max-width: 100%; min-height: 22px; padding: 0 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-text); font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.el-mem-confirmed { color: var(--ok); }
+.el-mem-filters { display: flex; gap: 8px; overflow-x: auto; padding: 2px 0 4px; scrollbar-width: none; }
+.el-mem-filters::-webkit-scrollbar { display: none; }
+.el-mem-filters button { flex: 0 0 auto; min-height: 36px; padding: 0 14px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--muted); font-size: 13.5px; font-weight: 600; text-transform: capitalize; }
+.el-mem-filters button.active { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-text); }
+.el-mem-kind { min-height: 36px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--text); padding: 0 8px; }
+.el-mem-entity-input { min-height: 36px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--text); padding: 0 10px; flex: 1; min-width: 0; }
+.el-editor-fields { display: flex; gap: 8px; }
+
+.el-activity-row { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; padding: 12px 14px; }
+.el-activity-row + .el-activity-row { border-top: 1px solid var(--line); }
+.el-activity-row .el-status-dot { margin-top: 6px; }
+.el-activity-main { display: grid; gap: 3px; min-width: 0; }
+.el-activity-main strong { font-size: 14.5px; font-weight: 600; }
+.el-activity-main code { font-family: var(--font-mono); font-size: 12px; color: var(--muted); overflow-wrap: anywhere; white-space: pre-wrap; }
+.el-activity-main small { color: var(--faint); font-size: 12.5px; }
+.el-activity-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); overflow: hidden; }
+.el-day { margin: 18px 0 8px; color: var(--muted); font-size: 13px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+
+.el-tg { display: grid; gap: 10px; padding: 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.el-tg p { margin: 0; color: var(--muted); font-size: 13.5px; line-height: 1.45; }
+.el-tg-code { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border-radius: 12px; background: var(--surface-2); font-family: var(--font-mono); font-size: 22px; font-weight: 700; letter-spacing: .14em; color: var(--text); }
+.el-tg-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.el-conn-note { margin: 6px 2px 0; color: var(--faint); font-size: 12.5px; line-height: 1.45; }
+.el-add-row .el-mem-kind { flex: 0 0 auto; width: 112px; min-height: var(--tap); }
+.el-add-row .el-btn { flex: 0 0 auto; }
+.el-mem-entity { justify-self: start; width: fit-content; }
+.el-back-link { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; margin-top: 8px; color: var(--muted); font-size: 14px; font-weight: 600; }
+/* The legacy ".screen *-row" paper surface (white, !important) breaks these rows in dark mode. */
+.screen .el-connections .el-list-row { border-color: transparent !important; background-color: transparent !important; box-shadow: none !important; }
+.screen .el-connections a.el-list-row:hover { background-color: var(--surface-2) !important; }
+.screen .el-connections .el-list { background: var(--surface); }
+.screen .el-connections .el-list-icon svg { border: 0 !important; background: none !important; box-shadow: none !important; }

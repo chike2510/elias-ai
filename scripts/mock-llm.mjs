@@ -46,6 +46,10 @@ function decide(data) {
     return text(`OK after ${tools.length} tool(s): ${last.content.slice(0, 120)}`);
   }
   if (lastUser.includes("start a background job")) return call("start_background_job", { title: "Suya research", prompt: "multi-research the best suya in Lagos", kind: "research" });
+  if (lastUser.includes("save my card")) return call("memory_save", { content: "Card is 4242 4242 4242 4242", kind: "fact" });
+  if (lastUser.includes("my vercel projects")) return call("vercel_projects", {});
+  if (lastUser.includes("redeploy elias")) return call("vercel_redeploy", { project: "elias-ai" });
+  if (lastUser.includes("open an issue")) return call("github_issue_create", { repo: "chike2510/elias-ai", title: "Bug: login", body: "Steps..." });
   if (lastUser.includes("remember")) return call("memory_save", { content: "Chikeziri lives in Port Harcourt.", kind: "profile" });
   if (lastUser.includes("every morning") && lastUser.includes("Remind")) return call("schedule_create", { name: "Drink water", prompt: "Remind me to drink water.", schedule: { type: "daily", time: "08:00" } });
   if (lastUser.includes("every morning")) return call("schedule_create", { name: "Brief", prompt: "Brief me", schedule: { type: "daily", time: "08:00" } });

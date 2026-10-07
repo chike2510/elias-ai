@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      ELIAS_AGENT_BASE_URL: http://127.0.0.1:5599
+      ELIAS_AGENT_PROVIDERS: custom
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Start PGlite (plain + pgvector) and the scripted model
+        run: |
+          mkdir -p /tmp/pg && cd /tmp/pg && npm init -y >/dev/null
+          npm i --no-audit --no-fund @electric-sql/pglite@0.5.8 @electric-sql/pglite-socket@0.2.11 @electric-sql/pglite-pgvector@0.0.9
+          nohup node node_modules/@electric-sql/pglite-socket/dist/scripts/server.js --port 5432 > /tmp/pg-plain.log 2>&1 &
+          nohup node node_modules/@electric-sql/pglite-socket/dist/scripts/server.js --port 5433 -e @electric-sql/pglite-pgvector:vector > /tmp/pg-vector.log 2>&1 &
+          nohup node node_modules/@electric-sql/pglite-socket/dist/scripts/server.js --port 5434 > /tmp/pg-evals.log 2>&1 &
+          cd "$GITHUB_WORKSPACE" && nohup node scripts/mock-llm.mjs 5599 > /tmp/mock.log 2>&1 &
+          for port in 5432 5433 5434 5599; do for i in $(seq 1 60); do (echo > /dev/tcp/127.0.0.1/$port) 2>/dev/null && break; sleep 1; done; done
+
+      - name: Integration test (full-text memory, no pgvector)
+        run: npx -y tsx scripts/test-assistant.ts
+        env:
+          POSTGRES_URL: postgres://postgres@127.0.0.1:5432/postgres
+
+      - name: Integration test (hybrid memory with pgvector)
+        run: npx -y tsx scripts/test-assistant.ts
+        env:
+          POSTGRES_URL: postgres://postgres@127.0.0.1:5433/postgres
+          ELIAS_EMBED_PROVIDER: hash
+          TEST_EXPECT_VECTOR: "1"
+
+      - name: Evals (deterministic, scripted model)
+        run: npx -y tsx evals/run.ts
+        env:
+          POSTGRES_URL: postgres://postgres@127.0.0.1:5434/postgres
+
+      - name: Logs on failure
+        if: failure()
+        run: tail -n 50 /tmp/pg-plain.log /tmp/pg-vector.log /tmp/pg-evals.log /tmp/mock.log || true

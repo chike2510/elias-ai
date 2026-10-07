@@ -18,6 +18,17 @@ import { countSubscriptions, notifyUser, saveSubscription, setPushSender, validS
 import { setNotifyPrefs } from "@/lib/assistant/userData";
 import { advanceJobs, cancelJob, claimJobs, createJob, getJob, listJobs, parseSlice, resumeAfterApproval, runSlice } from "@/lib/assistant/jobs";
 import { finishOnboarding, onboardingState, savePreferences, saveProfile, saveRoutine } from "@/lib/assistant/onboarding";
+import { decryptSecret, encryptSecret, needsReencrypt } from "@/lib/assistant/crypto";
+import { confirmMemory, groupedMemories, recentlyLearned, saveMemory } from "@/lib/assistant/memory";
+import { vectorSchema } from "@/lib/assistant/schemaV3";
+import { listAudit, summarizeArgs, unsafeCall } from "@/lib/assistant/audit";
+import { ensureMemoryReview } from "@/lib/assistant/review";
+import { createLinkCode, handleTelegramUpdate, telegramLinkFor } from "@/lib/assistant/telegram";
+import { connectorCard } from "@/lib/assistant/cards";
+import { summarizeTransactions } from "@/lib/assistant/connectors";
+import { gmailSearch } from "@/lib/assistant/google";
+
+for (const key of ["VERCEL_API_TOKEN", "PAYSTACK_SECRET_KEY", "FLUTTERWAVE_SECRET_KEY", "TELEGRAM_BOT_TOKEN", "TELEGRAM_WEBHOOK_SECRET", "ELIAS_ENCRYPTION_KEY"]) delete process.env[key];
 
 const user = `test_${Date.now()}`;
 // Tier-specific models for the custom provider, so the v3 router assertions can see which tier answered.
@@ -306,6 +317,8 @@ async function main() {
   assert.ok((await listMemories(newUser)).some((m) => m.content === "Prefers to be called Chike."));
   assert.equal((await finishOnboarding(newUser, "complete")).needed, false);
 
+  await v3(user);
+
   // rate limiting
   const bucket = `test:${user}`;
   for (let i = 0; i < 3; i += 1) assert.equal((await rateLimit(bucket, 3, 60_000)).ok, true);
@@ -317,6 +330,125 @@ async function main() {
   console.log("messages", msgs.length, msgs.map((m) => m.role).join(","));
   console.log("ALL PASSED");
   process.exit(0);
+}
+
+/* ---------- v3: memory, encryption, audit, connectors, review, Telegram ---------- */
+async function v3(user: string) {
+  const db = await ready();
+
+  // encryption: v2 with ELIAS_ENCRYPTION_KEY, legacy and plaintext still readable
+  const legacy = encryptSecret("legacy-token");
+  assert.equal(needsReencrypt(legacy), false, "no key: nothing to migrate");
+  process.env.ELIAS_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString("base64");
+  const current = encryptSecret("new-token");
+  assert.ok(current.startsWith("v2:"));
+  assert.equal(decryptSecret(current), "new-token");
+  assert.equal(decryptSecret(legacy), "legacy-token", "legacy format still readable");
+  assert.equal(decryptSecret("ya29.plaintext-token"), "ya29.plaintext-token", "plaintext passes through");
+  assert.ok(needsReencrypt(legacy) && needsReencrypt("plain") && !needsReencrypt(current));
+  // transparent migration of a plaintext Google row on first use
+  const tokUser = `${user}_tok`;
+  await db`insert into public.elias_oauth_tokens (user_id, provider, email, access_token, refresh_token, expires_at) values (${tokUser}, 'google', 'me@example.com', 'plain-access', 'plain-refresh', now() + interval '1 hour')`;
+  await gmailSearch(tokUser, "is:unread", 1).catch(() => undefined);
+  const [tok] = await db`select access_token, refresh_token from public.elias_oauth_tokens where user_id = ${tokUser}`;
+  assert.ok(String(tok.access_token).startsWith("v2:") && String(tok.refresh_token).startsWith("v2:"), "plaintext tokens re-encrypted");
+  assert.equal(decryptSecret(String(tok.refresh_token)), "plain-refresh");
+
+  // memory: categories, entities, weekly review items, confirmation
+  const sister = await saveMemory(user, "Bola is Chikeziri's sister and lives in Abuja.", "person", "chat", "Bola");
+  assert.equal(sister.entity, "Bola");
+  assert.equal(sister.kind, "person");
+  const groups = await groupedMemories(user);
+  assert.ok(groups.find((group) => group.kind === "person")?.items.some((item) => item.entity === "Bola"), "grouped by category");
+  const learned = await recentlyLearned(user);
+  assert.ok(learned.some((item) => item.id === sister.id));
+  await confirmMemory(user, sister.id);
+  assert.ok(!(await recentlyLearned(user)).some((item) => item.id === sister.id), "confirmed items leave the review");
+  const found = await searchMemories(user, "who is bola sister");
+  assert.ok(found.some((item) => item.id === sister.id), "recall finds the entity memory");
+  if (process.env.TEST_EXPECT_VECTOR === "1") {
+    assert.ok(vectorSchema(), "pgvector detected");
+    assert.equal(sister.embedded, true, "memory embedded on save");
+    assert.ok(found.some((item) => item.score !== undefined), "vector results merged into recall");
+    console.log("hybrid recall: vector + full-text");
+  } else {
+    assert.equal(vectorSchema(), null, "no pgvector: full-text only");
+    console.log("hybrid recall: full-text fallback");
+  }
+
+  // safety: a card number never reaches a tool, and the attempt is audited as blocked
+  assert.ok(unsafeCall("browser_type", { text: "4242 4242 4242 4242" }));
+  assert.equal(unsafeCall("browser_type", { text: "+2348012345678" }), null);
+  assert.ok(unsafeCall("paystack_transfer", {}), "money-moving tools refused by name");
+  assert.match(summarizeArgs({ to: "a@b.c", password: "hunter2", body: "card 4242424242424242" }), /password=\[redacted\].*\[card redacted\]/);
+  const blocked = await runTurn({ userId: user, text: "save my card please" });
+  assert.match(blocked.reply, /Refused/);
+  assert.ok(!(await listMemories(user)).some((item) => item.content.includes("4242")), "card not stored");
+
+  // connectors: env gate, approval gate, cards
+  const noVercel = await runTurn({ userId: user, text: "show my vercel projects" });
+  assert.match(noVercel.reply, /VERCEL_API_TOKEN/);
+  process.env.VERCEL_API_TOKEN = "test-token";
+  const redeploy = await runTurn({ userId: user, text: "redeploy elias now" });
+  assert.equal(redeploy.approvals[0]?.tool, "vercel_redeploy", "redeploy waits for approval");
+  await decideApproval({ userId: user, approvalId: redeploy.approvals[0].id, decision: "decline" });
+  delete process.env.VERCEL_API_TOKEN;
+  const issue = await runTurn({ userId: user, text: "open an issue about login" });
+  assert.equal(issue.approvals[0]?.tool, "github_issue_create", "new issues wait for approval");
+  const card = connectorCard("github_pr_status", { repo: "a/b", number: 3, title: "Fix", url: "https://github.com/a/b/pull/3", state: "open", checks: { overall: "failing", total: 2, failing: 1, pending: 0, runs: [{ name: "ci", conclusion: "failure", url: "u" }] } });
+  assert.equal(card?.kind, "list");
+  assert.equal(card?.items[0].state, "error");
+  assert.deepEqual(summarizeTransactions([{ provider: "paystack", id: "1", amount: 5000, currency: "NGN", status: "success", at: "", description: "x" }, { provider: "paystack", id: "2", amount: 100, currency: "NGN", status: "failed", at: "", description: "y" }]).byCurrency.NGN, { successful: 1, failed: 1, count: 2, total: 5000 });
+
+  // audit log: side effects, approvals (pending/declined/failed) and blocked calls
+  const audit = await listAudit(user);
+  const statuses = (tool: string) => audit.filter((entry) => entry.tool === tool).map((entry) => entry.status);
+  assert.ok(statuses("memory_save").includes("ok"), "memory_save audited");
+  assert.ok(statuses("memory_save").includes("blocked"), "blocked call audited");
+  assert.ok(statuses("gmail_send").includes("pending_approval") && statuses("gmail_send").includes("error"), "approval + failed send audited");
+  assert.ok(audit.find((entry) => entry.tool === "gmail_send" && entry.status === "error")?.approvalId, "approval id recorded");
+  assert.ok(statuses("vercel_redeploy").includes("declined"));
+  assert.ok(!audit.some((entry) => /4242 ?4242/.test(entry.argsSummary + (entry.result || ""))), "card numbers redacted in the log");
+
+  // weekly memory review: seeded once (Sun 18:00 local), posts a confirm/edit/forget card
+  const reviewUser = `${user}_review`;
+  const review = await ensureMemoryReview(reviewUser, "Africa/Lagos");
+  assert.deepEqual(review?.spec, { type: "weekly", days: [0], time: "18:00" });
+  assert.equal(await ensureMemoryReview(reviewUser, "Africa/Lagos"), null, "seeded once");
+  await saveMemory(reviewUser, "Prefers morning meetings.", "preference", "auto");
+  await db`update public.elias_schedules set next_run_at = now() - interval '1 minute' where user_id = ${reviewUser}`;
+  assert.deepEqual((await runDueSchedules(5, reviewUser)).map((r) => r.ok), [true]);
+  const [reviewSchedule] = await listSchedules(reviewUser);
+  assert.ok(reviewSchedule.nextRunAt && reviewSchedule.conversationId);
+  const reviewMessage = (await getMessages(reviewUser, reviewSchedule.conversationId!)).pop()!;
+  assert.match(reviewMessage.content, /what I learned about you/);
+  assert.equal((reviewMessage.meta.cards as Array<{ kind: string }>)[0].kind, "memory_review");
+
+  // Telegram: one-time code links a chat; linked chats talk to the agent
+  process.env.TELEGRAM_BOT_TOKEN = "123:fake";
+  process.env.TELEGRAM_WEBHOOK_SECRET = "s3cret";
+  const sent: string[] = [];
+  const send = async (_chat: string, text: string) => { sent.push(text); };
+  const tg = (id: number, text: string) => handleTelegramUpdate({ update_id: id, message: { message_id: id, text, chat: { id: 4242, type: "private" }, from: { username: "chike" } } }, "https://elias.test", send);
+  assert.equal((await tg(1, "hello")).action, "unlinked");
+  assert.equal((await tg(2, "/start ZZZZZZZZ")).action, "bad_code");
+  const { code } = await createLinkCode(user);
+  assert.equal((await tg(3, `/start ${code}`)).action, "linked");
+  assert.equal((await tg(3, `/start ${code}`)).action, "duplicate");
+  assert.equal((await telegramLinkFor(user))?.username, "chike");
+  const reply = await tg(4, "what do you know");
+  assert.equal(reply.action, "replied");
+  assert.match(sent[sent.length - 1], /memory: true/);
+  assert.equal((await tg(5, "what do you know again")).action, "replied");
+  assert.equal((await db`select count(*)::int as n from public.elias_conversations where user_id = ${user} and title = 'Telegram'`)[0].n, 1, "Telegram keeps one conversation");
+  delete process.env.TELEGRAM_BOT_TOKEN;
+  delete process.env.TELEGRAM_WEBHOOK_SECRET;
+  delete process.env.ELIAS_ENCRYPTION_KEY;
+
+  // RLS is on for every elias_ table (the app connects as owner, so it still works)
+  const open = await db`select relname from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'r' and relname like 'elias%' and not relrowsecurity`;
+  assert.deepEqual(open.map((row) => row.relname), [], "RLS enabled");
+  console.log("v3 checks passed");
 }
 
 main().catch((error) => { console.error(error); process.exit(1); });

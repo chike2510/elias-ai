@@ -3,7 +3,13 @@ export type LinkItem = { title: string; url: string; snippet?: string };
 export type EmailItem = { id?: string; from: string; subject: string; date?: string; snippet?: string; unread?: boolean };
 export type EventItem = { id?: string; title: string; start?: string; end?: string; location?: string; link?: string; attendees?: string[] };
 export type WeatherCard = { kind: "weather"; place: string; summary: string; now?: number; high?: number; low?: number; rainChance?: number };
+export type ListItem = { title: string; detail?: string; url?: string; state?: "ok" | "warn" | "error" | "pending" | "info"; trail?: string };
+export type ListCard = { kind: "list"; title: string; icon: "github" | "vercel" | "supabase" | "payments"; items: ListItem[]; footer?: string };
+export type ReviewItem = { id: string; content: string; kind: string; entity?: string | null };
+export type MemoryReviewCard = { kind: "memory_review"; title: string; items: ReviewItem[] };
 export type Card =
+  | ListCard
+  | MemoryReviewCard
   | { kind: "links"; title: string; items: LinkItem[] }
   | { kind: "emails"; title: string; items: EmailItem[] }
   | { kind: "events"; title: string; items: EventItem[] }
@@ -61,6 +67,8 @@ export function cardFor(tool: string, output: unknown): Card | null {
       return items.length ? { kind: "events", title: "Calendar", items } : null;
     }
     if (tool === "weather" && output && typeof output === "object" && "summary" in output) return { kind: "weather", ...(output as Omit<WeatherCard, "kind">) };
+    const connector = connectorCard(tool, output);
+    if (connector) return connector;
     if (tool === "schedule_create" && output && typeof output === "object") {
       const item = output as Record<string, unknown>;
       return { kind: "schedule", title: "Scheduled", name: str(item.name), when: str(item.when) };
@@ -76,10 +84,59 @@ export const STATUS_LABELS: Record<string, string> = {
   calendar_list: "Checking calendar…", calendar_create: "Adding to your calendar…", calendar_delete: "Updating your calendar…",
   schedule_create: "Setting that up…", schedule_list: "Checking your tasks…", schedule_update: "Updating your tasks…",
   browser_open: "Opening the browser…", browser_snapshot: "Reading the page…", browser_click: "Clicking…", browser_type: "Typing…", browser_select: "Choosing an option…", browser_close: "Closing the browser…",
-  github_api: "Checking GitHub…", weather: "Checking the weather…", daily_brief: "Pulling your day together…",
+  github_api: "Checking GitHub…", github_issues: "Checking GitHub issues…", github_issue_create: "Preparing the issue…", github_prs: "Checking pull requests…", github_pr_status: "Checking the PR…", github_ci_status: "Checking CI…",
+  vercel_projects: "Checking Vercel…", vercel_deployments: "Checking deployments…", vercel_redeploy: "Preparing the redeploy…", supabase_health: "Checking Supabase…",
+  paystack_transactions: "Reading Paystack…", paystack_balance: "Checking your Paystack balance…", flutterwave_transactions: "Reading Flutterwave…", flutterwave_balance: "Checking your Flutterwave balance…", payments_summary: "Summing up payments…", weather: "Checking the weather…", daily_brief: "Pulling your day together…",
   start_background_job: "Handing it off to the background…", background_jobs: "Checking background jobs…",
 };
 
 export function statusLabel(tool: string) {
   return STATUS_LABELS[tool] || "Working…";
+}
+
+const STATE: Record<string, ListItem["state"]> = {
+  success: "ok", passing: "ok", ready: "ok", completed: "ok", merged: "info", open: "info", healthy: "ok", active_healthy: "ok",
+  failure: "error", failing: "error", error: "error", canceled: "warn", cancelled: "warn", timed_out: "error", closed: "warn",
+  pending: "pending", queued: "pending", in_progress: "pending", building: "pending", initializing: "pending", none: "info",
+};
+const stateOf = (value: unknown) => STATE[String(value ?? "").toLowerCase()] || "info";
+const money = (amount: number, currency: string) => `${currency} ${Number(amount).toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
+const rec = (value: unknown) => (value && typeof value === "object" ? value : {}) as Record<string, unknown>;
+const list = (value: unknown) => (Array.isArray(value) ? value : []) as Array<Record<string, unknown>>;
+
+/** Cards for the dev and payments connectors (GitHub, Vercel, Supabase, Paystack, Flutterwave). */
+export function connectorCard(tool: string, output: unknown): ListCard | null {
+  const data = rec(output);
+  if (tool === "github_issues") return { kind: "list", icon: "github", title: `Issues · ${str(data.repo)}`, items: list(data.issues).slice(0, 8).map((item) => ({ title: `#${item.number} ${str(item.title)}`, detail: [str(item.author), list(item.labels).length ? (item.labels as string[]).join(", ") : ""].filter(Boolean).join(" · "), url: str(item.url), state: stateOf(item.state) })) };
+  if (tool === "github_issue_create") return { kind: "list", icon: "github", title: "Issue opened", items: [{ title: `#${data.number} ${str(data.title)}`, detail: str(data.repo), url: str(data.url), state: "ok" }] };
+  if (tool === "github_prs") return { kind: "list", icon: "github", title: `Pull requests · ${str(data.repo)}`, items: list(data.pulls).slice(0, 8).map((item) => ({ title: `#${item.number} ${str(item.title)}`, detail: `${str(item.branch)} → ${str(item.base)}${item.draft ? " · draft" : ""}`, url: str(item.url), state: stateOf(item.state), trail: str(item.state) })) };
+  if (tool === "github_pr_status") {
+    const checks = rec(data.checks);
+    return { kind: "list", icon: "github", title: `PR #${data.number} · ${str(data.title)}`.slice(0, 90), items: [
+      { title: `Checks ${str(checks.overall)}`, detail: `${checks.total} total · ${checks.failing} failing · ${checks.pending} pending`, state: stateOf(checks.overall), url: str(data.url) },
+      ...list(checks.runs).filter((run) => run.conclusion && !["success", "skipped", "neutral"].includes(String(run.conclusion))).slice(0, 4).map((run) => ({ title: str(run.name), detail: str(run.conclusion), url: str(run.url), state: "error" as const })),
+      { title: `State: ${str(data.state)}${data.draft ? " (draft)" : ""}`, detail: data.mergeableState ? `mergeable: ${str(data.mergeableState)}` : undefined, state: stateOf(data.state) },
+    ] };
+  }
+  if (tool === "github_ci_status") return { kind: "list", icon: "github", title: `CI · ${str(data.repo)}`, items: [
+    ...list(data.runs).slice(0, 4).map((run) => ({ title: `${str(run.workflow)} · ${str(run.branch)}`, detail: `${str(run.sha)} · ${str(run.event)}`, url: str(run.url), state: stateOf(run.conclusion || run.status), trail: str(run.conclusion) || str(run.status) })),
+    ...list(data.deployments).slice(0, 2).map((item) => ({ title: `Deploy · ${str(item.environment)}`, detail: str(item.sha), url: str(item.url) || undefined, state: stateOf(item.state), trail: str(item.state) })),
+  ] };
+  if (tool === "vercel_projects" && Array.isArray(output)) return { kind: "list", icon: "vercel", title: "Vercel projects", items: list(output).slice(0, 8).map((item) => { const prod = rec(item.production); return { title: str(item.name), detail: str(item.framework) || undefined, url: str(prod.url) || undefined, state: stateOf(prod.state), trail: str(prod.state) || "no deploys" }; }) };
+  if (tool === "vercel_deployments") return { kind: "list", icon: "vercel", title: `Deployments · ${str(data.project)}`, items: list(data.deployments).slice(0, 6).map((item) => ({ title: str(item.commit) || str(item.url), detail: [str(item.target), str(item.branch), str(item.sha)].filter(Boolean).join(" · "), url: str(item.inspect) || str(item.url), state: stateOf(item.state), trail: str(item.state) })) };
+  if (tool === "vercel_redeploy") return { kind: "list", icon: "vercel", title: "Redeploy started", items: [{ title: str(data.project), detail: str(data.id), url: str(data.url), state: stateOf(data.state), trail: str(data.state) }] };
+  if (tool === "supabase_health") {
+    const db = rec(data.database);
+    const services = Array.isArray(data.services) ? list(data.services) : [];
+    const security = rec(data.security);
+    return { kind: "list", icon: "supabase", title: "Supabase health", items: [
+      { title: "Database", detail: `${db.latencyMs} ms · ${db.sizeMb} MB · ${db.connections} connections`, state: db.reachable ? "ok" : "error", trail: db.reachable ? "up" : "down" },
+      ...services.map((item) => ({ title: str(item.name), detail: str(item.status), state: item.healthy ? "ok" as const : "error" as const })),
+      ...(data.security ? [{ title: "Security advisor", detail: `${security.errors} errors · ${security.warnings} warnings`, state: Number(security.errors) ? "error" as const : Number(security.warnings) ? "warn" as const : "ok" as const }] : []),
+    ], footer: data.mode === "database" ? "Database check only. Add SUPABASE_ACCESS_TOKEN for service health." : undefined };
+  }
+  if (tool === "paystack_balance" || tool === "flutterwave_balance") return { kind: "list", icon: "payments", title: tool === "paystack_balance" ? "Paystack balance" : "Flutterwave balance", items: list(output).map((item) => ({ title: money(Number(item.balance ?? item.available), str(item.currency)), detail: item.ledger !== undefined ? `ledger ${money(Number(item.ledger), str(item.currency))}` : undefined, state: "info" as const })) };
+  if (tool === "paystack_transactions" || tool === "flutterwave_transactions") return { kind: "list", icon: "payments", title: tool === "paystack_transactions" ? "Paystack" : "Flutterwave", items: list(data.transactions).slice(0, 6).map((item) => ({ title: money(Number(item.amount), str(item.currency)), detail: [str(item.description), str(item.customer)].filter(Boolean).join(" · ").slice(0, 90), state: stateOf(item.status === "successful" ? "success" : item.status === "success" ? "success" : item.status), trail: str(item.at).slice(0, 10) })) };
+  if (tool === "payments_summary") return { kind: "list", icon: "payments", title: `Payments · last ${data.days} days`, items: Object.entries(rec(data.byCurrency)).map(([currency, raw]) => { const bucket = rec(raw); return { title: money(Number(bucket.total), currency), detail: `${bucket.successful} successful · ${bucket.failed} failed`, state: "info" as const }; }), footer: "Read-only. Elias never moves money." };
+  return null;
 }
