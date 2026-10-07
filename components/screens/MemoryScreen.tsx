@@ -1,20 +1,61 @@
 "use client";
 
-import Link from "next/link";
-import { ArrowLeft, Brain, Check, Plus, ShieldCheck, Trash2 } from "lucide-react";
-import { FormEvent, useEffect, useState } from "react";
-import AppShell from "@/components/AppShell";
-import { deleteMemory, getMemories, makeId, saveMemory, type MemoryRecord } from "@/lib/persistence";
+import { Brain, Check, Pencil, Plus, Trash2, X } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import AppShell, { ListSkeleton } from "@/components/AppShell";
+import { ErrorCard } from "@/components/chat/ChatView";
+import { api } from "@/lib/chatClient";
 
+type Memory = { id: string; kind: string; content: string; source: string; updatedAt: string };
+
+/** What Elias remembers (server memory, shared with the chat). Edit or forget anything. */
 export default function MemoryScreen() {
-  const [memories, setMemories] = useState<MemoryRecord[]>([]);
-  const [kind, setKind] = useState<MemoryRecord["kind"]>("preference");
-  const [title, setTitle] = useState("");
-  const [value, setValue] = useState("");
-  const [confidence, setConfidence] = useState<MemoryRecord["confidence"]>("high");
-  const [showForm, setShowForm] = useState(false);
-  useEffect(() => { void getMemories().then(setMemories).catch(() => undefined); }, []);
-  async function add(event: FormEvent) { event.preventDefault(); if (!title.trim() || !value.trim()) return; const timestamp = Date.now(); const record: MemoryRecord = { id: makeId("memory"), kind, title: title.trim(), value: value.trim(), confidence, source: "user-approved", createdAt: timestamp, updatedAt: timestamp }; await saveMemory(record); setMemories((current) => [record, ...current]); setTitle(""); setValue(""); setShowForm(false); }
-  async function remove(id: string) { await deleteMemory(id); setMemories((current) => current.filter((item) => item.id !== id)); }
-  return <AppShell title="Memory"><main className="screen memory-screen"><div className="mobile-screen-heading"><Link href="/profile" aria-label="Back to profile"><ArrowLeft size={19} /></Link><h1>memory</h1><span className="improvement-mark"><Brain size={16} /></span></div><section className="memory-hero"><div><p className="eyebrow">ELIAS / user-controlled memory</p><h2>Remember what you approve.</h2><p>Preferences, project conventions, and useful observations stay separate from temporary task context. Nothing becomes permanent without your approval.</p></div><ShieldCheck size={34} /></section><section className="panel memory-toolbar"><div className="memory-stat-copy"><strong>{memories.length} active memory item{memories.length === 1 ? "" : "s"}</strong><small>Stored in your user-partitioned Elias workspace.</small></div><button className="primary" onClick={() => setShowForm((value) => !value)}><Plus size={15} /> add memory</button></section>{showForm ? <form className="panel memory-form" onSubmit={add}><div className="form-grid"><label>Type<select value={kind} onChange={(event) => setKind(event.target.value as MemoryRecord["kind"])}><option value="preference">User preference</option><option value="project">Project convention</option><option value="task">Task context</option><option value="observation">Observation</option></select></label><label>Title<input required value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Preferred response style" /></label></div><label>Memory value<textarea required rows={4} value={value} onChange={(event) => setValue(event.target.value)} placeholder="Use concise technical explanations with a short implementation summary." /></label><label>Confidence<select value={confidence} onChange={(event) => setConfidence(event.target.value as MemoryRecord["confidence"])}><option value="high">High — explicitly confirmed</option><option value="medium">Medium — likely useful</option><option value="low">Low — temporary observation</option></select></label><button className="primary" type="submit"><Check size={15} /> save approved memory</button></form> : null}<section className="memory-list">{memories.length ? memories.map((memory) => <article className="panel memory-row" key={memory.id}><div className="memory-row-main"><span className={`memory-kind ${memory.kind}`}>{memory.kind}</span><strong>{memory.title}</strong><p>{memory.value}</p><small>Confidence: {memory.confidence} · Source: {memory.source || "Elias"}</small></div><button className="icon-btn" onClick={() => void remove(memory.id)} aria-label={`Delete ${memory.title}`}><Trash2 size={15} /></button></article>) : <section className="panel memory-empty"><Brain size={25} /><div className="memory-empty-copy"><strong>No approved memories yet</strong><small>Add a preference or project convention. Elias will not silently promote uncertain observations into permanent memory.</small></div></section>}</section></main></AppShell>;
+  const [memories, setMemories] = useState<Memory[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [editing, setEditing] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  const [adding, setAdding] = useState("");
+  const load = useCallback(() => { setError(null); void api<{ memories: Memory[] }>("/api/assistant/memories").then((data) => setMemories(data.memories)).catch((err) => setError(err.message)); }, []);
+  useEffect(() => { load(); }, [load]);
+
+  async function save(id: string) {
+    await api(`/api/assistant/memories/${id}`, { method: "PATCH", body: JSON.stringify({ content: draft }) }).catch((err) => setError(err.message));
+    setMemories((current) => current?.map((item) => item.id === id ? { ...item, content: draft } : item) || null);
+    setEditing(null);
+  }
+  async function forget(id: string) {
+    setMemories((current) => current?.filter((item) => item.id !== id) || null);
+    await api(`/api/assistant/memories/${id}`, { method: "DELETE" }).catch((err) => setError(err.message));
+  }
+  async function add() {
+    if (!adding.trim()) return;
+    const data = await api<{ memory: Memory }>("/api/assistant/memories", { method: "POST", body: JSON.stringify({ content: adding, kind: "fact" }) }).catch((err) => { setError(err.message); return null; });
+    if (data) { setMemories((current) => [data.memory, ...(current || []).filter((item) => item.id !== data.memory.id)]); setAdding(""); }
+  }
+
+  return <AppShell title="Memory">
+    <main className="el-page">
+      <header className="el-page-head"><h1>Memory</h1><p>What Elias knows about you. It learns from your chats; fix or forget anything.</p></header>
+      <form className="el-add-row" onSubmit={(event) => { event.preventDefault(); void add(); }}>
+        <input value={adding} onChange={(event) => setAdding(event.target.value)} placeholder="Add something, e.g. “I'm vegetarian”" aria-label="New memory" />
+        <button type="submit" className="el-btn el-btn-primary" disabled={!adding.trim()}><Plus size={16} /> Add</button>
+      </form>
+      {error ? <ErrorCard text={error} onRetry={load} /> : null}
+      {!memories && !error ? <ListSkeleton rows={6} /> : null}
+      {memories && !memories.length ? <p className="el-empty-line"><Brain size={16} /> Nothing saved yet. Tell Elias about yourself in chat.</p> : null}
+      {memories?.length ? <ul className="el-list">{memories.map((item) => <li key={item.id} className="el-list-item">
+        {editing === item.id ? <div className="el-editor">
+          <textarea className="el-textarea" rows={3} value={draft} onChange={(event) => setDraft(event.target.value)} aria-label="Edit memory" />
+          <div className="el-editor-actions"><button type="button" className="el-btn" onClick={() => setEditing(null)}><X size={16} /> Cancel</button><button type="button" className="el-btn el-btn-primary" onClick={() => void save(item.id)} disabled={!draft.trim()}><Check size={16} /> Save</button></div>
+        </div> : <div className="el-list-row static">
+          <span className="el-tag">{item.kind}</span>
+          <span className="el-list-text"><strong className="el-wrap">{item.content}</strong><small>{item.source === "auto" ? "Learned from chat" : item.source === "import" ? "Imported" : "Saved"} · {new Date(item.updatedAt).toLocaleDateString()}</small></span>
+          <span className="el-list-actions">
+            <button type="button" className="el-icon-btn" aria-label="Edit memory" onClick={() => { setEditing(item.id); setDraft(item.content); }}><Pencil size={16} /></button>
+            <button type="button" className="el-icon-btn danger" aria-label="Forget memory" onClick={() => void forget(item.id)}><Trash2 size={16} /></button>
+          </span>
+        </div>}
+      </li>)}</ul> : null}
+    </main>
+  </AppShell>;
 }

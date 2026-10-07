@@ -24,7 +24,7 @@ importers:
         specifier: ^1.9.1
         version: 1.12.1
       next:
-        specifier: latest
+        specifier: 16.3.8
         version: 16.3.8(@types/node@22.20.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       pdf-lib:
         specifier: ^1.17.1
@@ -45,10 +45,10 @@ importers:
         specifier: ^3.9.6
         version: 3.9.6
       react:
-        specifier: latest
+        specifier: 19.3.0
         version: 19.3.0
       react-dom:
-        specifier: latest
+        specifier: 19.3.0
         version: 19.3.0(react@19.3.0)
       remark-parse:
         specifier: ^11.0.0
@@ -61,16 +61,16 @@ importers:
         version: 0.18.5
     devDependencies:
       '@types/node':
-        specifier: ^22.0.0
+        specifier: 22.20.1
         version: 22.20.1
       '@types/react':
-        specifier: ^19.0.0
+        specifier: 19.2.18
         version: 19.2.18
       '@types/react-dom':
-        specifier: ^19.0.0
+        specifier: 19.2.4
         version: 19.2.4(@types/react@19.2.18)
       typescript:
-        specifier: ^5.0.0
+        specifier: 5.9.3
         version: 5.9.3
 
 packages:

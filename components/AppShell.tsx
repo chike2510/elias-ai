@@ -1,139 +1,183 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowUpRight, BookOpen, Check, CheckSquare, Code2, Command, Copy, Ellipsis, Folder, Globe2, LibraryBig, Link2, LogOut, Menu, MessageSquare, Plus, Search, Settings2, Sparkles, Workflow, X } from "lucide-react";
-import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
-import HistoryDrawer from "@/components/HistoryDrawer";
-import { getConversations, type ConversationRecord } from "@/lib/persistence";
+import { Command, LogOut, Menu, Search, SquarePen, Trash2, X } from "lucide-react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { MORE, PRIMARY } from "@/lib/navigation";
+import { CONVERSATIONS_CHANGED, announceConversationsChanged, api, type ConversationSummary } from "@/lib/chatClient";
+import { migrateLegacyConversations } from "@/lib/legacyImport";
 
-const navigation = [
-  { href: "/assistant", label: "Elias", icon: Sparkles, id: "assistant" },
-  { href: "/chat", label: "New convo", icon: Plus, id: "new" },
-  { href: "/projects", label: "Projects", icon: Folder, id: "projects" },
-  { href: "/agent", label: "Coding workspace", icon: Code2, id: "coding" },
-  { href: "/browser", label: "Browser", icon: Globe2, id: "browser" },
-  { href: "/files", label: "Library", icon: LibraryBig, id: "library" },
-] as const;
+type User = { login?: string; name?: string; avatarUrl?: string } | null;
 
-function recentMeta(conversation: ConversationRecord) {
-  const date = new Date(conversation.updatedAt);
-  const label = Number.isNaN(date.getTime()) ? "Recent" : new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(date);
-  return `${label} · ${conversation.messages.filter((message) => message.role !== "system").length} messages`;
+function relative(iso: string) {
+  const date = new Date(iso);
+  const diff = Date.now() - date.getTime();
+  if (diff < 60_000) return "now";
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m`;
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h`;
+  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(date);
 }
 
-export default function AppShell({ children, title }: { children: React.ReactNode; title?: string }) {
+/** Server conversations, shared by the sidebar and the history drawer. */
+function useConversations() {
+  const [items, setItems] = useState<ConversationSummary[] | null>(null);
+  const [error, setError] = useState(false);
+  const load = useCallback(() => api<{ conversations: ConversationSummary[] }>("/api/assistant/conversations").then((data) => { setItems(data.conversations); setError(false); }).catch(() => setError(true)), []);
+  useEffect(() => {
+    void load();
+    window.addEventListener(CONVERSATIONS_CHANGED, load);
+    return () => window.removeEventListener(CONVERSATIONS_CHANGED, load);
+  }, [load]);
+  return { items, error, reload: load, setItems };
+}
+
+export function ListSkeleton({ rows = 5 }: { rows?: number }) {
+  return <div className="el-skeleton-list" aria-hidden="true">{Array.from({ length: rows }, (_, index) => <div key={index} className="el-skeleton-row"><span className="el-skeleton" style={{ width: `${70 - (index % 3) * 14}%` }} /><span className="el-skeleton el-skeleton-sm" style={{ width: `${40 + (index % 2) * 18}%` }} /></div>)}</div>;
+}
+
+function ConversationList({ items, error, reload, activeId, onPick, onDelete, compact }: { items: ConversationSummary[] | null; error: boolean; reload: () => void; activeId: string | null; onPick?: () => void; onDelete?: (id: string) => void; compact?: boolean }) {
+  if (error && !items) return <div className="el-inline-error"><span>Couldn't load your chats.</span><button type="button" onClick={reload}>Retry</button></div>;
+  if (!items) return <ListSkeleton rows={compact ? 4 : 7} />;
+  if (!items.length) return <p className="el-muted el-pad">Your chats will show up here.</p>;
+  return <ul className="el-convo-list">{items.map((item) => <li key={item.id} className={item.id === activeId ? "active" : ""}>
+    <Link href={`/chat?id=${encodeURIComponent(item.id)}`} onClick={onPick} aria-current={item.id === activeId ? "page" : undefined}>
+      <span className="el-convo-title">{item.kind === "schedule" ? "⏰ " : ""}{item.title || "Untitled"}</span>
+      {!compact && item.preview ? <span className="el-convo-preview">{item.preview}</span> : null}
+      <span className="el-convo-meta">{relative(item.updatedAt)}{item.pendingApprovals ? <em>{item.pendingApprovals} waiting</em> : null}</span>
+    </Link>
+    {onDelete ? <button type="button" className="el-icon-btn el-convo-delete" aria-label={`Delete ${item.title}`} onClick={() => onDelete(item.id)}><Trash2 size={15} /></button> : null}
+  </li>)}</ul>;
+}
+
+function ActiveConversation({ onChange }: { onChange: (id: string | null) => void }) {
+  const params = useSearchParams();
+  const id = params.get("id");
+  useEffect(() => { onChange(id); }, [id, onChange]);
+  return null;
+}
+
+export default function AppShell({ children, title, chat = false }: { children: React.ReactNode; title?: string; chat?: boolean }) {
   const pathname = usePathname();
+  const router = useRouter();
   const [historyOpen, setHistoryOpen] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
-  const [user, setUser] = useState<{ login?: string; name?: string } | null>(null);
-  const [recentConversations, setRecentConversations] = useState<ConversationRecord[]>([]);
-  const [copiedConversationId, setCopiedConversationId] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [user, setUser] = useState<User>(null);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [keyboard, setKeyboard] = useState(false);
+  const conversations = useConversations();
+  const touch = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
-    void fetch("/api/auth/me", { cache: "no-store" }).then((response) => response.json()).then((data: { user?: { login?: string; name?: string } | null }) => setUser(data.user || null)).catch(() => setUser(null));
+    try { setUser(JSON.parse(window.localStorage.getItem("elias.user") || "null")); } catch { /* ignore */ }
+    void fetch("/api/auth/me", { cache: "no-store" }).then((response) => response.json()).then((data: { user?: User }) => setUser(data.user || null)).catch(() => undefined);
+    void migrateLegacyConversations().catch(() => undefined);
+  }, []);
+
+  // Keep the composer above the on-screen keyboard: track the visual viewport.
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+    const root = document.documentElement;
+    const update = () => {
+      root.style.setProperty("--vvh", `${Math.round(viewport.height)}px`);
+      root.style.setProperty("--vv-top", `${Math.round(viewport.offsetTop)}px`);
+      setKeyboard(window.innerHeight - viewport.height > 140);
+    };
+    update();
+    viewport.addEventListener("resize", update);
+    viewport.addEventListener("scroll", update);
+    return () => { viewport.removeEventListener("resize", update); viewport.removeEventListener("scroll", update); };
   }, []);
 
   useEffect(() => {
-    let active = true;
-    const refresh = async () => {
-      try {
-        const conversations = await getConversations();
-        if (active) setRecentConversations(conversations.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 8));
-      } catch {
-        if (active) setRecentConversations([]);
-      }
-    };
-    void refresh();
-    const onUpdate = () => { void refresh(); };
-    window.addEventListener("elias:conversation-updated", onUpdate);
-    window.addEventListener("storage", onUpdate);
-    return () => {
-      active = false;
-      window.removeEventListener("elias:conversation-updated", onUpdate);
-      window.removeEventListener("storage", onUpdate);
-    };
-  }, [pathname]);
-
-  useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); setCommandOpen((value) => !value); }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); setCommandOpen((value) => !value); setQuery(""); }
       if (event.key === "Escape") { setCommandOpen(false); setHistoryOpen(false); }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
+  useEffect(() => { setHistoryOpen(false); setCommandOpen(false); }, [pathname]);
+
+  async function remove(id: string) {
+    conversations.setItems((current) => current?.filter((item) => item.id !== id) || null);
+    await api(`/api/assistant/conversations/${id}`, { method: "DELETE" }).catch(() => undefined);
+    announceConversationsChanged();
+    if (id === activeId) router.push("/");
+  }
+
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
+    window.localStorage.removeItem("elias.user");
     window.location.href = "/login";
   }
 
-  async function copyConversationLink(id: string) {
-    try {
-      await navigator.clipboard.writeText(`${window.location.origin}/chat?id=${encodeURIComponent(id)}`);
-      setCopiedConversationId(id);
-      window.setTimeout(() => setCopiedConversationId((current) => current === id ? null : current), 1400);
-    } catch { /* clipboard access is optional; opening the conversation remains available */ }
-  }
+  const isActive = (href: string) => href === "/" ? pathname === "/" || pathname.startsWith("/chat") : pathname.startsWith(href.split("?")[0]);
+  const commands = useMemo(() => {
+    const all = [...PRIMARY, ...MORE];
+    const value = query.trim().toLowerCase();
+    return value ? all.filter((item) => `${item.label} ${item.detail}`.toLowerCase().includes(value)) : all;
+  }, [query]);
+  const initial = (user?.name || user?.login || "?").slice(0, 1).toUpperCase();
 
-  const isActive = (id: typeof navigation[number]["id"]) => {
-    if (id === "assistant") return pathname.startsWith("/assistant");
-    if (id === "new") return pathname === "/" || pathname.startsWith("/chat");
-    if (id === "projects") return pathname.startsWith("/projects");
-    if (id === "coding") return pathname.startsWith("/agent");
-    if (id === "browser") return pathname.startsWith("/browser");
-    return pathname.startsWith("/files");
-  };
-
-  return <div className={`app-shell clean-app-shell surface-${pathname.split("/").filter(Boolean)[0] || "home"} ${pathname === "/chat" ? "open-chat-shell" : ""}`}>
-    <aside className="desktop-sidebar clean-sidebar">
-      <div className="clean-brand-card">
-        <Link href="/" className="brand clean-brand" aria-label="ELIAS home"><span className="brand-mark"><img src="/branding/elias-logo.png" alt="" /></span><span className="brand-wordmark">ELIAS</span></Link>
-        <button type="button" className="icon-btn clean-sidebar-more" aria-label="Open workspace menu" onClick={() => setCommandOpen(true)}><Ellipsis size={19} /></button>
+  return <div
+    className={`el-shell ${chat ? "el-shell-chat" : ""} ${keyboard ? "kb-open" : ""}`}
+    onTouchStart={(event) => { const point = event.touches[0]; touch.current = point.clientX < 28 ? { x: point.clientX, y: point.clientY } : null; }}
+    onTouchMove={(event) => { const start = touch.current; if (!start) return; const point = event.touches[0]; if (point.clientX - start.x > 64 && Math.abs(point.clientY - start.y) < 48) { touch.current = null; setHistoryOpen(true); } }}
+  >
+    <Suspense fallback={null}><ActiveConversation onChange={setActiveId} /></Suspense>
+    <aside className="el-sidebar" aria-label="Sidebar">
+      <div className="el-sidebar-head">
+        <Link href="/" className="el-brand" aria-label="Elias home"><img src="/branding/elias-logo.png" alt="" /><span>Elias</span></Link>
+        <button type="button" className="el-icon-btn" onClick={() => { setCommandOpen(true); setQuery(""); }} aria-label="Search and go to (⌘K)"><Command size={17} /></button>
       </div>
-      <nav className="sidebar-nav clean-sidebar-nav" aria-label="Primary navigation">{navigation.map((item) => <Nav key={item.href} {...item} active={isActive(item.id)} />)}</nav>
-      <section className="clean-sidebar-recent" aria-labelledby="sidebar-recent-title">
-        <div className="clean-sidebar-recent-heading"><span id="sidebar-recent-title">Recent chats</span><button type="button" onClick={() => setHistoryOpen(true)} aria-label="View all recent chats"><ArrowUpRight size={14} /></button></div>
-        <div className="clean-sidebar-recent-list">{recentConversations.map((conversation) => <div className="clean-sidebar-chat" key={conversation.id}>
-          <Link href={`/chat?id=${encodeURIComponent(conversation.id)}`} className="clean-sidebar-chat-link"><strong>{conversation.title || "Untitled conversation"}</strong><small>{recentMeta(conversation)}</small></Link>
-          <button type="button" className="clean-sidebar-chat-copy" onClick={() => void copyConversationLink(conversation.id)} aria-label={copiedConversationId === conversation.id ? "Conversation link copied" : `Copy link to ${conversation.title || "conversation"}`}>{copiedConversationId === conversation.id ? <Check size={14} /> : <Copy size={13} />}</button>
-        </div>)}{!recentConversations.length ? <p className="clean-sidebar-empty">Your conversations will appear here.</p> : null}</div>
-      </section>
+      <Link href="/" className="el-new-chat"><SquarePen size={17} /> New chat</Link>
+      <nav className="el-sidebar-nav" aria-label="Primary">
+        <Link href="/" className={`el-nav-item ${isActive("/") ? "active" : ""}`} aria-current={isActive("/") ? "page" : undefined}><MessageIcon /> Chat</Link>
+        <div className="el-sidebar-recent">
+          <ConversationList {...conversations} activeId={activeId} onDelete={(id) => void remove(id)} compact />
+        </div>
+        {PRIMARY.slice(1).map((item) => <Link key={item.href} href={item.href} className={`el-nav-item ${isActive(item.href) ? "active" : ""}`} aria-current={isActive(item.href) ? "page" : undefined}><item.icon size={18} /> {item.label}</Link>)}
+      </nav>
+      <Link href="/you" className="el-sidebar-user"><span className="el-avatar">{user?.avatarUrl ? <img src={user.avatarUrl} alt="" /> : initial}</span><span><strong>{user?.name || user?.login || "You"}</strong><small>{user?.login ? `@${user.login}` : "Settings and more"}</small></span></Link>
     </aside>
-    <div className="app-main">
-      <header className="topbar clean-topbar">
-        <button className="icon-btn clean-menu-button" type="button" onClick={() => setHistoryOpen(true)} aria-label="Open recent chats"><Menu size={19} /></button>
-        <Link href="/" className="brand mobile-brand clean-mobile-brand" aria-label="Elias home"><span className="brand-mark"><img src="/branding/elias-logo.png" alt="" /></span><span className="brand-wordmark">ELIAS</span></Link>
-        <div className="topbar-context clean-topbar-context">{pathname === "/chat" ? "" : title || ""}</div>
-        <div className="top-actions clean-top-actions"><button className="icon-btn" type="button" onClick={() => setCommandOpen(true)} aria-label="Open workspace menu"><Command size={17} /></button><Link href="/profile" className="avatar" aria-label="Open profile">{user?.login?.slice(0, 1).toUpperCase() || "?"}</Link></div>
+
+    <div className="el-main">
+      <header className="el-topbar">
+        <button type="button" className="el-icon-btn" onClick={() => setHistoryOpen(true)} aria-label="Open chat history"><Menu size={20} /></button>
+        <div className="el-topbar-title">{title || "Elias"}</div>
+        {chat ? <Link href="/" className="el-icon-btn" aria-label="New chat"><SquarePen size={19} /></Link> : <button type="button" className="el-icon-btn" onClick={() => { setCommandOpen(true); setQuery(""); }} aria-label="Search and go to"><Search size={19} /></button>}
       </header>
-      <nav className="mobile-primary-nav" aria-label="Primary navigation">{navigation.map((item) => <Nav key={item.href} {...item} active={isActive(item.id)} />)}</nav>
-      <div className="app-content">{children}</div>
+      <div className="el-content">{children}</div>
+      <nav className="el-tabbar" aria-label="Primary">
+        {PRIMARY.map((item) => <Link key={item.href} href={item.href} className={isActive(item.href) ? "active" : ""} aria-current={isActive(item.href) ? "page" : undefined}><item.icon size={22} strokeWidth={isActive(item.href) ? 2.2 : 1.7} /><span>{item.label}</span></Link>)}
+      </nav>
     </div>
-    <HistoryDrawer open={historyOpen} onClose={() => setHistoryOpen(false)} user={user} />
-    {commandOpen ? <div className="command-overlay" role="presentation" onMouseDown={() => setCommandOpen(false)}><section className="command-palette clean-command-palette" role="dialog" aria-modal="true" aria-label="Elias workspace menu" onMouseDown={(event) => event.stopPropagation()}><div className="command-palette-head"><Command size={16} /><strong>Go to</strong><button className="icon-btn" onClick={() => setCommandOpen(false)} aria-label="Close workspace menu"><X size={17} /></button></div><div className="command-list">
-      <CommandLink href="/chat" label="New conversation" icon={<MessageSquare size={15} />} onSelect={() => setCommandOpen(false)} />
-      <CommandLink href="/tasks" label="Task history" icon={<CheckSquare size={15} />} onSelect={() => setCommandOpen(false)} />
-      <CommandLink href="/projects" label="Projects" icon={<Folder size={15} />} onSelect={() => setCommandOpen(false)} />
-      <CommandLink href="/files" label="Library" icon={<LibraryBig size={15} />} onSelect={() => setCommandOpen(false)} />
-      <CommandLink href="/agent" label="Coding workspace" icon={<Code2 size={15} />} onSelect={() => setCommandOpen(false)} />
-      <CommandLink href="/browser" label="Browser" icon={<Globe2 size={15} />} onSelect={() => setCommandOpen(false)} />
-      <CommandLink href="/research" label="Research" icon={<Search size={15} />} onSelect={() => setCommandOpen(false)} />
-      <CommandLink href="/study" label="Study" icon={<BookOpen size={15} />} onSelect={() => setCommandOpen(false)} />
-      <CommandLink href="/skills" label="Skills" icon={<Sparkles size={15} />} onSelect={() => setCommandOpen(false)} />
-      <CommandLink href="/automations" label="Automations" icon={<Workflow size={15} />} onSelect={() => setCommandOpen(false)} />
-      <CommandLink href="/profile" label="Profile & settings" icon={<Settings2 size={15} />} onSelect={() => setCommandOpen(false)} />
-      <CommandLink href="/connectors" label="Connectors" icon={<Link2 size={15} />} onSelect={() => setCommandOpen(false)} />
-      <button type="button" className="command-item command-action-item" onClick={() => { setCommandOpen(false); void logout(); }}><span><LogOut size={15} /></span><b>Sign out</b><span className="command-arrow" aria-hidden="true">↵</span></button>
-    </div><small className="command-hint">Press Esc to close</small></section></div> : null}
+
+    {historyOpen ? <div className="el-overlay" onClick={() => setHistoryOpen(false)}>
+      <aside className="el-drawer" aria-label="Chat history" onClick={(event) => event.stopPropagation()}>
+        <div className="el-drawer-head"><strong>Chats</strong><Link href="/" className="el-icon-btn" aria-label="New chat" onClick={() => setHistoryOpen(false)}><SquarePen size={18} /></Link><button type="button" className="el-icon-btn" onClick={() => setHistoryOpen(false)} aria-label="Close"><X size={19} /></button></div>
+        <div className="el-drawer-body"><ConversationList {...conversations} activeId={activeId} onPick={() => setHistoryOpen(false)} onDelete={(id) => void remove(id)} /></div>
+      </aside>
+    </div> : null}
+
+    {commandOpen ? <div className="el-overlay el-overlay-center" onMouseDown={() => setCommandOpen(false)}>
+      <section className="el-palette" role="dialog" aria-modal="true" aria-label="Go to" onMouseDown={(event) => event.stopPropagation()}>
+        <label className="el-palette-search"><Search size={17} /><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Go to…" aria-label="Search destinations" onKeyDown={(event) => { if (event.key === "Enter" && commands[0]) { router.push(commands[0].href); setCommandOpen(false); } }} /></label>
+        <div className="el-palette-list">
+          {commands.map((item) => <Link key={item.href} href={item.href} className="el-palette-item" onClick={() => setCommandOpen(false)}><item.icon size={17} /><span><strong>{item.label}</strong><small>{item.detail}</small></span></Link>)}
+          {!query ? <button type="button" className="el-palette-item" onClick={() => { setCommandOpen(false); void logout(); }}><LogOut size={17} /><span><strong>Sign out</strong><small>End this session</small></span></button> : null}
+          {!commands.length ? <p className="el-muted el-pad">Nothing matches “{query}”.</p> : null}
+        </div>
+      </section>
+    </div> : null}
   </div>;
 }
 
-function Nav({ href, label, icon: Icon, active, id }: { href: string; label: string; icon: React.ComponentType<{ size?: number; strokeWidth?: number }>; active: boolean; id: string }) {
-  return <Link href={href} aria-current={active ? "page" : undefined} className={`nav-item ${id === "new" ? "nav-new-conversation" : ""} ${active ? "active" : ""}`}><span className="nav-icon"><Icon size={20} strokeWidth={1.25} /></span><span>{label}</span></Link>;
-}
-
-function CommandLink({ href, label, icon, onSelect }: { href: string; label: string; icon: React.ReactNode; onSelect: () => void }) {
-  return <Link href={href} className="command-item" onClick={onSelect}><span>{icon}</span><b>{label}</b><span className="command-arrow">↵</span></Link>;
+function MessageIcon() {
+  const Icon = PRIMARY[0].icon;
+  return <Icon size={18} />;
 }

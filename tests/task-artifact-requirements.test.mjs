@@ -32,9 +32,6 @@ const requirements = loadTypeScript(path.resolve("lib/taskArtifactRequirements.t
 const taskIntent = loadTypeScript(path.resolve("lib/taskIntent.ts"), {
   "@/lib/taskArtifactRequirements": requirements,
 });
-const { inferChatTask } = loadTypeScript(path.resolve("lib/chatTaskRouting.ts"), {
-  "@/lib/taskIntent": taskIntent,
-});
 const { inferTaskKind, buildPlan, defaultPermissions } = loadTypeScript(path.resolve("lib/task.ts"), {
   "@/lib/taskIntent": taskIntent,
 });
@@ -52,15 +49,11 @@ test("detects missing files with case-sensitive standalone filenames", () => {
   assert.deepEqual(requirements.missingArtifactNames(["calculator.js"], [{ name: "Calculator.js" }]), ["calculator.js"]);
 });
 
-test("routes mixed JS/TS/PDF requests as code, not study, in chat and server inference", () => {
-  assert.equal(inferChatTask(objective), "code");
+test("routes mixed JS/TS/PDF requests as code, not study, in server inference", () => {
   assert.equal(inferTaskKind(objective), "code");
-  assert.equal(inferChatTask("Create study notes as a PDF."), "study");
-  assert.equal(inferChatTask("Research current guidance and make a PDF report."), "research");
 });
 
 test("routes rich football research with build-up/developments wording into a research-only plan", () => {
-  assert.equal(inferChatTask(richResearchObjective), "research");
   assert.equal(inferTaskKind(richResearchObjective), "research");
 
   const plan = buildPlan({ objective: richResearchObjective, kind: inferTaskKind(richResearchObjective) }, 1);
@@ -77,9 +70,7 @@ test("keeps explicit app and repository implementation requests on the code path
   const appRequest = "Build a TypeScript web app with a search form.";
   const repositoryRequest = "Research the current issue, then implement a fix in the GitHub repository.";
 
-  assert.equal(inferChatTask(appRequest), "code");
   assert.equal(inferTaskKind(appRequest), "code");
-  assert.equal(inferChatTask(repositoryRequest), "code");
   assert.equal(inferTaskKind(repositoryRequest), "code");
 
   const plan = buildPlan({ objective: repositoryRequest, kind: inferTaskKind(repositoryRequest) }, 1);

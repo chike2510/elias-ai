@@ -35,9 +35,6 @@ const taskIntent = loadTypeScript(path.resolve("lib/taskIntent.ts"), {
 const task = loadTypeScript(path.resolve("lib/task.ts"), {
   "@/lib/taskIntent": taskIntent,
 });
-const chatRouting = loadTypeScript(path.resolve("lib/chatTaskRouting.ts"), {
-  "@/lib/taskIntent": taskIntent,
-});
 const taskRoute = loadTypeScript(path.resolve("app/api/tasks/route.ts"), {
   "next/server": { after: () => { throw new Error("autoStart was not requested."); } },
   "@/lib/http": {
@@ -68,9 +65,8 @@ async function createThroughTaskApi(payload) {
   return body.task;
 }
 
-test("ordinary chat hands rich football research to a server-classified research-only plan", async () => {
-  assert.equal(chatRouting.inferChatTask(richResearchPrompt), "research");
-  assert.equal(chatRouting.shouldHandoffToTask(richResearchPrompt), true);
+test("task API classifies rich football research to a server-classified research-only plan", async () => {
+  // The chat itself no longer regex-routes (one agent); the task API still classifies server-side.
 
   // A stale browser could still send the old/wrong kind; conversation tasks are reclassified at the API boundary.
   const created = await createThroughTaskApi({
@@ -93,9 +89,7 @@ test("ordinary chat hands rich football research to a server-classified research
   assert.equal(created.permissions.find((permission) => permission.level === "network")?.granted, true);
 });
 
-test("ordinary chat coding requests still get code plans with the existing write gate", async () => {
-  assert.equal(chatRouting.inferChatTask(codingPrompt), "code");
-  assert.equal(chatRouting.shouldHandoffToTask(codingPrompt), true);
+test("task API coding requests still get code plans with the existing write gate", async () => {
 
   const created = await createThroughTaskApi({
     objective: codingPrompt,

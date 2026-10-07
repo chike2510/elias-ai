@@ -33,28 +33,21 @@ function fixtureHtml() {
   <style>${css}</style>
 </head>
 <body>
-  <main class="screen chat-screen chat-route-screen">
-    <header class="chat-workbench-header"></header>
-    <div class="chat-workbench-grid">
-      <section class="chat-room" aria-label="Conversation">
-        <div class="chat-body"></div>
-        <div class="chat-bottom-region">
-          <div class="chat-composer">
-            <textarea class="chat-composer-input" placeholder="Message ELIAS…"></textarea>
-            <input hidden type="file">
-            <div class="chat-composer-bar">
-              <div class="composer-left">
-                <div class="composer-plus-wrap"><button type="button" class="composer-plus" aria-label="Add to chat">+</button></div>
-                <button type="button" class="chat-model-pill" aria-label="Choose model">Auto</button>
-              </div>
-              <a href="#voice" class="composer-utility" aria-label="Voice">Mic</a>
-              <button type="button" class="chat-send" aria-label="Send" disabled>↑</button>
-            </div>
-          </div>
-        </div>
-      </section>
+  <div class="el-shell el-shell-chat">
+    <div class="el-main">
+      <header class="el-topbar"><button class="el-icon-btn" aria-label="Open chat history">≡</button><div class="el-topbar-title">Elias</div><a class="el-icon-btn" href="#new" aria-label="New chat">+</a></header>
+      <div class="el-content">
+        <main class="el-chat">
+          <div class="el-thread"><div class="el-thread-inner"></div></div>
+          <form class="el-composer"><div class="el-composer-box">
+            <textarea rows="1" placeholder="Message Elias"></textarea>
+            <button type="submit" class="el-send" aria-label="Send" disabled>↑</button>
+          </div></form>
+        </main>
+      </div>
+      <nav class="el-tabbar"><a href="#chat" class="active">Chat</a><a href="#tasks">Tasks</a><a href="#you">You</a></nav>
     </div>
-  </main>
+  </div>
   <pre id="layout" aria-hidden="true"></pre>
   <script>
     requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -63,13 +56,15 @@ function fixtureHtml() {
         const bounds = element.getBoundingClientRect();
         return { left: bounds.left, right: bounds.right, top: bounds.top, bottom: bounds.bottom, width: bounds.width, height: bounds.height };
       };
-      const style = getComputedStyle(document.querySelector(".chat-composer"));
+      const style = getComputedStyle(document.querySelector(".el-composer-box"));
+      const tabs = [...document.querySelectorAll(".el-tabbar a")].map((tab) => { const b = tab.getBoundingClientRect(); return { width: b.width, height: b.height }; });
       const layout = {
         viewport: { width: innerWidth, height: innerHeight, dpr: devicePixelRatio },
-        composer: rect(".chat-composer"),
+        composer: rect(".el-composer-box"),
         border: { left: parseFloat(style.borderLeftWidth), right: parseFloat(style.borderRightWidth), top: parseFloat(style.borderTopWidth), bottom: parseFloat(style.borderBottomWidth) },
-        bar: rect(".chat-composer-bar"),
-        controls: { add: rect(".composer-plus"), microphone: rect(".composer-utility"), send: rect(".chat-send") }
+        tabbar: rect(".el-tabbar"),
+        tabs,
+        controls: { input: rect(".el-composer textarea"), send: rect(".el-send"), menu: rect(".el-topbar .el-icon-btn") }
       };
       document.querySelector("#layout").textContent = JSON.stringify(layout);
     }));
@@ -127,7 +122,7 @@ function connectCdp(webSocketUrl) {
   return { socket, send };
 }
 
-test("360px mobile composer keeps Send inside its border and controls non-overlapping", { skip: chromium ? false : "Chromium is unavailable; set CHROME_BIN to run the rendered-layout regression." }, async () => {
+test("360px mobile chat keeps Send inside the composer, 44px targets and a 3-tab bar", { skip: chromium ? false : "Chromium is unavailable; set CHROME_BIN to run the rendered-layout regression." }, async () => {
   const temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), "elias-chat-composer-"));
   const profileDirectory = path.join(temporaryDirectory, "profile");
   await mkdir(profileDirectory);
@@ -198,11 +193,15 @@ test("360px mobile composer keeps Send inside its border and controls non-overla
 
     const overlaps = (a, b) => Math.min(a.right, b.right) - Math.max(a.left, b.left) > 0.5
       && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 0.5;
-    const { add, microphone, send: sendBounds } = layout.controls;
-    assert.ok(!overlaps(add, microphone), "Add and microphone controls must not overlap at 360px");
-    assert.ok(!overlaps(microphone, sendBounds), "Microphone and Send controls must not overlap at 360px");
-    assert.ok(!overlaps(add, sendBounds), "Add and Send controls must not overlap at 360px");
-    assert.ok(add.left < microphone.left && microphone.left < sendBounds.left, "controls remain ordered Add, microphone, then Send");
+    const { input, menu } = layout.controls;
+    assert.ok(!overlaps(input, send), "the message field and Send must not overlap at 360px");
+    assert.ok(input.left < send.left, "Send sits after the message field");
+    assert.ok(send.width >= 44 && send.height >= 44, `Send is a 44px tap target (got ${send.width}x${send.height})`);
+    assert.ok(menu.width >= 44 && menu.height >= 44, "top bar buttons are 44px tap targets");
+    assert.equal(layout.tabs.length, 3, "the bottom bar has exactly three tabs");
+    for (const tab of layout.tabs) assert.ok(tab.height >= 44 && tab.width >= 100, "each tab is a comfortable tap target");
+    assert.ok(layout.composer.bottom <= layout.tabbar.top + 0.5, "the composer sits above the tab bar");
+    assert.ok(layout.tabbar.bottom <= layout.viewport.height + 0.5, "the tab bar stays on screen");
   } finally {
     cdp?.socket.close();
     if (browser.pid) {
