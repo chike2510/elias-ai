@@ -9,18 +9,86 @@ export type LlmMessage =
 export type ToolSchema = { type: "function"; function: { name: string; description: string; parameters: Record<string, unknown> } };
 export type LlmResult = { content: string; toolCalls: ToolCall[]; provider: ProviderName | "custom"; model: string };
 
-const DEFAULT_MODELS: Partial<Record<ProviderName, () => string>> = {
-  huggingface: () => process.env.HF_AGENT_MODEL || process.env.HF_CHAT_MODEL || DEFAULT_HF_CHAT_MODEL,
-  groq: () => process.env.GROQ_AGENT_MODEL || "llama-3.3-70b-versatile",
-  mistral: () => process.env.MISTRAL_AGENT_MODEL || "mistral-large-latest",
-  qwen: () => process.env.QWEN_AGENT_MODEL || "qwen-plus",
-  github: () => process.env.GITHUB_AGENT_MODEL || "openai/gpt-4.1",
+const env = (name: string) => (process.env[name] || "").split(",").map((item) => item.trim()).filter(Boolean);
+
+/** Models tried in order per provider. The first one the account can use wins and is remembered. */
+const MODEL_CANDIDATES: Partial<Record<ProviderName, () => string[]>> = {
+  groq: () => [...env("GROQ_AGENT_MODEL"), "openai/gpt-oss-120b", "moonshotai/kimi-k2-instruct-0905", "meta-llama/llama-4-maverick-17b-128e-instruct", "qwen/qwen3-32b", "llama-3.3-70b-versatile", "openai/gpt-oss-20b", "llama-3.1-8b-instant"],
+  cerebras: () => [...env("CEREBRAS_AGENT_MODEL"), "gpt-oss-120b", "qwen-3-235b-a22b-instruct-2507", "llama-3.3-70b", "qwen-3-32b", "llama3.1-8b"],
+  github: () => [...env("GITHUB_AGENT_MODEL"), "openai/gpt-4.1", "openai/gpt-4.1-mini", "openai/gpt-4o-mini"],
+  openrouter: () => [...env("OPENROUTER_AGENT_MODEL"), "openai/gpt-oss-120b:free", "deepseek/deepseek-chat-v3.1:free", "meta-llama/llama-3.3-70b-instruct:free", "qwen/qwen3-235b-a22b:free", "mistralai/mistral-small-3.2-24b-instruct:free"],
+  mistral: () => [...env("MISTRAL_AGENT_MODEL"), "mistral-medium-latest", "mistral-small-latest", "open-mistral-nemo", "mistral-large-latest"],
+  huggingface: () => [...env("HF_AGENT_MODEL"), ...env("HF_CHAT_MODEL"), DEFAULT_HF_CHAT_MODEL],
+  qwen: () => [...env("QWEN_AGENT_MODEL"), "qwen-plus", "qwen-turbo"],
 };
+
+const DEFAULT_ORDER = "custom,groq,cerebras,github,openrouter,mistral,huggingface,qwen";
+const workingModel = new Map<string, string>();
+const deadModels = new Set<string>();
+const providerCooldown = new Map<string, number>();
+const discovered = new Map<string, Promise<Set<string> | null>>();
+
+class ProviderError extends Error {
+  constructor(message: string, readonly kind: "model" | "account" | "other") { super(message); }
+}
+
+function classify(status: number, body: string): "model" | "account" | "other" {
+  const text = body.toLowerCase();
+  if (status === 401 || status === 402 || /no remaining credits|insufficient|quota|billing|invalid api key|unauthorized/.test(text)) return "account";
+  if (status === 404 || /model_not_found|does not exist|not available in your subscription|tier_not_allowed|decommissioned|unknown model|invalid model|not a valid model|no endpoints found/.test(text)) return "model";
+  if ((status === 400 || status === 403) && /model/.test(text)) return "model";
+  return "other";
+}
+
+async function availableModels(provider: ProviderName, baseUrl: string, key: string) {
+  if (!discovered.has(provider)) {
+    discovered.set(provider, fetch(`${baseUrl}/models`, { headers: { Authorization: `Bearer ${key}` }, cache: "no-store", signal: AbortSignal.timeout(8_000) })
+      .then(async (response) => response.ok ? new Set(((await response.json()) as { data?: Array<{ id?: string }> }).data?.map((item) => item.id || "").filter(Boolean) || []) : null)
+      .catch(() => null));
+  }
+  return discovered.get(provider)!;
+}
+
+function candidatesFor(provider: ProviderName | "custom") {
+  if (provider === "custom") return [customConfig()!.model];
+  const list = [...new Set(MODEL_CANDIDATES[provider]?.() || [])];
+  const known = workingModel.get(provider);
+  return (known ? [known, ...list.filter((model) => model !== known)] : list).filter((model) => !deadModels.has(`${provider}/${model}`));
+}
+
+/** Runs one call against a provider, walking its model list past models the account can't use. */
+async function withModels(provider: ProviderName | "custom", run: (model: string) => Promise<LlmResult>): Promise<LlmResult> {
+  const cooldown = providerCooldown.get(provider);
+  if (cooldown && cooldown > Date.now()) throw new ProviderError(`${provider}: skipped (account unavailable)`, "account");
+  let candidates = candidatesFor(provider);
+  if (provider !== "custom") {
+    const config = providerConfig(provider);
+    const available = await availableModels(provider, config.baseUrl, config.key || "");
+    if (available?.size) {
+      const usable = candidates.filter((model) => available.has(model));
+      candidates = usable.length ? usable : [...available].filter((id) => !/whisper|tts|embed|guard|vision|audio|image|ocr|moderation|rerank/i.test(id)).slice(0, 3);
+    }
+  }
+  let lastError: unknown = new Error(`${provider}: no usable model`);
+  for (const model of candidates.slice(0, 4)) {
+    try {
+      const result = await run(model);
+      workingModel.set(provider, model);
+      return result;
+    } catch (error) {
+      lastError = error;
+      if (error instanceof ProviderError && error.kind === "model") { deadModels.add(`${provider}/${model}`); continue; }
+      if (error instanceof ProviderError && error.kind === "account") providerCooldown.set(provider, Date.now() + 10 * 60_000);
+      throw error;
+    }
+  }
+  throw lastError;
+}
 
 /** Providers tried in order for the tool-calling agent. Override with ELIAS_AGENT_PROVIDERS=groq,huggingface. */
 export function agentProviders(): Array<ProviderName | "custom"> {
-  const order = (process.env.ELIAS_AGENT_PROVIDERS || "custom,huggingface,groq,mistral").split(",").map((item) => item.trim());
-  return order.filter((name): name is ProviderName | "custom" => name === "custom" ? Boolean(customConfig()) : Boolean(DEFAULT_MODELS[name as ProviderName] && providerConfig(name as ProviderName)?.key));
+  const order = (process.env.ELIAS_AGENT_PROVIDERS || DEFAULT_ORDER).split(",").map((item) => item.trim());
+  return order.filter((name): name is ProviderName | "custom" => name === "custom" ? Boolean(customConfig()) : Boolean(MODEL_CANDIDATES[name as ProviderName] && providerConfig(name as ProviderName)?.key));
 }
 
 function stripThinking(text: string) {
@@ -47,10 +115,9 @@ function customConfig() {
   return baseUrl ? { baseUrl: baseUrl.replace(/\/+$/, ""), key: process.env.ELIAS_AGENT_API_KEY || "", model: process.env.ELIAS_AGENT_MODEL || "gpt-4.1-mini" } : null;
 }
 
-async function callProvider(provider: ProviderName | "custom", messages: LlmMessage[], tools: ToolSchema[], temperature: number): Promise<LlmResult> {
+async function callProvider(provider: ProviderName | "custom", messages: LlmMessage[], tools: ToolSchema[], temperature: number, model: string): Promise<LlmResult> {
   const custom = provider === "custom" ? customConfig() : null;
   const config = custom || providerConfig(provider as ProviderName);
-  const model = custom ? custom.model : DEFAULT_MODELS[provider as ProviderName]!();
   const response = await fetch(`${config.baseUrl}/chat/completions`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${config.key}` },
@@ -59,7 +126,7 @@ async function callProvider(provider: ProviderName | "custom", messages: LlmMess
     signal: AbortSignal.timeout(45_000),
   });
   const raw = await response.text();
-  if (!response.ok) throw new Error(`${provider}/${model} HTTP ${response.status}: ${raw.slice(0, 400)}`);
+  if (!response.ok) throw new ProviderError(`${provider}/${model} HTTP ${response.status}: ${raw.slice(0, 300)}`, classify(response.status, raw));
   const data = JSON.parse(raw) as { choices?: Array<{ message?: { content?: string | null; tool_calls?: ToolCall[] } }> };
   const message = data.choices?.[0]?.message;
   if (!message) throw new Error(`${provider}/${model} returned no message.`);
@@ -82,10 +149,9 @@ export function visibleStreamText(full: string) {
   return text.replace(/^\s+/, "");
 }
 
-async function streamProvider(provider: ProviderName | "custom", messages: LlmMessage[], tools: ToolSchema[], temperature: number, onDelta: (text: string) => void): Promise<LlmResult> {
+async function streamProvider(provider: ProviderName | "custom", messages: LlmMessage[], tools: ToolSchema[], temperature: number, onDelta: (text: string) => void, model: string): Promise<LlmResult> {
   const custom = provider === "custom" ? customConfig() : null;
   const config = custom || providerConfig(provider as ProviderName);
-  const model = custom ? custom.model : DEFAULT_MODELS[provider as ProviderName]!();
   const response = await fetch(`${config.baseUrl}/chat/completions`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "text/event-stream", Authorization: `Bearer ${config.key}` },
@@ -93,7 +159,7 @@ async function streamProvider(provider: ProviderName | "custom", messages: LlmMe
     cache: "no-store",
     signal: AbortSignal.timeout(60_000),
   });
-  if (!response.ok) throw new Error(`${provider}/${model} HTTP ${response.status}: ${(await response.text()).slice(0, 400)}`);
+  if (!response.ok) { const body = await response.text(); throw new ProviderError(`${provider}/${model} HTTP ${response.status}: ${body.slice(0, 300)}`, classify(response.status, body)); }
   const contentType = response.headers.get("content-type") || "";
   if (!contentType.includes("event-stream") || !response.body) {
     // Provider ignored stream:true; treat it as a normal completion.
@@ -156,33 +222,34 @@ function finish(provider: ProviderName | "custom", model: string, raw: string, r
  */
 export async function completeStream(messages: LlmMessage[], tools: ToolSchema[], onDelta: (text: string) => void, options: { temperature?: number } = {}): Promise<LlmResult> {
   const providers = agentProviders();
-  if (!providers.length) throw new Error("No tool-capable model provider is configured. Set HF_TOKEN, GROQ_API_KEY or MISTRAL_API_KEY.");
+  if (!providers.length) throw new Error("No tool-capable model provider is configured. Set GROQ_API_KEY, CEREBRAS_API_KEY, OPENROUTER_API_KEY, MISTRAL_API_KEY or HF_TOKEN.");
   const errors: string[] = [];
   for (const provider of providers) {
     let streamed = false;
-    try { return await streamProvider(provider, messages, tools, options.temperature ?? 0.3, (text) => { streamed = true; onDelta(text); }); }
+    try { return await withModels(provider, (model) => streamProvider(provider, messages, tools, options.temperature ?? 0.3, (text) => { streamed = true; onDelta(text); }, model)); }
     catch (error) {
       if (streamed) throw error;
       errors.push(error instanceof Error ? error.message : String(error));
+      if (error instanceof ProviderError && error.kind !== "other") continue;
     }
     // Some providers reject stream+tools; the same provider without streaming is the next best thing.
     try {
-      const result = await callProvider(provider, messages, tools, options.temperature ?? 0.3);
+      const result = await withModels(provider, (model) => callProvider(provider, messages, tools, options.temperature ?? 0.3, model));
       if (!result.toolCalls.length && result.content) onDelta(result.content);
       return result;
     } catch (error) { errors.push(error instanceof Error ? error.message : String(error)); }
   }
-  throw new Error(`All agent providers failed. ${errors.join(" | ")}`);
+  throw new Error(`All agent providers failed. ${errors.join(" | ")}`.slice(0, 2000));
 }
 
 export async function complete(messages: LlmMessage[], tools: ToolSchema[] = [], options: { temperature?: number; preferred?: ProviderName | "custom" } = {}): Promise<LlmResult> {
   const providers = agentProviders();
   if (options.preferred && providers.includes(options.preferred)) providers.unshift(...providers.splice(providers.indexOf(options.preferred), 1));
-  if (!providers.length) throw new Error("No tool-capable model provider is configured. Set HF_TOKEN, GROQ_API_KEY or MISTRAL_API_KEY.");
+  if (!providers.length) throw new Error("No tool-capable model provider is configured. Set GROQ_API_KEY, CEREBRAS_API_KEY, OPENROUTER_API_KEY, MISTRAL_API_KEY or HF_TOKEN.");
   const errors: string[] = [];
   for (const provider of providers) {
-    try { return await callProvider(provider, messages, tools, options.temperature ?? 0.3); }
+    try { return await withModels(provider, (model) => callProvider(provider, messages, tools, options.temperature ?? 0.3, model)); }
     catch (error) { errors.push(error instanceof Error ? error.message : String(error)); }
   }
-  throw new Error(`All agent providers failed. ${errors.join(" | ")}`);
+  throw new Error(`All agent providers failed. ${errors.join(" | ")}`.slice(0, 2000));
 }
