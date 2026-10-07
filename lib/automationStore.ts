@@ -42,6 +42,8 @@ async function ensureSchema() {
   if (!useRemoteStore()) return;
   globalThis.__eliasAutomationSchema ||= (async () => {
     await db()`create table if not exists public.elias_automations (id text primary key, user_id text not null, automation jsonb not null, updated_at timestamptz not null default now())`;
+    // RLS on, no policies: the app connects as owner; Supabase anon/authenticated roles get nothing.
+    await db()`alter table public.elias_automations enable row level security`;
     await db()`create index if not exists elias_automations_user_idx on public.elias_automations(user_id, updated_at desc)`;
   })();
   await globalThis.__eliasAutomationSchema;

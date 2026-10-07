@@ -42,6 +42,8 @@ async function ensureSchema() {
   if (!useRemoteStore()) return;
   globalThis.__eliasGitHubSchema ||= (async () => {
     await db()`create table if not exists public.elias_github_connections (user_id text primary key, connection jsonb not null, updated_at timestamptz not null default now())`;
+    // RLS on, no policies: the app connects as owner; Supabase anon/authenticated roles get nothing.
+    await db()`alter table public.elias_github_connections enable row level security`;
     await db()`create index if not exists elias_github_connections_updated_idx on public.elias_github_connections(updated_at desc)`;
   })();
   await globalThis.__eliasGitHubSchema;
