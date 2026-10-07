@@ -1,4 +1,5 @@
 import { decrypt, encrypt, ready } from "@/lib/assistant/db";
+import { needsReencrypt } from "@/lib/assistant/crypto";
 
 export const GOOGLE_SCOPES = [
   "openid", "email", "profile",
@@ -60,6 +61,11 @@ async function accessToken(userId: string) {
   const rows = await db`select * from public.elias_oauth_tokens where user_id = ${userId} and provider = 'google'`;
   const record = rows[0];
   if (!record) throw new Error("Google is not connected. Ask the user to connect Google in Elias (Connectors > Google).");
+  if (needsReencrypt(record.access_token as string) || needsReencrypt(record.refresh_token as string | null)) {
+    // Transparent migration: plaintext or legacy-key rows are rewritten with ELIAS_ENCRYPTION_KEY.
+    await db`update public.elias_oauth_tokens set access_token = ${encrypt(decrypt(record.access_token as string))},
+      refresh_token = ${record.refresh_token ? encrypt(decrypt(record.refresh_token as string)) : null} where user_id = ${userId} and provider = 'google'`.catch(() => undefined);
+  }
   if (new Date(record.expires_at as string).getTime() > Date.now() + 60_000) return decrypt(record.access_token as string);
   if (!record.refresh_token) throw new Error("Google access expired. Ask the user to reconnect Google.");
   const response = await fetch("https://oauth2.googleapis.com/token", {

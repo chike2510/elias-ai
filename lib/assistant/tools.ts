@@ -5,6 +5,8 @@ import { createSchedule, describeSpec, listSchedules, setScheduleStatus } from "
 import { elementLabel, endBrowser, looksConsequential, openBrowser, snapshot, type BrowserHandle } from "@/lib/assistant/browser";
 import { fetchUrl, searchWeb } from "@/lib/webSearch";
 import { cityFromTimezone, gatherBrief, getSettings, weatherFor } from "@/lib/assistant/brief";
+import { CONNECTOR_TOOLS, connectorGate } from "@/lib/assistant/connectors";
+import { isSideEffect, recordAudit, unsafeCall } from "@/lib/assistant/audit";
 
 export type ToolContext = {
   userId: string;
@@ -14,6 +16,10 @@ export type ToolContext = {
   browsers: Map<string, BrowserHandle>;
   /** true when the user already approved this exact call. */
   approved?: boolean;
+  /** The approval this call executes, for the audit log. */
+  approvalId?: string;
+  /** chat | schedule | approval | telegram, for the audit log. */
+  origin?: string;
 };
 
 type Args = Record<string, unknown>;
@@ -51,16 +57,16 @@ const TOOLS: Record<string, Tool> = {
   },
 
   memory_save: {
-    schema: { name: "memory_save", description: "Remember a durable fact about the user (who they are, people, places, preferences, projects). One short third-person sentence with its conditions.", parameters: obj({ content: s("The fact"), kind: { type: "string", enum: ["profile", "preference", "person", "place", "project", "fact"] } }, ["content"]) },
-    run: async (args, ctx) => saveMemory(ctx.userId, str(args.content), str(args.kind), "chat"),
+    schema: { name: "memory_save", description: "Remember a durable fact about the user (who they are, people, places, preferences, projects). One short third-person sentence with its conditions.", parameters: obj({ content: s("The fact"), kind: { type: "string", enum: ["person", "place", "project", "preference", "profile", "fact"] }, entity: s("Who or what it's about, e.g. 'Bola' or 'Port Harcourt' (optional)") }, ["content"]) },
+    run: async (args, ctx) => saveMemory(ctx.userId, str(args.content), str(args.kind), "chat", str(args.entity) || null),
   },
   memory_search: {
     schema: { name: "memory_search", description: "Search long-term memory about the user.", parameters: obj({ query: s("What to look for") }, ["query"]) },
     run: async (args, ctx) => searchMemories(ctx.userId, str(args.query), 10),
   },
   memory_update: {
-    schema: { name: "memory_update", description: "Rewrite a saved memory that changed (use its id from the memory block).", parameters: obj({ id: s("Memory id"), content: s("New content") }, ["id", "content"]) },
-    run: async (args, ctx) => updateMemory(ctx.userId, str(args.id), str(args.content)),
+    schema: { name: "memory_update", description: "Rewrite a saved memory that changed (use its id from the memory block).", parameters: obj({ id: s("Memory id"), content: s("New content"), kind: { type: "string", enum: ["person", "place", "project", "preference", "profile", "fact"] }, entity: s("Who or what it's about (optional)") }, ["id", "content"]) },
+    run: async (args, ctx) => updateMemory(ctx.userId, str(args.id), str(args.content), { kind: str(args.kind) || undefined, entity: typeof args.entity === "string" ? args.entity : undefined }),
   },
   memory_forget: {
     schema: { name: "memory_forget", description: "Delete a saved memory when the user asks you to forget it.", parameters: obj({ id: s("Memory id") }, ["id"]) },
@@ -183,6 +189,8 @@ const TOOLS: Record<string, Tool> = {
       return text.slice(0, 12_000);
     },
   },
+
+  ...CONNECTOR_TOOLS,
 };
 
 export function toolSchemas(): ToolSchema[] {
@@ -195,12 +203,33 @@ export function hasTool(name: string) {
 
 export async function approvalSummary(name: string, args: Args, ctx: ToolContext) {
   const tool = TOOLS[name];
+  const unsafe = unsafeCall(name, args);
+  if (unsafe) {
+    await recordAudit({ userId: ctx.userId, tool: name, args, status: "blocked", result: unsafe, conversationId: ctx.conversationId, origin: ctx.origin });
+    throw new Error(`Refused: ${unsafe}`);
+  }
+  const gate = connectorGate(name);
+  if (gate) throw new Error(gate);
   if (!tool?.needsApproval || ctx.approved) return null;
   return tool.needsApproval(args, ctx);
 }
 
+/** Runs a tool. Side-effect tools are written to the audit log (redacted), whatever the outcome. */
 export async function runTool(name: string, args: Args, ctx: ToolContext) {
   const tool = TOOLS[name];
   if (!tool) throw new Error(`Unknown tool ${name}.`);
-  return tool.run(args, ctx);
+  const unsafe = unsafeCall(name, args);
+  if (unsafe) {
+    await recordAudit({ userId: ctx.userId, tool: name, args, status: "blocked", result: unsafe, approvalId: ctx.approvalId, conversationId: ctx.conversationId, origin: ctx.origin });
+    throw new Error(`Refused: ${unsafe}`);
+  }
+  if (!isSideEffect(name)) return tool.run(args, ctx);
+  try {
+    const result = await tool.run(args, ctx);
+    await recordAudit({ userId: ctx.userId, tool: name, args, status: "ok", result, approvalId: ctx.approvalId, conversationId: ctx.conversationId, origin: ctx.origin });
+    return result;
+  } catch (error) {
+    await recordAudit({ userId: ctx.userId, tool: name, args, status: "error", result: error instanceof Error ? error.message : String(error), approvalId: ctx.approvalId, conversationId: ctx.conversationId, origin: ctx.origin });
+    throw error;
+  }
 }

@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { jsonError, jsonOk } from "@/lib/http";
 import { runDueSchedules } from "@/lib/assistant/runner";
 import { advanceJobs, hasRunnableJobs, kickJobs } from "@/lib/assistant/jobs";
+import { backfillEmbeddings } from "@/lib/assistant/memory";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -18,7 +19,8 @@ async function tick(request: NextRequest) {
     const ran = await runDueSchedules(3);
     let jobs: unknown = "idle";
     if (await hasRunnableJobs().catch(() => false)) jobs = (await kickJobs()) ? "kicked" : await advanceJobs(1);
-    return jsonOk({ ran, jobs, at: new Date().toISOString() });
+    const embedded = await backfillEmbeddings(48).catch(() => 0);
+    return jsonOk({ ran, jobs, embedded, at: new Date().toISOString() });
   }
   catch (error) { return jsonError(error instanceof Error ? error.message : String(error)); }
 }

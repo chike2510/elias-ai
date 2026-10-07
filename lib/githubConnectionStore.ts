@@ -1,8 +1,8 @@
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 import { dirname, join } from "node:path";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import postgres from "postgres";
 import type { EliasSession } from "@/lib/auth";
+import { decryptSecret, encryptSecret, needsReencrypt } from "@/lib/assistant/crypto";
 
 export type GitHubConnection = {
   userId: string;
@@ -32,28 +32,18 @@ function useRemoteStore() {
   return Boolean(process.env.POSTGRES_URL);
 }
 function db() { globalThis.__eliasGitHubDb ||= postgres(process.env.POSTGRES_URL!, { max: 1, prepare: false }); return globalThis.__eliasGitHubDb; }
-function key() { return createHash("sha256").update(process.env.ELIAS_SESSION_SECRET || "local-development-secret-change-me").digest(); }
-function encode(value: Buffer) { return value.toString("base64url"); }
-function decode(value: string) { return Buffer.from(value, "base64url"); }
-function encryptToken(token: string) {
-  const iv = randomBytes(12);
-  const cipher = createCipheriv("aes-256-gcm", key(), iv);
-  const encrypted = Buffer.concat([cipher.update(token, "utf8"), cipher.final()]);
-  return [iv, cipher.getAuthTag(), encrypted].map(encode).join(".");
-}
+// Tokens are AES-256-GCM encrypted with ELIAS_ENCRYPTION_KEY (lib/assistant/crypto.ts); rows written with the
+// older session-secret key are still read and are re-encrypted the next time they're loaded.
+function encryptToken(token: string) { return encryptSecret(token); }
 function decryptToken(value: string) {
-  try {
-    const [ivValue, tagValue, encryptedValue] = value.split(".");
-    if (!ivValue || !tagValue || !encryptedValue) return undefined;
-    const decipher = createDecipheriv("aes-256-gcm", key(), decode(ivValue));
-    decipher.setAuthTag(decode(tagValue));
-    return Buffer.concat([decipher.update(decode(encryptedValue)), decipher.final()]).toString("utf8");
-  } catch { return undefined; }
+  try { return decryptSecret(value) || undefined; } catch { return undefined; }
 }
 async function ensureSchema() {
   if (!useRemoteStore()) return;
   globalThis.__eliasGitHubSchema ||= (async () => {
     await db()`create table if not exists public.elias_github_connections (user_id text primary key, connection jsonb not null, updated_at timestamptz not null default now())`;
+    // RLS on, no policies: the app connects as owner; Supabase anon/authenticated roles get nothing.
+    await db()`alter table public.elias_github_connections enable row level security`;
     await db()`create index if not exists elias_github_connections_updated_idx on public.elias_github_connections(updated_at desc)`;
   })();
   await globalThis.__eliasGitHubSchema;
@@ -99,7 +89,10 @@ export async function getGitHubConnection(userId: string) {
   if (useRemoteStore()) {
     await ensureSchema();
     const rows = await db()<Array<{ connection: unknown }>>`select connection from public.elias_github_connections where user_id = ${userId} limit 1`;
-    return rows[0] ? fromStored(rows[0].connection) : undefined;
+    const connection = rows[0] ? fromStored(rows[0].connection) : undefined;
+    const stored = rows[0]?.connection as Partial<StoredGitHubConnection> | undefined;
+    if (connection && needsReencrypt(stored?.tokenCiphertext)) await saveGitHubConnection(connection).catch(() => undefined);
+    return connection;
   }
   const stored = state().connections.get(userId);
   return stored ? fromStored(stored) : undefined;

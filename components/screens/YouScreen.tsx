@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { ChevronRight, Globe2, LogOut, Mail, Github, Sparkles } from "lucide-react";
+import { ChevronRight, Globe2, LogOut, Mail, Github, Sparkles, History } from "lucide-react";
 import NotificationSettings from "@/components/NotificationSettings";
+import TelegramLink from "@/components/screens/TelegramLink";
 import { useEffect, useState } from "react";
 import AppShell, { ListSkeleton } from "@/components/AppShell";
 import { MORE } from "@/lib/navigation";
@@ -41,6 +42,7 @@ export default function YouScreen() {
       </section>
 
       <NotificationSettings />
+      <TelegramLink />
 
       <section className="el-section">
         <h2>Workspace</h2>
@@ -49,7 +51,8 @@ export default function YouScreen() {
 
       <section className="el-section">
         <h2>You & Elias</h2>
-        <ul className="el-list">{MORE.filter((item) => item.group === "you").map((item) => <li key={item.href}><Link className="el-list-row" href={item.href}><span className="el-list-icon"><item.icon size={17} /></span><span className="el-list-text"><strong>{item.label}</strong><small>{item.detail}</small></span><ChevronRight size={17} className="el-list-trail" /></Link></li>)}
+        <ul className="el-list"><li><Link className="el-list-row" href="/you/activity"><span className="el-list-icon"><History size={17} /></span><span className="el-list-text"><strong>Activity</strong><small>Everything Elias did on your behalf</small></span><ChevronRight size={17} className="el-list-trail" /></Link></li>
+          {MORE.filter((item) => item.group === "you").map((item) => <li key={item.href}><Link className="el-list-row" href={item.href}><span className="el-list-icon"><item.icon size={17} /></span><span className="el-list-text"><strong>{item.label}</strong><small>{item.detail}</small></span><ChevronRight size={17} className="el-list-trail" /></Link></li>)}
           <li><Link className="el-list-row" href="/welcome"><span className="el-list-icon"><Sparkles size={17} /></span><span className="el-list-text"><strong>Redo setup</strong><small>Name, timezone, brief time, connections and preferences</small></span><ChevronRight size={17} className="el-list-trail" /></Link></li>
           <li><button type="button" className="el-list-row danger" onClick={() => void logout()}><span className="el-list-icon"><LogOut size={17} /></span><span className="el-list-text"><strong>Sign out</strong></span></button></li>
         </ul>

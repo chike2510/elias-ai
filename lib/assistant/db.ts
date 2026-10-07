@@ -1,6 +1,8 @@
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import postgres from "postgres";
 import { migrateBackground } from "@/lib/assistant/schemaBackground";
+import { decryptSecret, encryptSecret } from "@/lib/assistant/crypto";
+import { migrateV3 } from "@/lib/assistant/schemaV3";
 
 declare global {
   var __eliasAssistantDb: ReturnType<typeof postgres> | undefined;
@@ -63,6 +65,8 @@ export async function ready() {
     await db`create index if not exists elias_rate_events_bucket_idx on public.elias_rate_events(bucket, at)`;
     await db`alter table public.elias_conversations add column if not exists source text not null default 'server'`;
     await migrateBackground(db);
+    // v3 (additive): memory embeddings/entities, audit log, Telegram links, RLS on every elias_ table.
+    await migrateV3(db);
   })().catch((error) => { globalThis.__eliasAssistantSchema = undefined; throw error; });
   await globalThis.__eliasAssistantSchema;
   return db;
@@ -72,21 +76,11 @@ export function newId(prefix: string) {
   return `${prefix}_${randomBytes(9).toString("base64url")}`;
 }
 
-function secretKey() {
-  return createHash("sha256").update(`elias-assistant:${process.env.ELIAS_SESSION_SECRET || "local-development-secret-change-me"}`).digest();
-}
-
-/** AES-256-GCM for OAuth tokens at rest. */
+/** AES-256-GCM for OAuth tokens at rest (ELIAS_ENCRYPTION_KEY; legacy and plaintext rows are still readable). */
 export function encrypt(value: string) {
-  const iv = randomBytes(12);
-  const cipher = createCipheriv("aes-256-gcm", secretKey(), iv);
-  const data = Buffer.concat([cipher.update(value, "utf8"), cipher.final()]);
-  return [iv, cipher.getAuthTag(), data].map((part) => part.toString("base64url")).join(".");
+  return encryptSecret(value);
 }
 
 export function decrypt(value: string) {
-  const [iv, tag, data] = value.split(".");
-  const decipher = createDecipheriv("aes-256-gcm", secretKey(), Buffer.from(iv, "base64url"));
-  decipher.setAuthTag(Buffer.from(tag, "base64url"));
-  return Buffer.concat([decipher.update(Buffer.from(data, "base64url")), decipher.final()]).toString("utf8");
+  return decryptSecret(value);
 }

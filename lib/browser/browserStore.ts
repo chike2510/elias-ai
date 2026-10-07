@@ -16,6 +16,8 @@ async function ensureSchema() {
   if (!useRemoteStore()) return;
   globalThis.__eliasBrowserSchema ||= (async () => {
     await db()`create table if not exists public.elias_browser_sessions (id text primary key, session jsonb not null, updated_at timestamptz not null default now())`;
+    // RLS on, no policies: the app connects as owner; Supabase anon/authenticated roles get nothing.
+    await db()`alter table public.elias_browser_sessions enable row level security`;
     await db()`create index if not exists elias_browser_sessions_updated_idx on public.elias_browser_sessions(updated_at desc)`;
   })();
   await globalThis.__eliasBrowserSchema;

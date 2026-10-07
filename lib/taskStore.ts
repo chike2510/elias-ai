@@ -28,6 +28,8 @@ async function ensureSchema() {
   if (!useRemoteStore()) return;
   globalThis.__eliasTaskSchema ||= (async () => {
     await db()`create table if not exists public.elias_task_records (id text primary key, task jsonb not null, updated_at timestamptz not null default now())`;
+    // RLS on, no policies: the app connects as owner; Supabase anon/authenticated roles get nothing.
+    await db()`alter table public.elias_task_records enable row level security`;
     await db()`create index if not exists elias_task_records_updated_idx on public.elias_task_records(updated_at desc)`;
   })();
   await globalThis.__eliasTaskSchema;
