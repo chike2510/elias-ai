@@ -16,6 +16,21 @@ jobs:
     env:
       ELIAS_AGENT_BASE_URL: http://127.0.0.1:5599
       ELIAS_AGENT_PROVIDERS: custom
+    # Real Postgres for the integration runs: pglite-socket shares one session between client connections,
+    # which breaks when the app opens more than one postgres.js client.
+    services:
+      pg:
+        image: postgres:16
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ["5432:5432"]
+        options: --health-cmd "pg_isready -U postgres" --health-interval 2s --health-timeout 5s --health-retries 30
+      pgvector:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ["5433:5432"]
+        options: --health-cmd "pg_isready -U postgres" --health-interval 2s --health-timeout 5s --health-retries 30
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -33,15 +48,11 @@ jobs:
       - name: Unit tests
         run: pnpm test
 
-      - name: Start PGlite (plain + pgvector) and the scripted model
+      - name: Start the scripted model and an evals database
         run: |
-          mkdir -p /tmp/pg && cd /tmp/pg && npm init -y >/dev/null
-          npm i --no-audit --no-fund @electric-sql/pglite@0.5.8 @electric-sql/pglite-socket@0.2.11 @electric-sql/pglite-pgvector@0.0.9
-          nohup node node_modules/@electric-sql/pglite-socket/dist/scripts/server.js --port 5432 > /tmp/pg-plain.log 2>&1 &
-          nohup node node_modules/@electric-sql/pglite-socket/dist/scripts/server.js --port 5433 -e @electric-sql/pglite-pgvector:vector > /tmp/pg-vector.log 2>&1 &
-          nohup node node_modules/@electric-sql/pglite-socket/dist/scripts/server.js --port 5434 > /tmp/pg-evals.log 2>&1 &
-          cd "$GITHUB_WORKSPACE" && nohup node scripts/mock-llm.mjs 5599 > /tmp/mock.log 2>&1 &
-          for port in 5432 5433 5434 5599; do for i in $(seq 1 60); do (echo > /dev/tcp/127.0.0.1/$port) 2>/dev/null && break; sleep 1; done; done
+          nohup node scripts/mock-llm.mjs 5599 > /tmp/mock.log 2>&1 &
+          psql -h 127.0.0.1 -U postgres -c 'create database evals'
+          for i in $(seq 1 60); do (echo > /dev/tcp/127.0.0.1/5599) 2>/dev/null && break; sleep 1; done
 
       - name: Integration test (full-text memory, no pgvector)
         run: npx -y tsx scripts/test-assistant.ts
@@ -58,8 +69,8 @@ jobs:
       - name: Evals (deterministic, scripted model)
         run: npx -y tsx evals/run.ts
         env:
-          POSTGRES_URL: postgres://postgres@127.0.0.1:5434/postgres
+          POSTGRES_URL: postgres://postgres@127.0.0.1:5432/evals
 
       - name: Logs on failure
         if: failure()
-        run: tail -n 50 /tmp/pg-plain.log /tmp/pg-vector.log /tmp/pg-evals.log /tmp/mock.log || true
+        run: tail -n 50 /tmp/mock.log || true
