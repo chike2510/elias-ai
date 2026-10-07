@@ -72,6 +72,8 @@ class ProviderError extends Error {
 function classify(status: number, body: string): "model" | "account" | "busy" | "other" {
   const text = body.toLowerCase();
   if (status === 429 || status === 503 || status === 529 || /high demand|overloaded|temporarily unavailable|"unavailable"|rate limit/.test(text)) return "busy";
+  // OpenRouter answers 402 for one paid/image-output model while its free models still work: skip just that model.
+  if (status === 402 && /requires at least|image or video output|paid model/.test(text)) return "model";
   if (status === 401 || status === 402 || /no remaining credits|insufficient|quota|billing|invalid api key|unauthorized/.test(text)) return "account";
   if (status === 404 || /model_not_found|does not exist|not available in your subscription|tier_not_allowed|decommissioned|unknown model|invalid model|not a valid model|no endpoints found/.test(text)) return "model";
   if ((status === 400 || status === 403) && /model/.test(text)) return "model";
@@ -125,7 +127,9 @@ async function withModels(provider: AgentProvider, route: ModelRoute, run: (mode
       if (usable.length) candidates = usable;
       else if (route.tier === "vision") {
         // None of the known vision ids are offered: try what discovery lists that looks multimodal.
-        const guessed = [...available].filter((id) => VISION_GUESS.test(id) && !/guard|embed|tts|whisper|audio|image-gen|imagen|veo|live/i.test(id)).slice(0, 3);
+        const looks = [...available].filter((id) => VISION_GUESS.test(id) && !/guard|embed|tts|whisper|audio|image|banana|imagen|veo|live|:batch|ocr/i.test(id));
+        // On OpenRouter only free models cost nothing.
+        const guessed = (provider === "openrouter" ? looks.filter((id) => id.endsWith(":free")) : looks).slice(0, 3);
         if (!guessed.length) throw new ProviderError(`${provider}: no vision model available on this account`, "model");
         candidates = guessed;
       }
