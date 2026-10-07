@@ -56,6 +56,8 @@ const TIER_TABLE: Record<ModelTier, CandidateTable> = { strong: MODEL_CANDIDATES
 const FAST_FIRST: AgentProvider[] = ["groq", "cerebras", "gemini"];
 const VISION_ORDER: AgentProvider[] = ["custom", "groq", "github", "openrouter", "gemini"];
 
+const VISION_GUESS = /vision|-vl\b|\bvl-|llama-4|maverick|scout|gemma-3|pixtral|gpt-4o|gpt-4\.1|gpt-5|gemini|llava|qwen2\.5-vl|qwen3-vl|phi-4-multimodal/i;
+
 const DEFAULT_ORDER = "custom,groq,gemini,cerebras,github,openrouter,mistral,huggingface,qwen";
 const workingModel = new Map<string, string>();
 const deadModels = new Set<string>();
@@ -63,11 +65,13 @@ const providerCooldown = new Map<string, number>();
 const discovered = new Map<string, Promise<Set<string> | null>>();
 
 class ProviderError extends Error {
-  constructor(message: string, readonly kind: "model" | "account" | "other") { super(message); }
+  /** model: this model can't be used (skip it for good). busy: overloaded or rate-limited right now (try the next model). */
+  constructor(message: string, readonly kind: "model" | "account" | "busy" | "other") { super(message); }
 }
 
-function classify(status: number, body: string): "model" | "account" | "other" {
+function classify(status: number, body: string): "model" | "account" | "busy" | "other" {
   const text = body.toLowerCase();
+  if (status === 429 || status === 503 || status === 529 || /high demand|overloaded|temporarily unavailable|"unavailable"|rate limit/.test(text)) return "busy";
   if (status === 401 || status === 402 || /no remaining credits|insufficient|quota|billing|invalid api key|unauthorized/.test(text)) return "account";
   if (status === 404 || /model_not_found|does not exist|not available in your subscription|tier_not_allowed|decommissioned|unknown model|invalid model|not a valid model|no endpoints found/.test(text)) return "model";
   if ((status === 400 || status === 403) && /model/.test(text)) return "model";
@@ -119,7 +123,12 @@ async function withModels(provider: AgentProvider, route: ModelRoute, run: (mode
     if (available?.size) {
       const usable = candidates.filter((model) => model === pinned || available.has(model));
       if (usable.length) candidates = usable;
-      else if (route.tier === "vision") throw new ProviderError(`${provider}: no vision model available on this account`, "model");
+      else if (route.tier === "vision") {
+        // None of the known vision ids are offered: try what discovery lists that looks multimodal.
+        const guessed = [...available].filter((id) => VISION_GUESS.test(id) && !/guard|embed|tts|whisper|audio|image-gen|imagen|veo|live/i.test(id)).slice(0, 3);
+        if (!guessed.length) throw new ProviderError(`${provider}: no vision model available on this account`, "model");
+        candidates = guessed;
+      }
       else candidates = [...available].filter((id) => !/whisper|tts|embed|guard|vision|audio|image|ocr|moderation|rerank|veo|imagen|live/i.test(id)).slice(0, 3);
     }
   }
@@ -132,6 +141,7 @@ async function withModels(provider: AgentProvider, route: ModelRoute, run: (mode
     } catch (error) {
       lastError = error;
       if (error instanceof ProviderError && error.kind === "model") { deadModels.add(`${provider}/${model}`); continue; }
+      if (error instanceof ProviderError && error.kind === "busy") continue;
       if (error instanceof ProviderError && error.kind === "account") providerCooldown.set(provider, Date.now() + 10 * 60_000);
       throw error;
     }
@@ -157,6 +167,15 @@ export function providersFor(route: ModelRoute = { tier: "strong" }): AgentProvi
   const pinned = route.provider as AgentProvider | undefined;
   if (pinned && base.includes(pinned)) order = [pinned, ...order.filter((name) => name !== pinned)];
   return order;
+}
+
+/** Raw /models ids per configured provider (owner health check diagnostics). */
+export async function discoveredModels() {
+  return Object.fromEntries(await Promise.all(agentProviders().filter((name) => name !== "custom").map(async (provider) => {
+    const config = configFor(provider);
+    const available = await availableModels(provider, config.baseUrl, config.key).catch(() => null);
+    return [provider, available ? [...available].slice(0, 120) : null] as const;
+  })));
 }
 
 /** Configured providers with the models the picker can offer (discovery-filtered when /models answers). */
@@ -211,7 +230,8 @@ async function callProvider(provider: AgentProvider, messages: LlmMessage[], too
   });
   const raw = await response.text();
   if (!response.ok) throw new ProviderError(`${provider}/${model} HTTP ${response.status}: ${raw.slice(0, 300)}`, classify(response.status, raw));
-  const data = JSON.parse(raw) as { choices?: Array<{ message?: { content?: string | null; tool_calls?: ToolCall[] } }> };
+  let data: { choices?: Array<{ message?: { content?: string | null; tool_calls?: ToolCall[] } }> };
+  try { data = JSON.parse(raw); } catch { throw new ProviderError(`${provider}/${model} returned non-JSON: ${raw.slice(0, 80)}`, "busy"); }
   const message = data.choices?.[0]?.message;
   if (!message) throw new Error(`${provider}/${model} returned no message.`);
   const content = stripThinking(message.content || "");
@@ -246,7 +266,9 @@ async function streamProvider(provider: AgentProvider, messages: LlmMessage[], t
   const contentType = response.headers.get("content-type") || "";
   if (!contentType.includes("event-stream") || !response.body) {
     // Provider ignored stream:true; treat it as a normal completion.
-    const data = JSON.parse(await response.text()) as { choices?: Array<{ message?: { content?: string | null; tool_calls?: ToolCall[] } }> };
+    const text = await response.text();
+    let data: { choices?: Array<{ message?: { content?: string | null; tool_calls?: ToolCall[] } }> };
+    try { data = JSON.parse(text); } catch { throw new ProviderError(`${provider}/${model} returned non-JSON: ${text.slice(0, 80)}`, "busy"); }
     const message = data.choices?.[0]?.message;
     if (!message) throw new Error(`${provider}/${model} returned no message.`);
     return finish(provider, model, message.content || "", message.tool_calls || [], tools, onDelta, "");

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { agentProviders, complete, type ContentPart, type LlmMessage, type ModelTier } from "@/lib/assistant/llm";
+import { agentProviders, complete, discoveredModels, type ContentPart, type LlmMessage, type ModelTier } from "@/lib/assistant/llm";
 
 export const dynamic = "force-dynamic";
 
@@ -8,13 +8,15 @@ const TEST_IMAGE = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAA
 
 /**
  * Owner-only model check: which provider/model answers right now. Bearer ELIAS_HEALTH_TOKEN.
- * Optional: ?provider=gemini (try only that provider), ?model=<id> (pin a model), ?tier=fast|strong|vision.
+ * Optional: ?provider=gemini (try only that provider), ?model=<id> (pin a model), ?tier=fast|strong|vision,
+ * ?discover=1 (list each provider's /models ids instead of calling a model).
  */
 export async function GET(request: Request) {
   const token = process.env.ELIAS_HEALTH_TOKEN;
   if (!token || request.headers.get("authorization") !== `Bearer ${token}`) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const providers = agentProviders();
   const params = new URL(request.url).searchParams;
+  if (params.get("discover")) return NextResponse.json({ ok: true, providers, models: await discoveredModels() });
   const provider = params.get("provider") || undefined;
   const model = params.get("model") || undefined;
   const tierParam = params.get("tier");
