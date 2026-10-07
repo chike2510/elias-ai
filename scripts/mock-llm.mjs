@@ -6,10 +6,15 @@ import http from "node:http";
 const port = Number(process.argv[2] || process.env.MOCK_LLM_PORT || 5599);
 let n = 0;
 
+const textOf = (content) => Array.isArray(content) ? content.filter((part) => part.type === "text").map((part) => part.text).join("\n") : content || "";
+const imagesIn = (content) => Array.isArray(content) ? content.filter((part) => part.type === "image_url" && /^data:image\//.test(part.image_url?.url || "")).length : 0;
+
 function decide(data) {
   const msgs = data.messages;
   const last = msgs[msgs.length - 1];
-  const lastUser = [...msgs].reverse().find((m) => m.role === "user")?.content || "";
+  const lastUserMessage = [...msgs].reverse().find((m) => m.role === "user");
+  const lastUser = textOf(lastUserMessage?.content);
+  const images = imagesIn(lastUserMessage?.content);
   const call = (name, args) => ({ role: "assistant", content: null, tool_calls: [{ id: `c${++n}`, type: "function", function: { name, arguments: JSON.stringify(args) } }] });
   const text = (content) => ({ role: "assistant", content });
   if (!data.tools) return text(lastUser.includes("long-term memory") ? '{"facts":[{"kind":"preference","content":"Prefers window seats on flights."}]}' : "Summary.");
@@ -35,6 +40,9 @@ function decide(data) {
   if (lastUser.includes("weather")) return call("weather", { place: "Lagos" });
   if (lastUser.includes("search")) return call("web_search", { query: "best suya in Lagos" });
   if (lastUser.includes("text tool")) return text('<tool_call>{"name":"get_time","arguments":{}}</tool_call>');
+  if (images) return text(`I can see ${images} image(s) via ${data.model}.`);
+  if (lastUser.includes("which model")) return text(`model=${data.model}`);
+  if (lastUser.includes("[Attached file:")) return text(`Read the file: ${(lastUser.match(/<<<\n([\s\S]{0,40})/) || [])[1] || "empty"}`);
   if (lastUser.includes("[system note]")) return text("Follow-up: " + lastUser.slice(0, 80));
   if (lastUser.includes("long answer")) return text("Sure. Here's the short version: it depends on traffic, but leave by 7:40 and you'll make it with ten minutes to spare. Want me to set a reminder?");
   return text("Plain answer. System prompt had memory: " + msgs[0].content.includes("Port Harcourt"));
@@ -44,6 +52,12 @@ http.createServer(async (req, res) => {
   let body = "";
   for await (const chunk of req) body += chunk;
   const data = JSON.parse(body || "{}");
+  // Like real text-only models: image parts are rejected unless the model name says it can see.
+  if (data.messages?.some((m) => imagesIn(m.content)) && !String(data.model || "").includes("vision")) {
+    res.writeHead(400, { "content-type": "application/json" });
+    res.end(JSON.stringify({ error: { message: `model ${data.model} does not support image input` } }));
+    return;
+  }
   const message = decide(data);
   if (!data.stream) { res.setHeader("content-type", "application/json"); res.end(JSON.stringify({ choices: [{ message }] })); return; }
   res.writeHead(200, { "content-type": "text/event-stream" });

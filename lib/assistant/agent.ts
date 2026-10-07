@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { completeStream, type LlmMessage } from "@/lib/assistant/llm";
+import { completeStream, type ContentPart, type LlmMessage } from "@/lib/assistant/llm";
+import { fileContext, parseChoice, resolveRoute, toStored, type ChatAttachment, type ModelTier, type StoredAttachment } from "@/lib/assistant/modelRouter";
 import { newId, ready } from "@/lib/assistant/db";
 import { extractMemories, memoryContext, saveMemory } from "@/lib/assistant/memory";
 import { approvalSummary, hasTool, runTool, toolSchemas, type ToolContext } from "@/lib/assistant/tools";
@@ -13,7 +14,7 @@ const HISTORY_MESSAGES = 30;
 
 export type Approval = { id: string; tool: string; summary: string; status: string; createdAt: string; conversationId: string | null; result?: string | null; details: ApprovalDetails; editable: string[] };
 export type StoredMessage = { id: number; role: "user" | "assistant" | "event"; content: string; meta: Record<string, unknown>; createdAt: string };
-export type TurnResult = { conversationId: string; messageId?: number; reply: string; approvals: Approval[]; actions: Array<{ tool: string; ok: boolean }>; model?: string; memoriesSaved?: number; memories: MemoryChip[]; cards: Card[]; connect: ConnectCard[]; steps: string[] };
+export type TurnResult = { conversationId: string; messageId?: number; reply: string; approvals: Approval[]; actions: Array<{ tool: string; ok: boolean }>; model?: string; tier?: ModelTier; memoriesSaved?: number; memories: MemoryChip[]; cards: Card[]; connect: ConnectCard[]; steps: string[] };
 
 /** Events streamed to the client while a turn runs. */
 export type TurnEvent =
@@ -38,7 +39,21 @@ type RunOptions = {
   /** Cards to attach to the reply regardless of tool use (e.g. the daily brief). */
   presetCards?: Card[];
   title?: string;
+  /** Images (sent to a vision model) and extracted documents (injected as context) for this message. */
+  attachments?: ChatAttachment[];
+  /** "auto" (default), "fast", "strong" or "<provider>/<model>". */
+  modelChoice?: string;
 };
+
+/** History entry for a stored user message: its text plus what was attached (recent document text is kept). */
+function historyUserContent(item: StoredMessage, recent: boolean) {
+  const attachments = Array.isArray(item.meta.attachments) ? item.meta.attachments as StoredAttachment[] : [];
+  if (!attachments.length) return item.content;
+  const images = attachments.filter((entry) => entry.kind === "image").map((entry) => `[Image attached earlier: ${entry.name}]`);
+  const files = attachments.filter((entry) => entry.kind === "file");
+  const docs = recent ? fileContext(files, 8_000, 16_000) : files.map((entry) => `[File attached earlier: ${entry.name}]`).join("\n");
+  return [item.content, ...images, docs].filter(Boolean).join("\n\n");
+}
 
 function systemPrompt(input: { name?: string; timezone: string; memories: string; googleEmail: string | null; googleConfigured: boolean; browser: boolean; origin: string; extra?: string }) {
   const now = new Date();
@@ -158,12 +173,20 @@ export async function runTurn(options: RunOptions): Promise<TurnResult> {
     memoryContext(options.userId, options.text).catch(() => "Memory unavailable this turn."),
     googleConnection(options.userId).catch(() => null),
   ]);
-  if (origin !== "approval") await addMessage(options.userId, conversationId, origin === "schedule" ? "event" : "user", options.text, origin === "schedule" ? { kind: "schedule" } : {});
+  const attachments = origin === "chat" ? options.attachments || [] : [];
+  const images = attachments.filter((item) => item.kind === "image");
+  const files = attachments.filter((item) => item.kind === "file");
+  if (origin !== "approval") await addMessage(options.userId, conversationId, origin === "schedule" ? "event" : "user", options.text, origin === "schedule" ? { kind: "schedule" } : attachments.length ? { attachments: toStored(attachments) } : {});
+  const userText = [origin === "schedule" ? `[Scheduled task] ${options.text}` : options.text, fileContext(files)].filter(Boolean).join("\n\n");
+  const userContent: string | ContentPart[] = images.length
+    ? [{ type: "text", text: userText || "What's in this image?" }, ...images.map((image): ContentPart => ({ type: "image_url", image_url: { url: image.dataUrl } }))]
+    : userText;
+  const lastUserIndexes = new Set(history.map((item, index) => item.role === "user" ? index : -1).filter((index) => index >= 0).slice(-3));
 
   const messages: LlmMessage[] = [
     { role: "system", content: systemPrompt({ name: options.userName, timezone, memories, googleEmail: google?.email || null, googleConfigured: googleConfigured(), browser: browserConfigured(), origin, extra: options.extraContext }) },
-    ...history.filter((item) => item.role !== "event" || item.meta.kind === "approval").map((item): LlmMessage => item.role === "assistant" ? { role: "assistant", content: item.content } : { role: "user", content: item.role === "event" ? `[system note] ${item.content}` : item.content }),
-    { role: "user", content: origin === "schedule" ? `[Scheduled task] ${options.text}` : options.text },
+    ...history.map((item, index) => ({ item, index })).filter(({ item }) => item.role !== "event" || item.meta.kind === "approval").map(({ item, index }): LlmMessage => item.role === "assistant" ? { role: "assistant", content: item.content } : { role: "user", content: item.role === "event" ? `[system note] ${item.content}` : historyUserContent(item, lastUserIndexes.has(index)) }),
+    { role: "user", content: userContent },
   ];
 
   const browsers = new Map<string, BrowserHandle>();
@@ -177,6 +200,8 @@ export async function runTurn(options: RunOptions): Promise<TurnResult> {
   const steps: string[] = [];
   let reply = "";
   let model: string | undefined;
+  let tier: ModelTier | undefined;
+  const choice = parseChoice(options.modelChoice);
   const db = await ready();
   const addCard = (card: Card | null) => {
     if (!card) return;
@@ -189,7 +214,9 @@ export async function runTurn(options: RunOptions): Promise<TurnResult> {
   try {
     for (let step = 0; step < MAX_STEPS; step += 1) {
       let streamed = false;
-      const result = await completeStream(messages, tools, (text) => { streamed = true; emit({ type: "delta", text }); });
+      const route = resolveRoute(choice, { text: options.text, images: images.length, files: files.length, step, usedTool: actions.length > 0 });
+      tier = route.tier;
+      const result = await completeStream(messages, tools, (text) => { streamed = true; emit({ type: "delta", text }); }, { route });
       model = `${result.provider}/${result.model}`;
       if (!result.toolCalls.length) { reply = result.content; break; }
       if (streamed) emit({ type: "reset" });
@@ -243,8 +270,9 @@ export async function runTurn(options: RunOptions): Promise<TurnResult> {
         messages.push({ role: "tool", tool_call_id: call.id, content: output });
       }
       if (step === MAX_STEPS - 1) {
-        const final = await completeStream([...messages, { role: "user", content: "[system] Step limit reached. Reply to the user now with what you have, in a few lines." }], [], (text) => emit({ type: "delta", text }));
+        const final = await completeStream([...messages, { role: "user", content: "[system] Step limit reached. Reply to the user now with what you have, in a few lines." }], [], (text) => emit({ type: "delta", text }), { route: resolveRoute(choice, { text: options.text, images: images.length, step, usedTool: true }) });
         reply = final.content;
+        model = `${final.provider}/${final.model}`;
       }
     }
   } finally {
@@ -252,7 +280,7 @@ export async function runTurn(options: RunOptions): Promise<TurnResult> {
   }
 
   reply = reply.trim() || (approvals.length ? "That's ready for your go-ahead." : connect.length ? "Connect it below and I'll take it from there." : "Done.");
-  const meta = { model, actions, approvals: approvals.map((item) => item.id), cards, connect, memories: memoriesSaved, steps };
+  const meta = { model, tier, actions, approvals: approvals.map((item) => item.id), cards, connect, memories: memoriesSaved, steps };
   const messageId = await addMessage(options.userId, conversationId, "assistant", reply, meta);
   if (origin === "chat") {
     const extracted = await extractMemories(options.userId, options.text, reply, memories).catch(() => []);
@@ -264,7 +292,7 @@ export async function runTurn(options: RunOptions): Promise<TurnResult> {
     }
     if (extracted.length) await mergeMessageMeta(messageId, { memories: memoriesSaved });
   }
-  const result: TurnResult = { conversationId, messageId, reply, approvals, actions, model, memoriesSaved: memoriesSaved.length, memories: memoriesSaved, cards, connect, steps };
+  const result: TurnResult = { conversationId, messageId, reply, approvals, actions, model, tier, memoriesSaved: memoriesSaved.length, memories: memoriesSaved, cards, connect, steps };
   emit({ type: "done", result });
   return result;
 }
