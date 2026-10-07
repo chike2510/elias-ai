@@ -3,14 +3,19 @@ import { jsonError, jsonOk, readJsonRequest } from "@/lib/http";
 import { reportError, requireUser } from "@/lib/assistant/session";
 import { runTurn, type TurnEvent } from "@/lib/assistant/agent";
 import { ensureDailyBrief } from "@/lib/assistant/brief";
+import { sanitizeAttachments } from "@/lib/assistant/modelRouter";
+import { getModelChoice } from "@/lib/assistant/models";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
-type Body = { text?: string; conversationId?: string; timezone?: string; stream?: boolean };
+type Body = { text?: string; conversationId?: string; timezone?: string; stream?: boolean; attachments?: unknown; model?: string };
 
 /**
- * POST { text, conversationId?, timezone?, stream? }.
+ * POST { text, conversationId?, timezone?, stream?, attachments?, model? }.
+ * attachments: images as downscaled data URLs ({ kind: "image", dataUrl, thumb }) and documents already
+ * extracted by /api/assistant/attachments ({ kind: "file", name, text }). model: "auto" | "fast" | "strong" |
+ * "<provider>/<model>"; when absent the user's saved choice is used.
  * With stream:true (or Accept: text/event-stream) the reply streams as Server-Sent Events:
  * conversation, status, tool_done, card, connect, approval, memory, delta, reset, done, error.
  * Without it, the finished turn comes back as JSON (the non-streaming fallback).
@@ -20,10 +25,13 @@ export async function POST(request: NextRequest) {
   if ("error" in auth) return auth.error;
   let body: Body;
   try { body = await readJsonRequest<Body>(request); } catch (error) { return jsonError(String((error as Error).message), 400, "BAD_REQUEST"); }
-  const text = (body.text || "").trim();
+  const { attachments, error: attachmentError } = sanitizeAttachments(body.attachments);
+  if (attachmentError) return jsonError(attachmentError, 400, "BAD_ATTACHMENT");
+  const text = (body.text || "").trim() || (attachments.length ? (attachments.some((item) => item.kind === "image") ? "What's in this?" : "Have a look at this.") : "");
   if (!text) return jsonError("Message is empty.", 400, "BAD_REQUEST");
   void ensureDailyBrief(auth.userId, body.timezone).catch(() => undefined);
-  const turn = (onEvent?: (event: TurnEvent) => void) => runTurn({ userId: auth.userId, userName: auth.userName, conversationId: body.conversationId, text: text.slice(0, 12_000), timezone: body.timezone, githubToken: auth.githubToken, onEvent });
+  const modelChoice = typeof body.model === "string" && body.model ? body.model : await getModelChoice(auth.userId).catch(() => "auto");
+  const turn = (onEvent?: (event: TurnEvent) => void) => runTurn({ userId: auth.userId, userName: auth.userName, conversationId: body.conversationId, text: text.slice(0, 12_000), timezone: body.timezone, githubToken: auth.githubToken, onEvent, attachments, modelChoice });
 
   const wantsStream = body.stream === true || (request.headers.get("accept") || "").includes("text/event-stream");
   if (!wantsStream) {

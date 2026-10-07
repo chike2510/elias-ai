@@ -1,18 +1,31 @@
 import { DEFAULT_HF_CHAT_MODEL, providerConfig } from "@/lib/providers";
 import type { ProviderName } from "@/lib/types";
+import type { ModelRoute, ModelTier } from "@/lib/assistant/modelRouter";
 
+export type { ModelRoute, ModelTier };
+/** Every provider the agent can use: the shared registry plus the agent-only custom endpoint and Gemini. */
+export type AgentProvider = ProviderName | "custom" | "gemini";
+export type ContentPart = { type: "text"; text: string } | { type: "image_url"; image_url: { url: string; detail?: "auto" | "low" | "high" } };
 export type ToolCall = { id: string; type: "function"; function: { name: string; arguments: string } };
 export type LlmMessage =
-  | { role: "system" | "user"; content: string }
+  | { role: "system"; content: string }
+  | { role: "user"; content: string | ContentPart[] }
   | { role: "assistant"; content: string | null; tool_calls?: ToolCall[] }
   | { role: "tool"; tool_call_id: string; content: string };
 export type ToolSchema = { type: "function"; function: { name: string; description: string; parameters: Record<string, unknown> } };
-export type LlmResult = { content: string; toolCalls: ToolCall[]; provider: ProviderName | "custom"; model: string };
+export type LlmResult = { content: string; toolCalls: ToolCall[]; provider: AgentProvider; model: string };
 
 const env = (name: string) => (process.env[name] || "").split(",").map((item) => item.trim()).filter(Boolean);
 
-/** Models tried in order per provider. The first one the account can use wins and is remembered. */
-const MODEL_CANDIDATES: Partial<Record<ProviderName, () => string[]>> = {
+const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai";
+const GEMINI_MODELS = ["gemini-3.8-flash", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"];
+const GEMINI_LITE_FIRST = ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-2.5-flash-lite", "gemini-3.8-flash", "gemini-2.5-flash", "gemini-2.0-flash"];
+
+type CandidateTable = Partial<Record<Exclude<AgentProvider, "custom">, () => string[]>>;
+
+/** Models tried in order per provider (the "strong" tier). The first one the account can use wins and is remembered. */
+const MODEL_CANDIDATES: CandidateTable = {
+  gemini: () => [...env("GEMINI_AGENT_MODEL"), ...GEMINI_MODELS],
   groq: () => [...env("GROQ_AGENT_MODEL"), "openai/gpt-oss-120b", "moonshotai/kimi-k2-instruct-0905", "meta-llama/llama-4-maverick-17b-128e-instruct", "qwen/qwen3-32b", "llama-3.3-70b-versatile", "openai/gpt-oss-20b", "llama-3.1-8b-instant"],
   cerebras: () => [...env("CEREBRAS_AGENT_MODEL"), "gpt-oss-120b", "qwen-3-235b-a22b-instruct-2507", "llama-3.3-70b", "qwen-3-32b", "llama3.1-8b"],
   github: () => [...env("GITHUB_AGENT_MODEL"), "openai/gpt-4.1", "openai/gpt-4.1-mini", "openai/gpt-4o-mini"],
@@ -22,7 +35,28 @@ const MODEL_CANDIDATES: Partial<Record<ProviderName, () => string[]>> = {
   qwen: () => [...env("QWEN_AGENT_MODEL"), "qwen-plus", "qwen-turbo"],
 };
 
-const DEFAULT_ORDER = "custom,groq,cerebras,github,openrouter,mistral,huggingface,qwen";
+/** Small, quick models for plain chat. Providers missing here use their normal list. */
+const FAST_CANDIDATES: CandidateTable = {
+  groq: () => [...env("GROQ_FAST_MODEL"), "llama-3.1-8b-instant", "openai/gpt-oss-20b", "llama-3.3-70b-versatile", "openai/gpt-oss-120b"],
+  cerebras: () => [...env("CEREBRAS_FAST_MODEL"), "llama3.1-8b", "gpt-oss-120b", "qwen-3-32b", "llama-3.3-70b"],
+  gemini: () => [...env("GEMINI_FAST_MODEL"), ...GEMINI_LITE_FIRST],
+  github: () => [...env("GITHUB_FAST_MODEL"), "openai/gpt-4.1-mini", "openai/gpt-4o-mini", "openai/gpt-4.1"],
+  mistral: () => [...env("MISTRAL_FAST_MODEL"), "mistral-small-latest", "open-mistral-nemo", "mistral-medium-latest"],
+};
+
+/** Models that accept OpenAI image_url content parts. Only these providers are used for image turns. */
+const VISION_CANDIDATES: CandidateTable = {
+  groq: () => [...env("GROQ_VISION_MODEL"), "meta-llama/llama-4-maverick-17b-128e-instruct", "meta-llama/llama-4-scout-17b-16e-instruct"],
+  github: () => [...env("GITHUB_VISION_MODEL"), "openai/gpt-4.1-mini", "openai/gpt-4.1", "openai/gpt-4o-mini"],
+  openrouter: () => [...env("OPENROUTER_VISION_MODEL"), "meta-llama/llama-4-maverick:free", "google/gemma-3-27b-it:free", "qwen/qwen2.5-vl-72b-instruct:free", "mistralai/mistral-small-3.2-24b-instruct:free"],
+  gemini: () => [...env("GEMINI_VISION_MODEL"), ...GEMINI_MODELS],
+};
+
+const TIER_TABLE: Record<ModelTier, CandidateTable> = { strong: MODEL_CANDIDATES, fast: FAST_CANDIDATES, vision: VISION_CANDIDATES };
+const FAST_FIRST: AgentProvider[] = ["groq", "cerebras", "gemini"];
+const VISION_ORDER: AgentProvider[] = ["custom", "groq", "github", "openrouter", "gemini"];
+
+const DEFAULT_ORDER = "custom,groq,gemini,cerebras,github,openrouter,mistral,huggingface,qwen";
 const workingModel = new Map<string, string>();
 const deadModels = new Set<string>();
 const providerCooldown = new Map<string, number>();
@@ -40,40 +74,60 @@ function classify(status: number, body: string): "model" | "account" | "other" {
   return "other";
 }
 
-async function availableModels(provider: ProviderName, baseUrl: string, key: string) {
+async function availableModels(provider: AgentProvider, baseUrl: string, key: string) {
   if (!discovered.has(provider)) {
     discovered.set(provider, fetch(`${baseUrl}/models`, { headers: { Authorization: `Bearer ${key}` }, cache: "no-store", signal: AbortSignal.timeout(8_000) })
-      .then(async (response) => response.ok ? new Set(((await response.json()) as { data?: Array<{ id?: string }> }).data?.map((item) => item.id || "").filter(Boolean) || []) : null)
+      .then(async (response) => response.ok ? new Set(((await response.json()) as { data?: Array<{ id?: string }> }).data?.map((item) => (item.id || "").replace(/^models\//, "")).filter(Boolean) || []) : null)
       .catch(() => null));
   }
   return discovered.get(provider)!;
 }
 
-function candidatesFor(provider: ProviderName | "custom") {
-  if (provider === "custom") return [customConfig()!.model];
-  const list = [...new Set(MODEL_CANDIDATES[provider]?.() || [])];
-  const known = workingModel.get(provider);
-  return (known ? [known, ...list.filter((model) => model !== known)] : list).filter((model) => !deadModels.has(`${provider}/${model}`));
+/** OpenAI-compatible base URL and key for a provider. */
+function configFor(provider: AgentProvider): { baseUrl: string; key: string } {
+  if (provider === "custom") { const custom = customConfig(); return { baseUrl: custom?.baseUrl || "", key: custom?.key || "" }; }
+  if (provider === "gemini") return { baseUrl: GEMINI_BASE_URL, key: process.env.GEMINI_API_KEY || "" };
+  const config = providerConfig(provider);
+  return { baseUrl: config?.baseUrl || "", key: config?.key || "" };
+}
+
+function tierList(provider: AgentProvider, tier: ModelTier) {
+  if (provider === "custom") {
+    const custom = customConfig()!;
+    return tier === "vision" ? [...env("ELIAS_AGENT_VISION_MODEL"), custom.model] : tier === "fast" ? [...env("ELIAS_AGENT_FAST_MODEL"), custom.model] : [custom.model];
+  }
+  return (TIER_TABLE[tier][provider] || MODEL_CANDIDATES[provider])?.() || [];
+}
+
+function candidatesFor(provider: AgentProvider, route: ModelRoute) {
+  const tier = route.tier;
+  const list = [...new Set(tierList(provider, tier))];
+  const known = workingModel.get(`${tier}:${provider}`);
+  const ordered = (known ? [known, ...list.filter((model) => model !== known)] : list).filter((model) => !deadModels.has(`${provider}/${model}`));
+  return route.provider === provider && route.model ? [route.model, ...ordered.filter((model) => model !== route.model)] : ordered;
 }
 
 /** Runs one call against a provider, walking its model list past models the account can't use. */
-async function withModels(provider: ProviderName | "custom", run: (model: string) => Promise<LlmResult>): Promise<LlmResult> {
+async function withModels(provider: AgentProvider, route: ModelRoute, run: (model: string) => Promise<LlmResult>): Promise<LlmResult> {
   const cooldown = providerCooldown.get(provider);
   if (cooldown && cooldown > Date.now()) throw new ProviderError(`${provider}: skipped (account unavailable)`, "account");
-  let candidates = candidatesFor(provider);
+  let candidates = candidatesFor(provider, route);
+  const pinned = route.provider === provider && route.model ? route.model : null;
   if (provider !== "custom") {
-    const config = providerConfig(provider);
-    const available = await availableModels(provider, config.baseUrl, config.key || "");
+    const config = configFor(provider);
+    const available = await availableModels(provider, config.baseUrl, config.key);
     if (available?.size) {
-      const usable = candidates.filter((model) => available.has(model));
-      candidates = usable.length ? usable : [...available].filter((id) => !/whisper|tts|embed|guard|vision|audio|image|ocr|moderation|rerank/i.test(id)).slice(0, 3);
+      const usable = candidates.filter((model) => model === pinned || available.has(model));
+      if (usable.length) candidates = usable;
+      else if (route.tier === "vision") throw new ProviderError(`${provider}: no vision model available on this account`, "model");
+      else candidates = [...available].filter((id) => !/whisper|tts|embed|guard|vision|audio|image|ocr|moderation|rerank|veo|imagen|live/i.test(id)).slice(0, 3);
     }
   }
   let lastError: unknown = new Error(`${provider}: no usable model`);
   for (const model of candidates.slice(0, 4)) {
     try {
       const result = await run(model);
-      workingModel.set(provider, model);
+      if (model !== pinned) workingModel.set(`${route.tier}:${provider}`, model);
       return result;
     } catch (error) {
       lastError = error;
@@ -86,9 +140,40 @@ async function withModels(provider: ProviderName | "custom", run: (model: string
 }
 
 /** Providers tried in order for the tool-calling agent. Override with ELIAS_AGENT_PROVIDERS=groq,huggingface. */
-export function agentProviders(): Array<ProviderName | "custom"> {
+export function agentProviders(): AgentProvider[] {
   const order = (process.env.ELIAS_AGENT_PROVIDERS || DEFAULT_ORDER).split(",").map((item) => item.trim());
-  return order.filter((name): name is ProviderName | "custom" => name === "custom" ? Boolean(customConfig()) : Boolean(MODEL_CANDIDATES[name as ProviderName] && providerConfig(name as ProviderName)?.key));
+  // Gemini sits right after Groq whenever its key is set, even with an older custom order.
+  if (process.env.GEMINI_API_KEY && !order.includes("gemini")) order.splice(order.includes("groq") ? order.indexOf("groq") + 1 : 0, 0, "gemini");
+  return [...new Set(order)].filter((name): name is AgentProvider => name === "custom" ? Boolean(customConfig()) : Boolean(MODEL_CANDIDATES[name as Exclude<AgentProvider, "custom">] && configFor(name as AgentProvider).key));
+}
+
+/** Provider order for one call: the tier's preferred providers first, a pinned provider before everything. */
+export function providersFor(route: ModelRoute = { tier: "strong" }): AgentProvider[] {
+  const base = agentProviders();
+  let order: AgentProvider[];
+  if (route.tier === "vision") order = VISION_ORDER.filter((name) => base.includes(name));
+  else if (route.tier === "fast") order = [...FAST_FIRST.filter((name) => base.includes(name)), ...base.filter((name) => !FAST_FIRST.includes(name))];
+  else order = base;
+  const pinned = route.provider as AgentProvider | undefined;
+  if (pinned && base.includes(pinned)) order = [pinned, ...order.filter((name) => name !== pinned)];
+  return order;
+}
+
+/** Configured providers with the models the picker can offer (discovery-filtered when /models answers). */
+export async function configuredModels() {
+  const providers = agentProviders();
+  return Promise.all(providers.map(async (provider) => {
+    const ids = [...new Set([...tierList(provider, "strong"), ...tierList(provider, "fast"), ...tierList(provider, "vision")])];
+    const visionIds = new Set(tierList(provider, "vision"));
+    let models = ids;
+    if (provider !== "custom") {
+      const config = configFor(provider);
+      const available = await availableModels(provider, config.baseUrl, config.key).catch(() => null);
+      if (available?.size) { const usable = ids.filter((id) => available.has(id)); if (usable.length) models = usable; }
+    }
+    models = models.filter((id) => !deadModels.has(`${provider}/${id}`));
+    return { provider, models: models.map((id) => ({ id, vision: provider !== "custom" && visionIds.has(id) })) };
+  }));
 }
 
 function stripThinking(text: string) {
@@ -115,9 +200,8 @@ function customConfig() {
   return baseUrl ? { baseUrl: baseUrl.replace(/\/+$/, ""), key: process.env.ELIAS_AGENT_API_KEY || "", model: process.env.ELIAS_AGENT_MODEL || "gpt-4.1-mini" } : null;
 }
 
-async function callProvider(provider: ProviderName | "custom", messages: LlmMessage[], tools: ToolSchema[], temperature: number, model: string): Promise<LlmResult> {
-  const custom = provider === "custom" ? customConfig() : null;
-  const config = custom || providerConfig(provider as ProviderName);
+async function callProvider(provider: AgentProvider, messages: LlmMessage[], tools: ToolSchema[], temperature: number, model: string): Promise<LlmResult> {
+  const config = configFor(provider);
   const response = await fetch(`${config.baseUrl}/chat/completions`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${config.key}` },
@@ -149,9 +233,8 @@ export function visibleStreamText(full: string) {
   return text.replace(/^\s+/, "");
 }
 
-async function streamProvider(provider: ProviderName | "custom", messages: LlmMessage[], tools: ToolSchema[], temperature: number, onDelta: (text: string) => void, model: string): Promise<LlmResult> {
-  const custom = provider === "custom" ? customConfig() : null;
-  const config = custom || providerConfig(provider as ProviderName);
+async function streamProvider(provider: AgentProvider, messages: LlmMessage[], tools: ToolSchema[], temperature: number, onDelta: (text: string) => void, model: string): Promise<LlmResult> {
+  const config = configFor(provider);
   const response = await fetch(`${config.baseUrl}/chat/completions`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "text/event-stream", Authorization: `Bearer ${config.key}` },
@@ -207,7 +290,7 @@ async function streamProvider(provider: ProviderName | "custom", messages: LlmMe
   return finish(provider, model, content, toolCalls, tools, onDelta, emitted);
 }
 
-function finish(provider: ProviderName | "custom", model: string, raw: string, rawCalls: ToolCall[], tools: ToolSchema[], onDelta: (text: string) => void, emitted: string): LlmResult {
+function finish(provider: AgentProvider, model: string, raw: string, rawCalls: ToolCall[], tools: ToolSchema[], onDelta: (text: string) => void, emitted: string): LlmResult {
   const content = stripThinking(raw);
   let toolCalls = rawCalls.map((call, index) => ({ ...call, id: call.id || `call_${index}_${Date.now()}`, type: "function" as const }));
   if (!toolCalls.length && content.includes("<tool_call>")) toolCalls = recoverTextToolCalls(content, tools);
@@ -220,13 +303,15 @@ function finish(provider: ProviderName | "custom", model: string, raw: string, r
  * Same as complete() but streams visible reply text through onDelta. Falls back to the next
  * provider only when nothing has been streamed yet, so the user never sees two half-answers.
  */
-export async function completeStream(messages: LlmMessage[], tools: ToolSchema[], onDelta: (text: string) => void, options: { temperature?: number } = {}): Promise<LlmResult> {
-  const providers = agentProviders();
+export async function completeStream(messages: LlmMessage[], tools: ToolSchema[], onDelta: (text: string) => void, options: { temperature?: number; route?: ModelRoute } = {}): Promise<LlmResult> {
+  const route = options.route || { tier: "strong" };
+  const providers = providersFor(route);
+  if (!providers.length && route.tier === "vision") throw new Error("No vision-capable model is configured. Set GROQ_API_KEY, GITHUB_TOKEN, OPENROUTER_API_KEY or GEMINI_API_KEY.");
   if (!providers.length) throw new Error("No tool-capable model provider is configured. Set GROQ_API_KEY, CEREBRAS_API_KEY, OPENROUTER_API_KEY, MISTRAL_API_KEY or HF_TOKEN.");
   const errors: string[] = [];
   for (const provider of providers) {
     let streamed = false;
-    try { return await withModels(provider, (model) => streamProvider(provider, messages, tools, options.temperature ?? 0.3, (text) => { streamed = true; onDelta(text); }, model)); }
+    try { return await withModels(provider, route, (model) => streamProvider(provider, messages, tools, options.temperature ?? 0.3, (text) => { streamed = true; onDelta(text); }, model)); }
     catch (error) {
       if (streamed) throw error;
       errors.push(error instanceof Error ? error.message : String(error));
@@ -234,7 +319,7 @@ export async function completeStream(messages: LlmMessage[], tools: ToolSchema[]
     }
     // Some providers reject stream+tools; the same provider without streaming is the next best thing.
     try {
-      const result = await withModels(provider, (model) => callProvider(provider, messages, tools, options.temperature ?? 0.3, model));
+      const result = await withModels(provider, route, (model) => callProvider(provider, messages, tools, options.temperature ?? 0.3, model));
       if (!result.toolCalls.length && result.content) onDelta(result.content);
       return result;
     } catch (error) { errors.push(error instanceof Error ? error.message : String(error)); }
@@ -242,13 +327,15 @@ export async function completeStream(messages: LlmMessage[], tools: ToolSchema[]
   throw new Error(`All agent providers failed. ${errors.join(" | ")}`.slice(0, 2000));
 }
 
-export async function complete(messages: LlmMessage[], tools: ToolSchema[] = [], options: { temperature?: number; preferred?: ProviderName | "custom" } = {}): Promise<LlmResult> {
-  const providers = agentProviders();
+export async function complete(messages: LlmMessage[], tools: ToolSchema[] = [], options: { temperature?: number; preferred?: AgentProvider; route?: ModelRoute; only?: boolean } = {}): Promise<LlmResult> {
+  const route = options.route || { tier: "strong" };
+  // only: try just the pinned provider (the owner health check uses this to test one provider directly).
+  const providers = options.only && route.provider ? providersFor(route).filter((name) => name === route.provider) : providersFor(route);
   if (options.preferred && providers.includes(options.preferred)) providers.unshift(...providers.splice(providers.indexOf(options.preferred), 1));
   if (!providers.length) throw new Error("No tool-capable model provider is configured. Set GROQ_API_KEY, CEREBRAS_API_KEY, OPENROUTER_API_KEY, MISTRAL_API_KEY or HF_TOKEN.");
   const errors: string[] = [];
   for (const provider of providers) {
-    try { return await withModels(provider, (model) => callProvider(provider, messages, tools, options.temperature ?? 0.3, model)); }
+    try { return await withModels(provider, route, (model) => callProvider(provider, messages, tools, options.temperature ?? 0.3, model)); }
     catch (error) { errors.push(error instanceof Error ? error.message : String(error)); }
   }
   throw new Error(`All agent providers failed. ${errors.join(" | ")}`.slice(0, 2000));

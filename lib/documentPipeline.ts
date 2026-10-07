@@ -127,6 +127,13 @@ async function summarizeDocument(chunks: DocumentChunk[]) {
   return { chunks: enriched, summary: final.text.trim(), provider, model };
 }
 
+/** Plain text of a document (pdf, docx, xlsx/xls/csv, or UTF-8 text), with page markers for multi-page PDFs. */
+export async function extractDocumentText(buffer: Buffer, name: string) {
+  const extension = name.toLowerCase().split(".").pop() || "";
+  const pages = await extractPages(buffer, extension);
+  return { text: pages.map((page) => pages.length > 1 ? `[Page ${page.page}]\n${page.text}` : page.text).join("\n\n").trim(), pageCount: pages.length };
+}
+
 export async function processDocument(buffer: Buffer, name: string, mimeType: string): Promise<ProcessedDocument> {
   const extension = name.toLowerCase().split(".").pop() || "";
   const pages = await extractPages(buffer, extension);

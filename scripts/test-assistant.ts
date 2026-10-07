@@ -12,9 +12,13 @@ import { ensureDailyBrief, fallbackBrief, gatherBrief } from "@/lib/assistant/br
 import { runDueSchedules } from "@/lib/assistant/runner";
 import { rateLimit } from "@/lib/assistant/rateLimit";
 import { visibleStreamText } from "@/lib/assistant/llm";
+import { getModelChoice, setModelChoice } from "@/lib/assistant/models";
 import { encrypt, ready } from "@/lib/assistant/db";
 
 const user = `test_${Date.now()}`;
+// Tier-specific models for the custom provider, so the v3 router assertions can see which tier answered.
+process.env.ELIAS_AGENT_FAST_MODEL ||= "mock-fast";
+process.env.ELIAS_AGENT_VISION_MODEL ||= "mock-vision";
 
 async function main() {
   // schedule maths
@@ -129,6 +133,40 @@ async function main() {
   const importedConversation = (await listConversations(user)).find((c) => c.id === first.map.chat_local_1);
   assert.equal(importedConversation?.source, "import");
   assert.equal((await getMessages(user, first.map.chat_local_1)).length, 2, "system message dropped, no duplicates");
+
+  // v3: model router + override, image parts to a vision model, documents as context
+  const v1 = await runTurn({ userId: user, text: "which model are you" });
+  assert.equal(v1.model, "custom/mock-fast", "short plain chat goes to the fast tier");
+  assert.equal(v1.tier, "fast");
+  const v2 = await runTurn({ userId: user, conversationId: v1.conversationId, text: "which model, strong please", modelChoice: "strong" });
+  assert.equal(v2.tier, "strong");
+  assert.equal(v2.model, `custom/${process.env.ELIAS_AGENT_MODEL || "gpt-4.1-mini"}`, "strong override uses the strong list");
+  const v3 = await runTurn({ userId: user, conversationId: v1.conversationId, text: "which model, pinned", modelChoice: "custom/mock-pinned" });
+  assert.equal(v3.model, "custom/mock-pinned", "a specific provider/model override is tried first");
+  assert.match(v3.reply, /model=mock-pinned/);
+  const pixel = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+  const v4 = await runTurn({ userId: user, conversationId: v1.conversationId, text: "what is this", attachments: [{ kind: "image", name: "receipt.jpg", mime: "image/png", size: 68, dataUrl: pixel, thumb: pixel }] });
+  assert.equal(v4.tier, "vision");
+  assert.equal(v4.model, "custom/mock-vision", "images go to the vision model");
+  assert.match(v4.reply, /I can see 1 image\(s\) via mock-vision/);
+  // A pinned text-only model can't see images: the mock rejects it (HTTP 400 "model ...") and the vision model takes over.
+  const v5 = await runTurn({ userId: user, conversationId: v1.conversationId, text: "and this one", modelChoice: "custom/mock-pinned-text", attachments: [{ kind: "image", name: "a.png", mime: "image/png", size: 68, dataUrl: pixel }] });
+  assert.equal(v5.model, "custom/mock-vision", "falls back from a non-vision pinned model");
+  const stored = (await getMessages(user, v1.conversationId)).filter((m) => m.role === "user" && Array.isArray(m.meta.attachments));
+  assert.equal(stored.length, 2, "attachment metadata stored on the user message");
+  const storedImage = (stored[0].meta.attachments as Array<Record<string, unknown>>)[0];
+  assert.equal(storedImage.name, "receipt.jpg");
+  assert.equal(storedImage.thumb, pixel, "thumbnail kept");
+  assert.equal(storedImage.dataUrl, undefined, "full image not stored");
+  const v6 = await runTurn({ userId: user, conversationId: v1.conversationId, text: "summarise", attachments: [{ kind: "file", name: "notes.txt", mime: "text/plain", size: 30, text: "Quarterly revenue grew 12 percent.", chars: 34 }] });
+  assert.equal(v6.tier, "strong", "documents go to the strong tier");
+  assert.match(v6.reply, /Read the file: Quarterly revenue/);
+  const assistantMeta = (await getMessages(user, v1.conversationId)).filter((m) => m.role === "assistant").pop()!;
+  assert.equal(assistantMeta.meta.model, v6.model, "model label persisted");
+  assert.equal(await getModelChoice(user), "auto");
+  assert.equal(await setModelChoice(user, "groq/openai/gpt-oss-120b"), "groq/openai/gpt-oss-120b");
+  assert.equal(await getModelChoice(user), "groq/openai/gpt-oss-120b");
+  assert.equal(await setModelChoice(user, "nonsense/x y"), "auto", "unknown choices fall back to auto");
 
   // rate limiting
   const bucket = `test:${user}`;

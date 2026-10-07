@@ -4,7 +4,10 @@
 import type { Approval, StoredMessage, TurnEvent, TurnResult } from "@/lib/assistant/agent";
 import type { Card, ConnectCard, MemoryChip } from "@/lib/assistant/cards";
 
-export type { Approval, Card, ConnectCard, MemoryChip, StoredMessage, TurnEvent, TurnResult };
+import type { ChatAttachment, StoredAttachment } from "@/lib/assistant/modelRouter";
+
+export type { Approval, Card, ChatAttachment, ConnectCard, MemoryChip, StoredAttachment, StoredMessage, TurnEvent, TurnResult };
+export type ChatInput = { text: string; conversationId?: string; attachments?: ChatAttachment[]; model?: string };
 export type ConversationSummary = { id: string; title: string; kind: string; source: string; updatedAt: string; pendingApprovals: number; preview: string };
 export type Status = { database: boolean; providers: string[]; google: { configured: boolean; connected: boolean; email: string | null }; browser: { configured: boolean }; github: { connected: boolean }; scheduler: { configured: boolean }; errorTracking: boolean; settings: { timezone: string | null; city: string | null } | null };
 
@@ -42,8 +45,8 @@ export function announceConversationsChanged() {
  * Sends a message and streams the turn. Falls back to the plain JSON endpoint when the
  * response can't be streamed (old browsers, proxies that buffer), emitting the same events.
  */
-export async function sendChat(input: { text: string; conversationId?: string }, onEvent: (event: TurnEvent) => void, signal?: AbortSignal): Promise<TurnResult> {
-  const body = JSON.stringify({ text: input.text, conversationId: input.conversationId, timezone: userTimezone(), stream: true });
+export async function sendChat(input: ChatInput, onEvent: (event: TurnEvent) => void, signal?: AbortSignal): Promise<TurnResult> {
+  const body = JSON.stringify({ text: input.text, conversationId: input.conversationId, timezone: userTimezone(), stream: true, attachments: input.attachments?.length ? input.attachments : undefined, model: input.model });
   let response: Response;
   try {
     response = await fetch("/api/assistant/chat", { method: "POST", headers: { "Content-Type": "application/json", Accept: "text/event-stream" }, body, signal });
@@ -91,8 +94,8 @@ export async function sendChat(input: { text: string; conversationId?: string },
 }
 
 /** Non-streaming fallback. */
-export async function sendChatJson(input: { text: string; conversationId?: string }, onEvent: (event: TurnEvent) => void) {
-  const data = await api<TurnResult>("/api/assistant/chat", { method: "POST", body: JSON.stringify({ text: input.text, conversationId: input.conversationId, timezone: userTimezone() }) });
+export async function sendChatJson(input: ChatInput, onEvent: (event: TurnEvent) => void) {
+  const data = await api<TurnResult>("/api/assistant/chat", { method: "POST", body: JSON.stringify({ text: input.text, conversationId: input.conversationId, timezone: userTimezone(), attachments: input.attachments?.length ? input.attachments : undefined, model: input.model }) });
   replayResult(data, onEvent);
   return data;
 }
