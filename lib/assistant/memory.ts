@@ -2,7 +2,7 @@ import { complete } from "@/lib/assistant/llm";
 import { newId, ready } from "@/lib/assistant/db";
 
 export type MemoryKind = "profile" | "preference" | "person" | "place" | "project" | "fact";
-export type Memory = { id: string; kind: MemoryKind; content: string; source: string; updatedAt: string };
+export type Memory = { id: string; kind: MemoryKind; content: string; source: string; updatedAt: string; created?: boolean };
 
 const KINDS: MemoryKind[] = ["profile", "preference", "person", "place", "project", "fact"];
 function normalizeKind(kind?: string): MemoryKind { return KINDS.includes(kind as MemoryKind) ? kind as MemoryKind : "fact"; }
@@ -34,11 +34,11 @@ export async function saveMemory(userId: string, content: string, kind?: string,
   const existing = await db`select * from public.elias_memories where user_id = ${userId} and lower(content) = ${text.toLowerCase()} limit 1`;
   if (existing[0]) {
     await db`update public.elias_memories set updated_at = now() where id = ${existing[0].id as string}`;
-    return row(existing[0]);
+    return { ...row(existing[0]), created: false };
   }
   const id = newId("mem");
   const rows = await db`insert into public.elias_memories (id, user_id, kind, content, source) values (${id}, ${userId}, ${normalizeKind(kind)}, ${text}, ${source}) returning *`;
-  return row(rows[0]);
+  return { ...row(rows[0]), created: true };
 }
 
 export async function updateMemory(userId: string, id: string, content: string) {
@@ -76,7 +76,7 @@ export async function extractMemories(userId: string, userText: string, assistan
     const facts = (JSON.parse(json) as { facts?: Array<{ kind?: string; content?: string }> }).facts || [];
     const saved: Memory[] = [];
     for (const fact of facts.slice(0, 5)) if (fact.content && !/password|\b\d{12,19}\b|cvv|otp/i.test(fact.content)) saved.push(await saveMemory(userId, fact.content, fact.kind, "auto"));
-    return saved;
+    return saved.filter((item) => item.created !== false);
   } catch {
     return [];
   }

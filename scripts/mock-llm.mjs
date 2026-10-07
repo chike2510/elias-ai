@@ -19,9 +19,14 @@ function decide(data) {
     if (lastUser.includes("plan my day")) return text("Here's your day: a light one. Block the morning for deep work and clear email after lunch.");
     if (lastUser.includes("check my email")) return text("Tap Connect Google below and I'll go through your inbox.");
     if (lastUser.includes("weather")) return text("Warm and mostly clear today. Take water.");
+    if (process.env.MOCK_LLM_FRIENDLY && last.content.startsWith("PAUSED FOR APPROVAL")) return text("Drafted it. Have a look and tap Approve to send.");
+    if (process.env.MOCK_LLM_FRIENDLY && lastUser.includes("Remind me")) return text("Done. I'll nudge you every morning at 8.");
+    if (process.env.MOCK_LLM_FRIENDLY && lastUser.includes("remember")) return text("Got it, Port Harcourt. I'll keep that in mind.");
+    if (process.env.MOCK_LLM_FRIENDLY && lastUser.includes("search")) return text("Lagos has great options. Glover Court Suya keeps topping the lists. Want directions?");
     return text(`OK after ${tools.length} tool(s): ${last.content.slice(0, 120)}`);
   }
   if (lastUser.includes("remember")) return call("memory_save", { content: "Chikeziri lives in Port Harcourt.", kind: "profile" });
+  if (lastUser.includes("every morning") && lastUser.includes("Remind")) return call("schedule_create", { name: "Drink water", prompt: "Remind me to drink water.", schedule: { type: "daily", time: "08:00" } });
   if (lastUser.includes("every morning")) return call("schedule_create", { name: "Brief", prompt: "Brief me", schedule: { type: "daily", time: "08:00" } });
   if (lastUser.includes("email bola")) return call("gmail_send", { to: "bola@example.com", subject: "Hi", body: "Hello Bola,\n\nAre we still on for Friday?\n\nChikeziri" });
   if (lastUser.includes("invite ada")) return call("calendar_create", { summary: "Project sync", start: "2026-10-08T10:00:00+01:00", end: "2026-10-08T10:30:00+01:00", attendees: ["ada@example.com"] });

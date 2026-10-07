@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "test": "node --test tests/*.test.mjs",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:assistant": "npx -y tsx scripts/test-assistant.ts"
   },
   "dependencies": {
     "@huggingface/inference": "^4.13.30",
@@ -15,23 +16,23 @@
     "jszip": "^3.10.1",
     "lucide-react": "^0.468.0",
     "mammoth": "^1.9.1",
-    "next": "latest",
+    "next": "16.3.8",
     "pdf-lib": "^1.17.1",
     "pdf-parse": "^1.1.1",
     "playwright-core": "^1.63.0",
     "postgres": "^3.4.9",
     "pptxgenjs": "^4.0.1",
     "prettier": "^3.9.6",
-    "react": "latest",
-    "react-dom": "latest",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
     "remark-parse": "^11.0.0",
     "unified": "^11.0.5",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
-    "@types/node": "^22.0.0",
-    "@types/react": "^19.0.0",
-    "@types/react-dom": "^19.0.0",
-    "typescript": "^5.0.0"
+    "@types/node": "22.20.1",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.4",
+    "typescript": "5.9.3"
   }
 }

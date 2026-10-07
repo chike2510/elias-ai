@@ -1,5 +1,6 @@
-import HomeScreen from "@/components/screens/HomeScreen";
+import { Suspense } from "react";
+import ChatView from "@/components/chat/ChatView";
 
 export default function Page() {
-  return <HomeScreen />;
+  return <Suspense fallback={null}><ChatView /></Suspense>;
 }

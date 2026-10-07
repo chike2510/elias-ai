@@ -229,7 +229,7 @@ export async function runTurn(options: RunOptions): Promise<TurnResult> {
               actions.push({ tool: name, ok: true });
               if (name === "daily_brief") for (const card of briefCards(raw as BriefData)) addCard(card);
               else addCard(cardFor(name, raw));
-              if ((name === "memory_save" || name === "memory_update") && raw && typeof raw === "object" && "id" in raw) {
+              if ((name === "memory_save" || name === "memory_update") && raw && typeof raw === "object" && "id" in raw && (raw as { created?: boolean }).created !== false) {
                 const chip = { id: String((raw as { id: string }).id), content: String((raw as { content?: string }).content || "") };
                 if (!memoriesSaved.some((item) => item.id === chip.id)) { memoriesSaved.push(chip); emit({ type: "memory", memory: chip }); }
               }

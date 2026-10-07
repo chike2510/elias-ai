@@ -4,7 +4,7 @@ import path from "node:path";
 import test from "node:test";
 import { formatChatTimestamp } from "../lib/chatTimestamp.mjs";
 
-const chatScreen = readFileSync(path.resolve("components/screens/ChatScreen.tsx"), "utf8");
+const chatScreen = readFileSync(path.resolve("components/chat/ChatView.tsx"), "utf8");
 const css = readFileSync(path.resolve("app/globals.css"), "utf8");
 
 test("chat timestamps use viewer-local time and retain an ISO datetime value", () => {
@@ -39,14 +39,14 @@ test("valid epoch timestamps render while absent, nonnumeric, and out-of-range l
 
 test("every persisted chat message uses an accessible timestamp with responsive styling", () => {
   assert.match(chatScreen, /function MessageTimestamp\(\{ createdAt \}: \{ createdAt: unknown \}\)/);
-  assert.match(chatScreen, /<time className="chat-message-timestamp" dateTime=\{timestamp\.dateTime\}>\{timestamp\.label\}<\/time>/);
+  assert.match(chatScreen, /<time className="el-stamp" dateTime=\{timestamp\.dateTime\}>\{timestamp\.label\}<\/time>/);
   assert.match(chatScreen, /<MessageTimestamp createdAt=\{message\.createdAt\} \/>/);
 
-  const rule = css.match(/\.chat-message-timestamp\s*\{([^}]*)\}/)?.[1];
+  const rule = css.match(/\.el-stamp\s*\{([^}]*)\}/)?.[1];
   assert.ok(rule, "timestamp styles should be present");
   assert.match(rule, /display:\s*block/);
   assert.match(rule, /font-size:\s*11px/);
   assert.match(rule, /font-variant-numeric:\s*tabular-nums/);
   assert.doesNotMatch(rule, /white-space:\s*nowrap|position:\s*absolute/);
-  assert.match(css, /\.chat-message\.user \.chat-message-timestamp\s*\{[^}]*text-align:\s*right/s);
+  assert.match(css, /\.el-row\.user \.el-stamp\s*\{[^}]*text-align:\s*right/s);
 });
