@@ -14,11 +14,25 @@ import { rateLimit } from "@/lib/assistant/rateLimit";
 import { visibleStreamText } from "@/lib/assistant/llm";
 import { getModelChoice, setModelChoice } from "@/lib/assistant/models";
 import { encrypt, ready } from "@/lib/assistant/db";
+import { countSubscriptions, notifyUser, saveSubscription, setPushSender, validSubscription } from "@/lib/assistant/push";
+import { setNotifyPrefs } from "@/lib/assistant/userData";
+import { advanceJobs, cancelJob, claimJobs, createJob, getJob, listJobs, parseSlice, resumeAfterApproval, runSlice } from "@/lib/assistant/jobs";
+import { finishOnboarding, onboardingState, savePreferences, saveProfile, saveRoutine } from "@/lib/assistant/onboarding";
 
 const user = `test_${Date.now()}`;
 // Tier-specific models for the custom provider, so the v3 router assertions can see which tier answered.
 process.env.ELIAS_AGENT_FAST_MODEL ||= "mock-fast";
 process.env.ELIAS_AGENT_VISION_MODEL ||= "mock-vision";
+process.env.ELIAS_DISABLE_JOB_KICK = "1";
+
+/* Push is mocked: every send is recorded; endpoints containing "gone" answer 410 like an expired subscription. */
+type Sent = { endpoint: string; payload: { title: string; body: string; url: string; type: string } };
+const sent: Sent[] = [];
+setPushSender(async (subscription, payload) => {
+  if (subscription.endpoint.includes("gone")) throw Object.assign(new Error("Gone"), { statusCode: 410 });
+  sent.push({ endpoint: subscription.endpoint, payload: JSON.parse(payload) });
+});
+const device = (name: string) => ({ endpoint: `https://push.example.com/${name}`, keys: { p256dh: "BPk3y", auth: "auth-secret" } });
 
 async function main() {
   // schedule maths
@@ -167,6 +181,130 @@ async function main() {
   assert.equal(await setModelChoice(user, "groq/openai/gpt-oss-120b"), "groq/openai/gpt-oss-120b");
   assert.equal(await getModelChoice(user), "groq/openai/gpt-oss-120b");
   assert.equal(await setModelChoice(user, "nonsense/x y"), "auto", "unknown choices fall back to auto");
+
+  // push: send path, 410 pruning, per-type mute
+  const pushUser = `${user}_push`;
+  assert.equal(validSubscription(device("ok")), true);
+  assert.equal(validSubscription({ endpoint: "http://insecure", keys: { p256dh: "a", auth: "b" } }), false);
+  await saveSubscription(pushUser, device("ok"));
+  await saveSubscription(pushUser, device("ok")); // same endpoint twice is one device
+  await saveSubscription(pushUser, device("gone"));
+  assert.equal(await countSubscriptions(pushUser), 2);
+  let outcome = await notifyUser(pushUser, "jobs", { title: "Hello", body: "  spaced\n out  ", url: "/chat?id=x" });
+  assert.deepEqual([outcome.sent, outcome.pruned], [1, 1]);
+  assert.equal(await countSubscriptions(pushUser), 1, "410 subscription pruned");
+  assert.deepEqual(sent[sent.length - 1].payload, { title: "Hello", body: "spaced out", url: "/chat?id=x", type: "jobs" });
+  await setNotifyPrefs(pushUser, { jobs: false });
+  assert.equal((await notifyUser(pushUser, "jobs", { title: "x", body: "y", url: "/" })).skipped, "muted");
+  assert.equal((await notifyUser(`${user}_nodevice`, "jobs", { title: "x", body: "y", url: "/" })).skipped, "no_devices");
+
+  // push on a scheduled run: the daily brief notifies with a link to its conversation
+  await ensureDailyBrief(pushUser, "Africa/Lagos");
+  await db`update public.elias_schedules set next_run_at = now() - interval '1 minute' where user_id = ${pushUser}`;
+  const before = sent.length;
+  assert.deepEqual((await runDueSchedules(5, pushUser)).map((r) => r.ok), [true]);
+  const briefPush = sent.slice(before).find((item) => item.payload.type === "brief");
+  assert.ok(briefPush, "brief push sent");
+  assert.equal(briefPush!.payload.title, "Your daily brief");
+  assert.equal(briefPush!.payload.url, `/chat?id=${(await listSchedules(pushUser))[0].conversationId}`);
+  await setNotifyPrefs(pushUser, { brief: false });
+  await db`update public.elias_schedules set next_run_at = now() - interval '1 minute' where user_id = ${pushUser}`;
+  const mutedBefore = sent.length;
+  await runDueSchedules(5, pushUser);
+  assert.equal(sent.length, mutedBefore, "muted brief sends nothing");
+
+  // background jobs
+  assert.deepEqual(parseSlice("notes\nSTATUS: CONTINUE\nmore"), { status: "continue", text: "more" });
+  assert.deepEqual(parseSlice("Answer first.\nSTATUS: DONE"), { status: "done", text: "Answer first." });
+  assert.equal(parseSlice("no marker").status, null);
+  const jobUser = `${user}_jobs`;
+  await saveSubscription(jobUser, device("jobs-phone"));
+  const handoff = await runTurn({ userId: jobUser, text: "please start a background job on suya" });
+  assert.ok(handoff.actions.some((a) => a.tool === "start_background_job" && a.ok), "agent tool starts a job");
+  let jobs = await listJobs(jobUser);
+  assert.equal(jobs.length, 1);
+  assert.equal(jobs[0].status, "queued");
+  assert.equal(jobs[0].kind, "research");
+  assert.equal(jobs[0].conversationId, handoff.conversationId, "result goes back to the chat it came from");
+  assert.ok(!(await listConversations(jobUser)).some((c) => c.kind === "job"), "work conversation hidden from history");
+  const claimed = await claimJobs(1, { userId: jobUser });
+  assert.equal(claimed.length, 1);
+  assert.equal((await claimJobs(1, { userId: jobUser })).length, 0, "lease: a running job can't be claimed twice");
+  const slice1 = await runSlice(claimed[0].job, claimed[0].owner);
+  assert.deepEqual([slice1.status, slice1.more], ["queued", true]);
+  const slice2 = await advanceJobs(1, { userId: jobUser });
+  assert.equal(slice2[0].status, "done");
+  const doneJob = (await getJob(jobUser, jobs[0].id))!;
+  assert.match(doneJob.result || "", /Glover Court/);
+  assert.equal(doneJob.slices, 2);
+  assert.ok(doneJob.steps.length === 2 && doneJob.steps[0].tools.includes("Checking the time…"), "steps recorded");
+  const chatAfter = await getMessages(jobUser, handoff.conversationId);
+  assert.match(chatAfter[chatAfter.length - 1].content, /Background job done: \*\*Suya research\*\*[\s\S]*Glover Court/);
+  const jobPush = sent.find((item) => item.endpoint.endsWith("jobs-phone") && item.payload.type === "jobs");
+  assert.equal(jobPush?.payload.title, "Done: Suya research");
+  assert.equal(jobPush?.payload.url, `/chat?id=${handoff.conversationId}`);
+  assert.equal((await advanceJobs(1, { userId: jobUser })).length, 0, "finished job is not run again");
+
+  // a job that needs approval pauses, notifies, and resumes after the decision
+  await db`insert into public.elias_oauth_tokens (user_id, provider, email, access_token, expires_at) values (${jobUser}, 'google', 'me@example.com', ${encrypt("fake-token")}, now() + interval '1 hour')`;
+  const emailJob = await createJob(jobUser, { title: "Email Ada", prompt: "email-task: ask Ada about Friday", kind: "task", announce: true });
+  assert.match((await getMessages(jobUser, emailJob.conversationId))[0].content, /On it in the background/);
+  assert.equal((await advanceJobs(1, { userId: jobUser }))[0].status, "waiting_approval");
+  const waiting = (await getJob(jobUser, emailJob.id))!;
+  assert.equal(waiting.approvalIds.length, 1);
+  assert.ok(sent.some((item) => item.payload.type === "approvals" && item.payload.title === "Approval needed: Email Ada" && item.payload.url === `/chat?id=${waiting.workConversationId}`), "approval push");
+  assert.equal((await advanceJobs(1, { userId: jobUser })).length, 0, "waiting job doesn't run");
+  await decideApproval({ userId: jobUser, approvalId: waiting.approvalIds[0], decision: "decline" });
+  assert.equal(await resumeAfterApproval(jobUser, waiting.approvalIds[0]), emailJob.id);
+  assert.equal((await getJob(jobUser, emailJob.id))!.status, "queued");
+  assert.equal((await advanceJobs(1, { userId: jobUser }))[0].status, "done");
+
+  // bounded: a job that never says DONE is finished on its last slice
+  const slow = await createJob(jobUser, { title: "Slow", prompt: "slow-task forever" });
+  await db`update public.elias_jobs set max_slices = 2 where id = ${slow.id}`;
+  assert.equal((await advanceJobs(1, { userId: jobUser }))[0].status, "queued");
+  assert.equal((await advanceJobs(1, { userId: jobUser }))[0].status, "done");
+
+  // cancel: queued, and mid-slice (the slice's outcome is discarded)
+  const cancelMe = await createJob(jobUser, { title: "Cancel me", prompt: "slow-task" });
+  assert.equal((await cancelJob(jobUser, cancelMe.id))?.status, "cancelled");
+  assert.equal(await cancelJob(jobUser, cancelMe.id), null, "already cancelled");
+  const midway = await createJob(jobUser, { title: "Midway", prompt: "multi-research midway" });
+  const [mid] = await claimJobs(1, { jobId: midway.id });
+  await cancelJob(jobUser, midway.id);
+  assert.equal((await runSlice(mid.job, mid.owner)).status, "cancelled");
+  assert.equal((await getJob(jobUser, midway.id))!.status, "cancelled");
+
+  // a slice whose lease expired (function died) is reclaimed; repeated model failures fail the job and notify
+  const crash = await createJob(jobUser, { title: "Crash", prompt: "crash-task" });
+  const [dead] = await claimJobs(1, { jobId: crash.id });
+  assert.ok(dead);
+  await db`update public.elias_jobs set lease_until = now() - interval '1 second' where id = ${crash.id}`;
+  const [again] = await claimJobs(1, { jobId: crash.id });
+  assert.ok(again && again.owner !== dead.owner, "expired lease reclaimed");
+  assert.equal((await runSlice(again.job, again.owner)).status, "queued", "first failure retries");
+  assert.equal((await advanceJobs(1, { jobId: crash.id }))[0].status, "failed");
+  assert.ok(sent.some((item) => item.payload.title === "Job stopped: Crash"));
+
+  // at most 3 active jobs per user
+  for (let i = 0; i < 3; i += 1) await createJob(`${user}_limit`, { prompt: `slow-task ${i}` });
+  await assert.rejects(createJob(`${user}_limit`, { prompt: "one too many" }), /already have 3/);
+
+  // onboarding
+  const newUser = `${user}_new`;
+  assert.equal((await onboardingState(newUser)).needed, true);
+  assert.equal(await saveProfile(newUser, "  Chike "), "Chike");
+  const routine = await saveRoutine(newUser, { timezone: "Africa/Lagos", briefTime: "07:30", city: "Lagos" }).catch((error) => ({ error: (error as Error).message }));
+  if ("error" in routine) console.log("onboarding routine skipped (weather lookup offline):", routine.error);
+  else {
+    const state = await onboardingState(newUser);
+    assert.deepEqual([state.timezone, state.briefTime, state.city], ["Africa/Lagos", "07:30", "Lagos"]);
+    assert.equal((await listSchedules(newUser)).filter((item) => item.kind === "daily_brief").length, 1);
+  }
+  await assert.rejects(saveRoutine(newUser, { timezone: "Mars/Base" }), /valid timezone/);
+  assert.deepEqual(await savePreferences(newUser, [{ statement: "Prefers short, direct replies." }, { statement: "" }]), ["Prefers short, direct replies."]);
+  assert.ok((await listMemories(newUser)).some((m) => m.content === "Prefers to be called Chike."));
+  assert.equal((await finishOnboarding(newUser, "complete")).needed, false);
 
   // rate limiting
   const bucket = `test:${user}`;

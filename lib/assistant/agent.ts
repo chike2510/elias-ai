@@ -32,7 +32,9 @@ export type TurnEvent =
 
 type RunOptions = {
   userId: string; userName?: string; conversationId?: string; text: string; timezone?: string; githubToken?: string;
-  origin?: "chat" | "schedule" | "approval";
+  origin?: "chat" | "schedule" | "approval" | "job";
+  /** Tool-loop bound for this turn (background job slices use fewer). */
+  maxSteps?: number;
   onEvent?: (event: TurnEvent) => void;
   /** Turn-only context appended to the system prompt (not stored in the conversation). */
   extraContext?: string;
@@ -84,7 +86,7 @@ RULES
 - Never ask for or type passwords, card numbers or one-time codes in chat.
 - For "remind me", "every morning", "check daily" requests, use schedule_create with a self-contained prompt.
 - If a tool fails, try another way once, then say plainly what blocked you and the next option.
-${input.origin === "schedule" ? "- This turn was started by a scheduled task, not by the user typing. Do the job and reply with the result only. If nothing noteworthy, say so in one line." : ""}${input.extra ? `\n\n${input.extra}` : ""}`;
+${input.origin === "schedule" ? "- This turn was started by a scheduled task, not by the user typing. Do the job and reply with the result only. If nothing noteworthy, say so in one line." : ""}${input.origin === "job" ? "- This turn is one slice of a background job the user handed off. Nobody is watching live: work through the steps, then follow the job instructions for how to end your reply." : "- For long work (deep research across many sources, or a multi-step task that will take a while), offer or use start_background_job so the user can get on with their day; the result is posted back here with a notification."}${input.extra ? `\n\n${input.extra}` : ""}`;
 }
 
 export async function ensureConversation(userId: string, conversationId: string | undefined, title: string, kind = "chat") {
@@ -115,7 +117,7 @@ export async function listConversations(userId: string) {
   const rows = await db`select c.id, c.title, c.kind, c.source, c.updated_at,
     (select count(*) from public.elias_approvals a where a.conversation_id = c.id and a.status = 'pending')::int as pending,
     (select left(m.content, 140) from public.elias_messages m where m.conversation_id = c.id and m.role = 'assistant' order by m.id desc limit 1) as preview
-    from public.elias_conversations c where c.user_id = ${userId} order by c.updated_at desc limit 60`;
+    from public.elias_conversations c where c.user_id = ${userId} and c.kind <> 'job' order by c.updated_at desc limit 60`;
   return rows.map((item) => ({ id: String(item.id), title: String(item.title), kind: String(item.kind), source: String(item.source || "server"), updatedAt: new Date(item.updated_at as string).toISOString(), pendingApprovals: Number(item.pending), preview: (item.preview as string) || "" }));
 }
 
@@ -166,7 +168,7 @@ export async function runTurn(options: RunOptions): Promise<TurnResult> {
   const emit = (event: TurnEvent) => { try { options.onEvent?.(event); } catch { /* a closed stream must not break the turn */ } };
   const timezone = options.timezone || "Africa/Lagos";
   const origin = options.origin || "chat";
-  const conversationId = await ensureConversation(options.userId, options.conversationId, options.title || options.text, origin === "schedule" ? "schedule" : "chat");
+  const conversationId = await ensureConversation(options.userId, options.conversationId, options.title || options.text, origin === "schedule" ? "schedule" : origin === "job" ? "job" : "chat");
   emit({ type: "conversation", conversationId });
   const [history, memories, google] = await Promise.all([
     getMessages(options.userId, conversationId, HISTORY_MESSAGES),
@@ -176,8 +178,9 @@ export async function runTurn(options: RunOptions): Promise<TurnResult> {
   const attachments = origin === "chat" ? options.attachments || [] : [];
   const images = attachments.filter((item) => item.kind === "image");
   const files = attachments.filter((item) => item.kind === "file");
-  if (origin !== "approval") await addMessage(options.userId, conversationId, origin === "schedule" ? "event" : "user", options.text, origin === "schedule" ? { kind: "schedule" } : attachments.length ? { attachments: toStored(attachments) } : {});
-  const userText = [origin === "schedule" ? `[Scheduled task] ${options.text}` : options.text, fileContext(files)].filter(Boolean).join("\n\n");
+  const background = origin === "schedule" || origin === "job";
+  if (origin !== "approval") await addMessage(options.userId, conversationId, background ? "event" : "user", options.text, background ? { kind: origin } : attachments.length ? { attachments: toStored(attachments) } : {});
+  const userText = [origin === "schedule" ? `[Scheduled task] ${options.text}` : origin === "job" ? `[Background job] ${options.text}` : options.text, fileContext(files)].filter(Boolean).join("\n\n");
   const userContent: string | ContentPart[] = images.length
     ? [{ type: "text", text: userText || "What's in this image?" }, ...images.map((image): ContentPart => ({ type: "image_url", image_url: { url: image.dataUrl } }))]
     : userText;
@@ -212,7 +215,8 @@ export async function runTurn(options: RunOptions): Promise<TurnResult> {
   const addConnect = (item: ConnectCard) => { if (!connect.some((existing) => existing.provider === item.provider)) { connect.push(item); emit({ type: "connect", connect: item }); } };
 
   try {
-    for (let step = 0; step < MAX_STEPS; step += 1) {
+    const maxSteps = Math.max(1, options.maxSteps ?? MAX_STEPS);
+    for (let step = 0; step < maxSteps; step += 1) {
       let streamed = false;
       const route = resolveRoute(choice, { text: options.text, images: images.length, files: files.length, step, usedTool: actions.length > 0 });
       tier = route.tier;
@@ -269,7 +273,7 @@ export async function runTurn(options: RunOptions): Promise<TurnResult> {
         emit({ type: "tool_done", id: call.id, tool: name, ok: !output.startsWith("Error") });
         messages.push({ role: "tool", tool_call_id: call.id, content: output });
       }
-      if (step === MAX_STEPS - 1) {
+      if (step === maxSteps - 1) {
         const final = await completeStream([...messages, { role: "user", content: "[system] Step limit reached. Reply to the user now with what you have, in a few lines." }], [], (text) => emit({ type: "delta", text }), { route: resolveRoute(choice, { text: options.text, images: images.length, step, usedTool: true }) });
         reply = final.content;
         model = `${final.provider}/${final.model}`;

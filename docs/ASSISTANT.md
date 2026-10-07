@@ -41,10 +41,11 @@ A Hark-style personal assistant built on one tool-calling loop.
 | Schedules | schedule_create, schedule_list, schedule_update | – |
 | Browser | browser_open, browser_snapshot, browser_click, browser_type, browser_select, browser_close | final clicks (pay/order/book/send), detected by flag or button text |
 | GitHub | github_api (GET) | – |
+| Background | start_background_job, background_jobs | – (the job's own tool calls keep their approval gates) |
 
 ## Storage (Supabase Postgres, created automatically)
 
-`elias_conversations`, `elias_messages`, `elias_memories` (tsvector full-text), `elias_oauth_tokens` (AES-GCM encrypted), `elias_schedules`, `elias_approvals`, `elias_assistant_browsers`.
+`elias_conversations`, `elias_messages`, `elias_memories` (tsvector full-text), `elias_oauth_tokens` (AES-GCM encrypted), `elias_schedules`, `elias_approvals`, `elias_assistant_browsers`, `elias_user_settings` (timezone, `data` JSON: city, `notify` prefs, `preferredName`, `onboardedAt`), `elias_push_subscriptions`, `elias_jobs`. The v3 tables live in `lib/assistant/schemaBackground.ts` and are created by `ready()`.
 
 ## Scheduler
 
@@ -59,6 +60,31 @@ $$);
 
 `vercel.json` also has a daily Vercel Cron as a backup (Hobby plans allow daily only).
 
+## Background jobs (`lib/assistant/jobs.ts`)
+
+Long work the user hands off ("research this in the background", the **New job** button in Tasks, or the agent calling `start_background_job`).
+
+- A row in `elias_jobs`: `status` (queued → running → waiting_approval / done / failed / cancelled), `steps` (one entry per slice), `result`, the chat it reports to (`conversation_id`) and a hidden work conversation (`work_conversation_id`, kind `job`, left out of the history list but openable from Tasks → "See the work").
+- It runs in **slices**: each slice is one agent turn with at most 5 tool steps, ending in `STATUS: CONTINUE` + notes or `STATUS: DONE` + the result. Research jobs get up to 5 slices, tasks up to 6; the last slice must answer. At most 3 active jobs per user.
+- **Lease**: `claimJobs` sets `lease_owner` + `lease_until` (270s) with `for update skip locked`, so two ticks never run the same job. A slice that dies leaves an expired lease and is reclaimed; a job reclaimed too often, or failing twice, is marked failed.
+- **Driving it**: right after creation (and after each slice that wants more) a fire-and-forget `POST /api/cron/jobs` (Bearer `CRON_SECRET`) answers 202 and runs the next slice with `after()` in its own 300s budget. `/api/cron/tick` also kicks runnable jobs every 5 minutes (or runs one slice inline if the self-call can't be made). The self-call URL is `ELIAS_PUBLIC_URL`, else `VERCEL_PROJECT_PRODUCTION_URL`.
+- **Approvals**: a slice that hits an approval-gated tool sets `waiting_approval` and pushes an "Approval needed" notification linking to the work conversation. Deciding it (`POST /api/assistant/approvals/:id`) re-queues the job once nothing else is pending.
+- **Done**: the result is posted into the original chat ("Background job done: …") and a "jobs" push is sent. Cancel (`DELETE /api/assistant/jobs/:id`) stops it; a slice in flight is discarded.
+- API: `GET/POST /api/assistant/jobs`, `GET/DELETE /api/assistant/jobs/:id`.
+
+## Push notifications (`lib/assistant/push.ts`, `lib/pushClient.ts`, `public/sw.js`)
+
+- Web Push with VAPID (`web-push`). Env: `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` (mailto:). The client fetches the public key from `GET /api/assistant/push`, so no `NEXT_PUBLIC_` var is needed.
+- `POST /api/assistant/push {subscription}` saves a device, `DELETE {endpoint}` removes it, `PATCH {prefs}` sets per-type toggles, `POST {test:true}` sends a test.
+- Types: `brief` (daily brief posted), `reminders` (any other scheduled task), `approvals` (an approval left by a schedule or a job; approvals raised in a live chat don't push, the user is looking at them), `jobs` (job finished or failed). All default on; toggles live on the You page.
+- `notifyUser` never throws. 404/410 responses delete the subscription; other failures are counted and the device is dropped after 5.
+- The service worker shows the notification, posts `elias:push` to open tabs (the chat refreshes quietly), and on click focuses/navigates an open tab to the conversation or opens a new window.
+- Permission is only requested from a tap: the in-app card (after a turn that scheduled something or started a job, and in Tasks while a job runs), onboarding, or You → Notifications. iOS only supports Web Push for Home Screen apps (16.4+), so there the UI shows an "Add to Home Screen" hint instead.
+
+## Onboarding (`/welcome`, `lib/assistant/onboarding.ts`)
+
+First run (redirected from chat when `data.onboardedAt` and `data.onboardingSkippedAt` are both empty), skippable, redo from You → "Redo setup". Steps: what to call you (saved as a profile memory), timezone (auto-detected) + brief time + weather city (updates or creates the daily brief), connect Google (shows "Not configured yet" without `GOOGLE_CLIENT_ID`) and notifications, then four tap-to-answer preference questions plus an optional note, each saved as a preference memory. API: `GET/POST /api/assistant/onboarding` with `action` = profile | routine | preferences | complete | skip | reset.
+
 ## Setup checklist
 
 - `POSTGRES_URL` (already provided by the Supabase integration).
@@ -66,7 +92,9 @@ $$);
 - `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` for Gmail + Calendar (redirect URI `/api/connect/google/callback`). While the Google app is in "Testing", add your Google account as a test user.
 - `CRON_SECRET` + the pg_cron job for schedules.
 - `BROWSERBASE_API_KEY` / `BROWSERBASE_PROJECT_ID` for real browser actions.
+- `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` for push (generate with `npx web-push generate-vapid-keys`).
+- Optional `ELIAS_PUBLIC_URL` if job self-calls should target a custom domain.
 
 ## Testing
 
-`scripts/test-assistant.ts` runs the core end to end against Postgres and a scripted OpenAI-compatible mock (see header of the file). The mock rejects image parts unless the model name contains "vision", which exercises the vision fallback; the test covers the fast/strong/vision tiers, a pinned model override, stored attachment metadata and document context. `tests/chat-input-v3.test.mjs` unit-tests the router and attachment validation.
+`scripts/test-assistant.ts` runs the core end to end against Postgres and a scripted OpenAI-compatible mock (see header of the file). The mock rejects image parts unless the model name contains "vision", which exercises the vision fallback; the test covers the fast/strong/vision tiers, a pinned model override, stored attachment metadata and document context. `tests/chat-input-v3.test.mjs` unit-tests the router and attachment validation. It covers jobs (slices, lease exclusivity, approval pause/resume, cancel, lease expiry, failure, limits), the push send path (with `setPushSender` mocking the network: 410 pruning, muted types, brief push) and onboarding. `tests/push-service-worker.test.mjs` checks the service worker's push and click handlers.

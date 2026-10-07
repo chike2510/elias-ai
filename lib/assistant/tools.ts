@@ -121,6 +121,25 @@ const TOOLS: Record<string, Tool> = {
     run: async (args, ctx) => setScheduleStatus(ctx.userId, str(args.id), str(args.status) as "active"),
   },
 
+  start_background_job: {
+    schema: {
+      name: "start_background_job",
+      description: "Hand off long work to run in the background: deep research across many sources, or a multi-step task that will take a while. Returns at once; the result is posted to this chat and the user gets a notification. Use when the user asks for it, or for work that needs more than a few tool calls.",
+      parameters: obj({ title: s("Short title, e.g. 'Compare 3 laptops under 600k'"), prompt: s("Self-contained instructions: the goal, constraints, what the final answer should contain"), kind: { type: "string", enum: ["research", "task"] } }, ["title", "prompt"]),
+    },
+    run: async (args, ctx) => {
+      const jobs = await import("@/lib/assistant/jobs");
+      if (await jobs.isJobConversation(ctx.conversationId)) throw new Error("You are already inside a background job; do the work here instead of starting another.");
+      const job = await jobs.createJob(ctx.userId, { title: str(args.title), prompt: str(args.prompt), kind: str(args.kind), conversationId: ctx.conversationId, timezone: ctx.timezone });
+      const kicked = await jobs.kickJobs(job.id);
+      return { id: job.id, title: job.title, status: job.status, note: kicked ? "Started now." : "Queued; it starts within 5 minutes.", tell_user: "It's running in the background. The result will be posted here with a notification; they can follow it in Tasks." };
+    },
+  },
+  background_jobs: {
+    schema: { name: "background_jobs", description: "List the user's background jobs and their status.", parameters: obj({}) },
+    run: async (_args, ctx) => (await (await import("@/lib/assistant/jobs")).listJobs(ctx.userId, 10)).map((job) => ({ id: job.id, title: job.title, status: job.status, slices: job.slices, lastStep: job.steps[job.steps.length - 1]?.summary || null, result: job.result?.slice(0, 600) || null })),
+  },
+
   browser_open: {
     schema: { name: "browser_open", description: "Open a URL in a real remote browser (for sites needing interaction: forms, carts, bookings, logged-in pages). Returns a snapshot with numbered elements.", parameters: obj({ url: s("URL") }, ["url"]) },
     run: async (args, ctx) => { const { page } = await openBrowser(ctx.userId, ctx.conversationId, ctx.browsers); await page.goto(str(args.url), { waitUntil: "domcontentloaded" }); await page.waitForTimeout(1200); return snapshot(page); },

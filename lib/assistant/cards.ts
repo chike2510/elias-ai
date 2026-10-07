@@ -77,6 +77,7 @@ export const STATUS_LABELS: Record<string, string> = {
   schedule_create: "Setting that up…", schedule_list: "Checking your tasks…", schedule_update: "Updating your tasks…",
   browser_open: "Opening the browser…", browser_snapshot: "Reading the page…", browser_click: "Clicking…", browser_type: "Typing…", browser_select: "Choosing an option…", browser_close: "Closing the browser…",
   github_api: "Checking GitHub…", weather: "Checking the weather…", daily_brief: "Pulling your day together…",
+  start_background_job: "Handing it off to the background…", background_jobs: "Checking background jobs…",
 };
 
 export function statusLabel(tool: string) {
