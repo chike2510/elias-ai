@@ -114,6 +114,7 @@ TASK: ${job.prompt}
 HOW TO WORK: Make real progress this slice with tools (up to ${SLICE_TOOL_STEPS} tool steps). ${job.kind === "research" ? "Deep research: search several angles, open the best sources, cross-check facts, note URLs." : "Do the steps in order; check each one worked before moving on."}
 Your earlier replies in this conversation are your notes from previous slices; build on them, don't redo work.
 Anything that sends, books, pays, invites or deletes pauses for the user's approval: just call the tool and end the slice.
+You are already inside a background job: never call start_background_job or background_jobs.
 ${last ? "This is the LAST slice: do not call tools. Write the final result now and end with STATUS: DONE.\n" : ""}
 END YOUR REPLY with exactly one of these on its own line:
 STATUS: CONTINUE, then your working notes (every finding, URL and decision the next slice needs; it will not see tool output).
