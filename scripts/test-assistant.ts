@@ -317,7 +317,7 @@ async function main() {
   assert.ok((await listMemories(newUser)).some((m) => m.content === "Prefers to be called Chike."));
   assert.equal((await finishOnboarding(newUser, "complete")).needed, false);
 
-  await v3(user);
+  await v3Checks(user);
 
   // rate limiting
   const bucket = `test:${user}`;
@@ -333,7 +333,7 @@ async function main() {
 }
 
 /* ---------- v3: memory, encryption, audit, connectors, review, Telegram ---------- */
-async function v3(user: string) {
+async function v3Checks(user: string) {
   const db = await ready();
 
   // encryption: v2 with ELIAS_ENCRYPTION_KEY, legacy and plaintext still readable

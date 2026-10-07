@@ -16,8 +16,11 @@ const quote = (name: string) => `"${name.replace(/"/g, '""')}"`;
 
 async function detectVector(db: Db) {
   if (process.env.ELIAS_DISABLE_VECTOR === "1") return null;
-  // Supabase: the extension lives in "extensions". Creating it is a no-op when it already exists, and fails harmlessly where it isn't available.
-  await db`create extension if not exists vector with schema extensions`.catch(() => db`create extension if not exists vector`.catch(() => undefined));
+  // Supabase keeps extensions in the "extensions" schema; elsewhere (PGlite, plain Postgres) use the default schema.
+  // Check first instead of letting a statement fail: a failed statement can roll back the fallback on PGlite.
+  const hasExtensionsSchema = (await db`select 1 from pg_namespace where nspname = 'extensions'`.catch(() => [])).length > 0;
+  if (hasExtensionsSchema) await db`create extension if not exists vector with schema extensions`.catch(() => undefined);
+  else await db`create extension if not exists vector`.catch(() => undefined);
   const rows = await db`select extnamespace::regnamespace::text as schema from pg_extension where extname = 'vector'`.catch(() => []);
   return rows[0]?.schema ? String(rows[0].schema).replace(/^"|"$/g, "") : null;
 }
