@@ -56,5 +56,5 @@ export function parseFlashcards(reply: string): Flashcard[] {
   const cards = (list as Array<Record<string, unknown>>).map((raw) => ({ front: str(raw?.front ?? raw?.term ?? raw?.q), back: str(raw?.back ?? raw?.definition ?? raw?.a) })).filter((card) => card.front && card.back);
   if (cards.length) return cards.slice(0, 30);
   // Fallback: "Front: ... / Back: ..." or "term - definition" lines.
-  return reply.split("\n").map((line) => line.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "").match(/^(.{2,120}?)\s+(?:[-–—:]|=>)\s+(.{2,400})$/)).filter(Boolean).map((match) => ({ front: match![1].trim(), back: match![2].trim() })).slice(0, 30);
+  return reply.split("\n").map((line) => line.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "").match(/^(.{2,120}?)(?:\s*:\s+|\s+[-–—]\s+|\s*=>\s*)(.{2,400})$/)).filter(Boolean).map((match) => ({ front: match![1].trim(), back: match![2].trim() })).slice(0, 30);
 }
