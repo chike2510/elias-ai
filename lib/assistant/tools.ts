@@ -22,6 +22,8 @@ export type ToolContext = {
   approvalId?: string;
   /** chat | schedule | approval | telegram, for the audit log. */
   origin?: string;
+  /** v4 code mode: the conversation whose working set repo_/code_ tools use (a code job uses its parent chat's). */
+  codeConversationId?: string;
 };
 
 type Args = Record<string, unknown>;

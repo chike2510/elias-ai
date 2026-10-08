@@ -11,7 +11,9 @@ import { applyEdits, applyHunks, contentFromNewFile, diffStats, parseUnifiedDiff
 
 type Args = Record<string, unknown>;
 /** Structural copy of tools.ts ToolContext/Tool so this module stays import-free for tests. */
-export type CodeToolContext = { userId: string; conversationId: string; timezone: string; githubToken?: string; approved?: boolean; origin?: string };
+export type CodeToolContext = { userId: string; conversationId: string; timezone: string; githubToken?: string; approved?: boolean; origin?: string; codeConversationId?: string };
+/** The conversation whose working set a call uses: a code job works on the set of the chat that started it. */
+export const codeKey = (ctx: { conversationId: string; codeConversationId?: string }) => ctx.codeConversationId || ctx.conversationId;
 export type CodeTool = {
   schema: { name: string; description: string; parameters: Record<string, unknown> };
   needsApproval?: (args: Args, ctx: CodeToolContext) => Promise<string | null> | string | null;
@@ -149,7 +151,7 @@ async function headOf(token: string, repo: string, branch: string) {
 export async function openSet(ctx: CodeToolContext, repoArg?: string, baseArg?: string): Promise<Session> {
   const token = await resolveToken(ctx);
   const st = await codeStore();
-  let set = await st.get(ctx.userId, ctx.conversationId);
+  let set = await st.get(ctx.userId, codeKey(ctx));
   const wanted = repoArg ? parseRepo(repoArg).full : null;
   if (set && wanted && set.repo.toLowerCase() !== wanted.toLowerCase()) {
     if (Object.keys(set.files).length) throw new Error(`This chat has ${Object.keys(set.files).length} uncommitted change(s) in ${set.repo}. Commit them (code_commit) or ask the user to discard them before switching to ${wanted}.`);
@@ -160,7 +162,7 @@ export async function openSet(ctx: CodeToolContext, repoArg?: string, baseArg?: 
     const info = await gh<{ default_branch: string; full_name: string }>(token, "GET", `/repos/${wanted}`);
     const base = str(baseArg, info.default_branch);
     set = {
-      id: `cs_${Math.random().toString(36).slice(2, 12)}`, userId: ctx.userId, conversationId: ctx.conversationId, repo: info.full_name || wanted,
+      id: `cs_${Math.random().toString(36).slice(2, 12)}`, userId: ctx.userId, conversationId: codeKey(ctx), repo: info.full_name || wanted,
       baseBranch: base, baseSha: await headOf(token, info.full_name || wanted, base), branch: null, branchCreated: false,
       files: {}, commits: [], prNumber: null, verify: null, updatedAt: new Date().toISOString(),
     };
@@ -396,7 +398,7 @@ export const CODE_TOOLS: Record<string, CodeTool> = {
     schema: { name: "code_commit", description: "Commit every staged change as one commit and push it. With no branch, creates a new elias/<name> branch (no approval needed). Pushing to any non-elias/ branch, or an elias/ branch this chat didn't create, waits for the user's approval.", parameters: obj({ repo: REPO_ARG, message: s("Commit message: imperative summary line, optional body"), branch: s("Target branch (optional; default: this chat's elias/ branch, or a new one)") }, ["message"]) },
     needsApproval: async (args, ctx) => {
       const st = await codeStore();
-      const set = await st.get(ctx.userId, ctx.conversationId);
+      const set = await st.get(ctx.userId, codeKey(ctx));
       const branch = str(args.branch) || set?.branch || "";
       if (!branch || (set && branch === set.branch && set.branchCreated)) return null;
       const count = set ? Object.keys(set.files).length : 0;
@@ -411,6 +413,17 @@ export const CODE_TOOLS: Record<string, CodeTool> = {
       }
     },
     run: async (args, ctx) => commitSet(await openSet(ctx, str(args.repo) || undefined), str(args.message), str(args.branch) || undefined, Boolean(ctx.approved)),
+  },
+  code_start_job: {
+    schema: { name: "code_start_job", description: "Hand off long coding work (many files, several CI rounds) to a background job on the strong model. It uses this chat's working set and posts the result here with a notification.", parameters: obj({ title: s("Short title, e.g. 'Add dark mode to settings'"), prompt: s("Self-contained instructions: repo, goal, files involved, constraints, and what done looks like (CI green, PR opened or not)") }, ["title", "prompt"]) },
+    run: async (args, ctx) => {
+      const jobs = await import("@/lib/assistant/jobs");
+      if (ctx.codeConversationId && ctx.codeConversationId !== ctx.conversationId) throw new Error("You are already inside a background job; do the work here.");
+      if (await jobs.isJobConversation(ctx.conversationId)) throw new Error("You are already inside a background job; do the work here.");
+      const job = await jobs.createJob(ctx.userId, { title: str(args.title), prompt: str(args.prompt), kind: "code", conversationId: ctx.conversationId, timezone: ctx.timezone });
+      const kicked = await jobs.kickJobs(job.id);
+      return { id: job.id, title: job.title, status: job.status, note: kicked ? "Started now." : "Queued; it starts within 5 minutes.", tell_user: "It's coding in the background; the result lands here with a notification. They can follow it in Tasks." };
+    },
   },
 };
 

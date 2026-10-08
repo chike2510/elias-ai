@@ -13,7 +13,7 @@ import { captureError } from "@/lib/observability";
  * that dies simply lets its lease expire and is picked up again.
  */
 
-export type JobKind = "research" | "task";
+export type JobKind = "research" | "task" | "code";
 export type JobStatus = "queued" | "running" | "waiting_approval" | "done" | "failed" | "cancelled";
 export type JobStep = { n: number; at: string; summary: string; tools: string[]; ok: boolean };
 export type Job = {
@@ -27,12 +27,14 @@ export const ACTIVE: JobStatus[] = ["queued", "running", "waiting_approval"];
 const MAX_ACTIVE_PER_USER = 3;
 const LEASE_SECONDS = 270; // under the 300s function limit
 const SLICE_TOOL_STEPS = 5;
-const DEFAULT_SLICES: Record<JobKind, number> = { research: 5, task: 6 };
+const DEFAULT_SLICES: Record<JobKind, number> = { research: 5, task: 6, code: 10 };
+/** Code jobs edit, commit and wait on CI, so each slice gets more tool steps. */
+const CODE_SLICE_TOOL_STEPS = 8;
 
 function row(item: Record<string, unknown>): JobRow {
   const iso = (value: unknown) => value ? new Date(value as string).toISOString() : null;
   return {
-    id: String(item.id), userId: String(item.user_id), title: String(item.title), kind: (item.kind === "research" ? "research" : "task"), prompt: String(item.prompt),
+    id: String(item.id), userId: String(item.user_id), title: String(item.title), kind: (item.kind === "research" ? "research" : item.kind === "code" ? "code" : "task"), prompt: String(item.prompt),
     status: String(item.status) as JobStatus, steps: Array.isArray(item.steps) ? item.steps as JobStep[] : [], result: (item.result as string) || null, error: (item.error as string) || null,
     slices: Number(item.slices || 0), maxSlices: Number(item.max_slices || 6), claims: Number(item.claims || 0), conversationId: String(item.conversation_id),
     workConversationId: (item.work_conversation_id as string) || null, approvalIds: Array.isArray(item.approval_ids) ? item.approval_ids as string[] : [],
@@ -48,7 +50,7 @@ function publicJob(job: JobRow): Job {
 export async function createJob(userId: string, input: { title?: string; prompt: string; kind?: string; conversationId?: string; timezone?: string; announce?: boolean }) {
   const prompt = input.prompt.trim().slice(0, 6000);
   if (!prompt) throw new Error("Tell me what the job should do.");
-  const kind: JobKind = input.kind === "research" ? "research" : "task";
+  const kind: JobKind = input.kind === "research" ? "research" : input.kind === "code" ? "code" : "task";
   const title = (input.title || prompt).replace(/\s+/g, " ").trim().slice(0, 80);
   const db = await ready();
   const active = Number((await db`select count(*)::int as n from public.elias_jobs where user_id = ${userId} and status in ('queued', 'running', 'waiting_approval')`)[0]?.n || 0);
@@ -111,7 +113,7 @@ function sliceContext(job: JobRow, n: number, last: boolean) {
   return `BACKGROUND JOB "${job.title}" (${job.kind}). Slice ${n} of at most ${job.maxSlices}.
 TASK: ${job.prompt}
 
-HOW TO WORK: Make real progress this slice with tools (up to ${SLICE_TOOL_STEPS} tool steps). ${job.kind === "research" ? "Deep research: search several angles, open the best sources, cross-check facts, note URLs." : "Do the steps in order; check each one worked before moving on."}
+HOW TO WORK: Make real progress this slice with tools (up to ${job.kind === "code" ? CODE_SLICE_TOOL_STEPS : SLICE_TOOL_STEPS} tool steps). ${job.kind === "research" ? "Deep research: search several angles, open the best sources, cross-check facts, note URLs." : job.kind === "code" ? "Coding job: the working set (staged edits, branch, CI state) persists between slices; commit before a slice ends when a change is complete, and code_verify after each commit." : "Do the steps in order; check each one worked before moving on."}
 Your earlier replies in this conversation are your notes from previous slices; build on them, don't redo work.
 Anything that sends, books, pays, invites or deletes pauses for the user's approval: just call the tool and end the slice.
 You are already inside a background job: never call start_background_job or background_jobs.
@@ -164,7 +166,8 @@ export async function runSlice(job: JobRow, owner: string): Promise<{ id: string
     const githubToken = await getGitHubConnection(job.userId).then((item) => item?.token).catch(() => undefined);
     const turn = await runTurn({
       userId: job.userId, conversationId: job.workConversationId || undefined, title: `Job: ${job.title}`, origin: "job", timezone: job.timezone, githubToken,
-      text: n === 1 ? `Start the job: ${job.prompt}` : `Continue the job (slice ${n}).`, maxSteps: last ? 1 : SLICE_TOOL_STEPS, extraContext: sliceContext(job, n, last),
+      text: n === 1 ? `Start the job: ${job.prompt}` : `Continue the job (slice ${n}).`, maxSteps: last ? 1 : job.kind === "code" ? CODE_SLICE_TOOL_STEPS : SLICE_TOOL_STEPS, extraContext: sliceContext(job, n, last),
+      ...(job.kind === "code" ? { mode: "code" as const, codeConversationId: job.conversationId, modelChoice: "strong" } : {}),
     });
     const tools = turn.steps.slice(0, 8);
     if (turn.approvals.length) {
