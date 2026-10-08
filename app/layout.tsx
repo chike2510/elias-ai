@@ -6,6 +6,7 @@ import "./v4-pages-b.css";
 import "./v4-code.css";
 import "./v4-sources.css";
 import "./v5-polish.css";
+import "./v5-richchat.css";
 import AuthGate from "@/components/AuthGate";
 import PwaRegistration from "@/components/PwaRegistration";
 

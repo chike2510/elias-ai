@@ -17,6 +17,8 @@ function decide(data) {
   const images = imagesIn(lastUserMessage?.content);
   const call = (name, args) => ({ role: "assistant", content: null, tool_calls: [{ id: `c${++n}`, type: "function", function: { name, arguments: JSON.stringify(args) } }] });
   const text = (content) => ({ role: "assistant", content });
+  // v5 rich chat: the cheap follow-up suggestion call (no tools). "no follow-ups" in the exchange answers [].
+  if (!data.tools && lastUser.includes("follow-up messages the USER")) return text(lastUser.includes("no follow-ups") ? "[]" : '```json\n["Compare prices", "Show me directions", "compare prices", "Save this for later", "A fourth one"]\n```');
   if (!data.tools) return text(lastUser.includes("long-term memory") ? '{"facts":[{"kind":"preference","content":"Prefers window seats on flights."}]}' : "Summary.");
   if (msgs[0].content.includes("MORNING BRIEF DATA")) return text("Morning! Mild day ahead. Nothing urgent before noon, so start with the hard thing.");
   // Background job slices (the job brief rides in the system prompt).
@@ -45,6 +47,7 @@ function decide(data) {
     if (process.env.MOCK_LLM_FRIENDLY && lastUser.includes("search")) return text("Lagos has great options. Glover Court Suya keeps topping the lists. Want directions?");
     return text(`OK after ${tools.length} tool(s): ${last.content.slice(0, 120)}`);
   }
+  if (lastUser.includes("pick a time")) return text("Morning or evening both work. Which one?\n[[choices: 9am | 6pm | **Tomorrow** | 9am]]");
   if (lastUser.includes("start a background job")) return call("start_background_job", { title: "Suya research", prompt: "multi-research the best suya in Lagos", kind: "research" });
   if (lastUser.includes("save my card")) return call("memory_save", { content: "Card is 4242 4242 4242 4242", kind: "fact" });
   if (lastUser.includes("my vercel projects")) return call("vercel_projects", {});

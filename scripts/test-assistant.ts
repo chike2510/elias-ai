@@ -319,6 +319,7 @@ async function main() {
 
   await v3Checks(user);
   await libraryChecks(user);
+  await richChatChecks(user);
 
   // rate limiting
   const bucket = `test:${user}`;
@@ -481,6 +482,35 @@ async function libraryChecks(user: string) {
   const rls = await db`select relrowsecurity from pg_class where relname = 'elias_files'`;
   assert.equal(rls[0]?.relrowsecurity, true, "RLS on elias_files");
   console.log("library checks passed");
+}
+
+/* ---------- v5: rich chat (quick replies, follow-up chips) ---------- */
+async function richChatChecks(user: string) {
+  const streamed: TurnEvent[] = [];
+  const pick = await runTurn({ userId: user, text: "pick a time for the call", onEvent: (event) => streamed.push(event) });
+  assert.deepEqual(pick.choices, ["9am", "6pm", "Tomorrow"], "choice marker becomes deduped quick replies");
+  assert.equal(pick.reply, "Morning or evening both work. Which one?", "marker is stripped from the stored reply");
+  assert.deepEqual(pick.followUps, [], "no follow-up chips when quick replies are shown");
+  const stored = (await getMessages(user, pick.conversationId)).filter((item) => item.role === "assistant").at(-1)!;
+  assert.equal(stored.content, pick.reply);
+  assert.deepEqual(stored.meta.choices, ["9am", "6pm", "Tomorrow"]);
+  const done = streamed.find((event) => event.type === "done");
+  assert.ok(done && done.type === "done" && done.result.choices?.length === 3, "done event carries the choices");
+
+  const plain = await runTurn({ userId: user, conversationId: pick.conversationId, text: "tell me a long answer about my commute" });
+  assert.deepEqual(plain.followUps, ["Compare prices", "Show me directions", "Save this for later"], "at most 3 deduped follow-ups");
+  const storedPlain = (await getMessages(user, pick.conversationId)).filter((item) => item.role === "assistant").at(-1)!;
+  assert.deepEqual(storedPlain.meta.followUps, plain.followUps, "follow-ups are saved for reloads");
+  const none = await runTurn({ userId: user, conversationId: pick.conversationId, text: "no follow-ups please, long answer" });
+  assert.deepEqual(none.followUps, [], "the model can decline to suggest");
+
+  process.env.ELIAS_FOLLOWUPS = "0";
+  const off = await runTurn({ userId: user, conversationId: pick.conversationId, text: "tell me a long answer again" });
+  assert.deepEqual(off.followUps, [], "ELIAS_FOLLOWUPS=0 turns follow-ups off");
+  delete process.env.ELIAS_FOLLOWUPS;
+  const job = await runTurn({ userId: user, text: "long answer for a schedule", origin: "schedule" });
+  assert.deepEqual(job.followUps, [], "no follow-ups outside live chat");
+  console.log("rich chat checks passed");
 }
 
 main().catch((error) => { console.error(error); process.exit(1); });
