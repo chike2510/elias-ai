@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
+import { browserProviders, probeBrowser } from "@/lib/assistant/browser";
 import { agentProviders, complete, discoveredModels, type ContentPart, type LlmMessage, type ModelTier } from "@/lib/assistant/llm";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 // 32x32 solid red PNG, used by ?tier=vision to check that a vision model really reads image parts.
 const TEST_IMAGE = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAKklEQVR4nGO4IydHU8QwasGoBaMWjFowasGoBaMWjFowasGoBaMWDBULAJI2YD1ZaHIvAAAAAElFTkSuQmCC";
@@ -9,13 +11,23 @@ const TEST_IMAGE = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAA
 /**
  * Owner-only model check: which provider/model answers right now. Bearer ELIAS_HEALTH_TOKEN.
  * Optional: ?provider=gemini (try only that provider), ?model=<id> (pin a model), ?tier=fast|strong|vision,
- * ?discover=1 (list each provider's /models ids instead of calling a model).
+ * ?discover=1 (list each provider's /models ids instead of calling a model),
+ * ?browser=1 (open example.com in the remote browser; returns the title and which provider served it).
  */
 export async function GET(request: Request) {
   const token = process.env.ELIAS_HEALTH_TOKEN;
   if (!token || request.headers.get("authorization") !== `Bearer ${token}`) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const providers = agentProviders();
   const params = new URL(request.url).searchParams;
+  if (params.get("browser")) {
+    const browsers = browserProviders();
+    if (!browsers.length) return NextResponse.json({ ok: false, browsers, error: "No remote browser configured." }, { status: 400 });
+    try {
+      return NextResponse.json({ ok: true, browsers, ...(await probeBrowser()) });
+    } catch (error) {
+      return NextResponse.json({ ok: false, browsers, error: error instanceof Error ? error.message.slice(0, 600) : String(error) }, { status: 502 });
+    }
+  }
   if (params.get("discover")) return NextResponse.json({ ok: true, providers, models: await discoveredModels() });
   const provider = params.get("provider") || undefined;
   const model = params.get("model") || undefined;

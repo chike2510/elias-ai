@@ -53,7 +53,7 @@ function startMock(): Promise<number> {
 
 async function main() {
   if (!process.env.POSTGRES_URL) throw new Error("POSTGRES_URL is required (PGlite works: npx @electric-sql/pglite-socket).");
-  const scrubbed = ["VERCEL_API_TOKEN", "PAYSTACK_SECRET_KEY", "FLUTTERWAVE_SECRET_KEY", "TELEGRAM_BOT_TOKEN", "BROWSERBASE_API_KEY", "GITHUB_TOKEN"];
+  const scrubbed = ["VERCEL_API_TOKEN", "PAYSTACK_SECRET_KEY", "FLUTTERWAVE_SECRET_KEY", "TELEGRAM_BOT_TOKEN", "BROWSERBASE_API_KEY", "CLOUDFLARE_BROWSER_TOKEN", "GITHUB_TOKEN"];
   if (!LIVE) {
     for (const key of scrubbed) delete process.env[key];
     process.env.ELIAS_AGENT_BASE_URL = `http://127.0.0.1:${await startMock()}`;

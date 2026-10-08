@@ -155,7 +155,7 @@ First run (redirected from chat when `data.onboardedAt` and `data.onboardingSkip
 - A tool-capable model: `HF_TOKEN` (default), `GROQ_API_KEY`, `MISTRAL_API_KEY`, or `ELIAS_AGENT_BASE_URL` + key for any OpenAI-compatible API.
 - `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` for Gmail + Calendar (redirect URI `/api/connect/google/callback`). While the Google app is in "Testing", add your Google account as a test user.
 - `CRON_SECRET` + the pg_cron job for schedules.
-- `BROWSERBASE_API_KEY` / `BROWSERBASE_PROJECT_ID` for real browser actions.
+- `CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_BROWSER_TOKEN` for real browser actions via Cloudflare Browser Run (preferred; `CLOUDFLARE_BROWSER_KEEP_ALIVE_MS`, default 180000, sets the idle keep-alive; each session is closed at the end of the turn). `BROWSERBASE_API_KEY` / `BROWSERBASE_PROJECT_ID` are the fallback when Cloudflare is not set or hits its quota/rate limit. Owner check: `GET /api/assistant/health?browser=1` opens example.com and reports the title and provider.
 - `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` for push (generate with `npx web-push generate-vapid-keys`).
 - Optional `ELIAS_PUBLIC_URL` if job self-calls should target a custom domain.
 
