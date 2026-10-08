@@ -1,0 +1,34 @@
+/* v4 pages-b: Research, Library, Automations, Studio. Theme tokens only, so dark mode follows. */
+
+/* ---------- Research ---------- */
+.v4r-ask { display: grid; gap: 10px; margin-top: 18px; padding: 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow-sm); }
+.v4r-ask textarea { min-height: 88px; }
+.v4r-go { justify-self: stretch; min-height: var(--tap); justify-content: center; }
+.v4r-ask .el-fineprint { margin: 0; }
+.v4r-empty { display: grid; gap: 10px; }
+.v4r-ideas { display: grid; gap: 8px; }
+.v4r-idea { min-height: var(--tap); padding: 10px 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); color: var(--text); font-size: 14px; line-height: 1.35; text-align: left; }
+.v4r-idea:active { transform: scale(.99); }
+.v4r-row { cursor: pointer; color: var(--text); }
+.v4r-row > svg:last-child { flex: 0 0 auto; color: var(--faint); transition: transform .15s var(--ease); }
+.v4r-detail { display: grid; gap: 12px; padding: 0 14px 14px; }
+.v4r-progress { display: grid; gap: 12px; }
+.v4r-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.v4r-actions .el-btn { min-height: var(--tap); }
+
+.v4r-report { display: grid; gap: 16px; padding: 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-2); }
+.v4r-report section { display: grid; gap: 8px; }
+.v4r-report h3 { margin: 0; color: var(--faint); font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.v4r-summary { margin: 0; color: var(--text); font-size: 15.5px; line-height: 1.55; white-space: pre-line; overflow-wrap: anywhere; }
+.v4r-findings { display: grid; gap: 8px; margin: 0; padding: 0 0 0 18px; color: var(--text); font-size: 14.5px; line-height: 1.5; overflow-wrap: anywhere; }
+.v4r-cite { margin-left: 2px; font-size: 11px; line-height: 0; }
+.v4r-cite a, .v4r-cite span { display: inline-block; min-width: 16px; margin-left: 2px; padding: 1px 4px; border-radius: 6px; background: var(--accent-soft); color: var(--accent-text); font-weight: 700; text-align: center; text-decoration: none; }
+.v4r-sources { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.v4r-sources a { display: flex; align-items: center; gap: 10px; min-height: var(--tap); padding: 8px 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--text); text-decoration: none; }
+.v4r-sources a > svg { flex: 0 0 auto; color: var(--faint); }
+.v4r-sources li:target a { border-color: var(--accent); }
+.v4r-src-n { display: grid; flex: 0 0 auto; place-items: center; width: 24px; height: 24px; border-radius: 8px; background: var(--accent-soft); color: var(--accent-text); font-size: 12px; font-weight: 700; }
+.v4r-src-text { display: grid; flex: 1 1 auto; min-width: 0; gap: 2px; }
+.v4r-src-text strong { overflow: hidden; font-size: 14px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.v4r-src-text small { overflow: hidden; color: var(--muted); font-size: 12.5px; text-overflow: ellipsis; white-space: nowrap; }
+@media (min-width: 900px) { .v4r-go { justify-self: end; min-width: 180px; } }
