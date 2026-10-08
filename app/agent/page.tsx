@@ -1,2 +1,3 @@
-import AgentWorkspace from "@/components/screens/AgentWorkspace";
-export default function Page(){return <AgentWorkspace/>}
+import CodeWorkspace from "@/components/code/CodeWorkspace";
+
+export default function Page() { return <CodeWorkspace />; }
