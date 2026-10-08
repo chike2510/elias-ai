@@ -448,7 +448,7 @@ export async function commitSet(session: Session, message: string, branchArg: st
   set.baseSha = commit.sha;
   set.branch = branch;
   set.branchCreated = set.branchCreated || !head || ours;
-  set.verify = null;
+  // set.verify is kept: its attempt count carries across fix-up commits (the sha tells which commit it was for).
   set.updatedAt = new Date().toISOString();
   await session.store.save(set);
   return { ok: true, repo: set.repo, branch, sha: commit.sha, url: `https://github.com/${set.repo}/commit/${commit.sha}`, files: stats.files, added: stats.added, removed: stats.removed, next: "Run code_verify to check CI on this branch before opening a PR." };
