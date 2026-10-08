@@ -83,7 +83,7 @@ function greeting() {
 function setUrlId(id: string | null) {
   const url = new URL(window.location.href);
   if (id) url.searchParams.set("id", id); else url.searchParams.delete("id");
-  ["prompt", "draft", "connected", "error"].forEach((key) => url.searchParams.delete(key));
+  ["prompt", "draft", "connected", "error", "file"].forEach((key) => url.searchParams.delete(key));
   window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}`);
 }
 
@@ -160,12 +160,14 @@ export default function ChatView() {
     const prompt = search.get("prompt");
     const draft = search.get("draft");
     if (draft) setInput(draft);
-    if (error || search.get("connected") || prompt || draft) setUrlId(search.get("id"));
-    if (prompt) void send(prompt);
+    const fileParam = search.get("file");
+    if (error || search.get("connected") || prompt || draft || fileParam) setUrlId(search.get("id"));
+    if (fileParam) void attachLibraryFile(fileParam, prompt);
+    else if (prompt) void send(prompt);
     try { const saved = localStorage.getItem(MODEL_KEY); if (saved) setModelChoice(saved); } catch { /* private mode */ }
     void api<{ choice: string }>("/api/assistant/models?only=choice").then((data) => { setModelChoice(data.choice); try { localStorage.setItem(MODEL_KEY, data.choice); } catch { /* ignore */ } }).catch(() => undefined);
     // First run: send new users through the short onboarding (skippable; redo from You).
-    if (!search.get("id") && !prompt && !draft && !error && !search.get("connected")) {
+    if (!search.get("id") && !prompt && !draft && !error && !search.get("connected") && !fileParam) {
       void api<{ onboarding: { needed: boolean } }>("/api/assistant/onboarding").then((data) => { if (data.onboarding.needed) router.replace("/welcome"); }).catch(() => undefined);
     }
     const timezone = userTimezone();
@@ -223,6 +225,21 @@ export default function ChatView() {
     else if (event.type === "memory") patchLast((message) => ({ ...message, memories: [...message.memories.filter((item) => item.id !== event.memory.id), event.memory] }));
     else if (event.type === "approval") { setApprovals((current) => [event.approval, ...current]); patchLast((message) => ({ ...message, approvalIds: [...message.approvalIds, event.approval.id] })); }
     else if (event.type === "done") patchLast((message) => ({ ...message, model: event.result.model, content: event.result.reply, cards: event.result.cards, connect: event.result.connect, memories: event.result.memories, approvalIds: event.result.approvals.map((item) => item.id), status: "done", statusLine: undefined }));
+  }
+
+  /** ?file=<id> from the Library: attach that file's text to the composer, or send it with ?prompt= straight away. */
+  async function attachLibraryFile(fileId: string, prompt: string | null) {
+    const id = `lib_${fileId}`;
+    setDrafts((current) => [...current.filter((item) => item.id !== id), { id, kind: "file", name: "Library file", mime: "text/plain", size: 0, status: "working" }]);
+    try {
+      const { file } = await api<{ file: { name: string; mime: string; size: number; text?: string; chars: number; truncated: boolean } }>(`/api/assistant/files/${encodeURIComponent(fileId)}`);
+      const text = (file.text || "").slice(0, 60_000);
+      const attachment: ChatAttachment = { kind: "file", name: file.name, mime: file.mime, size: file.size, text, chars: text.length, truncated: file.truncated || (file.text || "").length > text.length };
+      if (prompt) { setDrafts((current) => current.filter((item) => item.id !== id)); void send(prompt, { attachments: [attachment] }); }
+      else setDrafts((current) => current.map((item) => item.id === id ? { ...item, name: file.name, mime: file.mime, size: file.size, text, chars: text.length, truncated: attachment.kind === "file" ? attachment.truncated : false, status: "ready" } : item));
+    } catch (error) {
+      setDrafts((current) => current.map((item) => item.id === id ? { ...item, status: "error", error: (error as Error).message } : item));
+    }
   }
 
   /** Sends the composer (or `raw`). Drafted attachments go along when sending the composer or a voice note. */

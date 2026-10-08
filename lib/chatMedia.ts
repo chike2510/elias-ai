@@ -63,7 +63,7 @@ export async function prepareImage(file: File) {
   } finally { bitmap.close(); }
 }
 
-export type ExtractedFile = { name: string; size: number; chars: number; text: string; truncated: boolean; pageCount?: number };
+export type ExtractedFile = { name: string; size: number; chars: number; text: string; truncated: boolean; pageCount?: number; fileId?: string | null };
 
 async function postPart(url: string, body: Blob, signal?: AbortSignal) {
   let response: Response;
@@ -74,16 +74,19 @@ async function postPart(url: string, body: Blob, signal?: AbortSignal) {
   return data;
 }
 
-/** Sends a document to the server for text extraction, in ~3 MB parts so files up to 10 MB fit Vercel's body limit. */
-export async function uploadDocument(file: File, signal?: AbortSignal): Promise<ExtractedFile> {
+/**
+ * Sends a document to the server for text extraction, in ~3 MB parts so files up to 10 MB fit Vercel's body limit.
+ * The server also saves it to the Library: save "library" for a Library upload (keeps the original), default as a chat attachment.
+ */
+export async function uploadDocument(file: File, signal?: AbortSignal, options: { save?: "library" | "attachment" | "0" } = {}): Promise<ExtractedFile> {
   const parts = Math.max(1, Math.ceil(file.size / UPLOAD_PART_BYTES));
   const upload = `up_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
   let result: Awaited<ReturnType<typeof postPart>> | null = null;
   for (let part = 0; part < parts; part += 1) {
-    const query = new URLSearchParams({ name: file.name, size: String(file.size), parts: String(parts), part: String(part), upload });
+    const query = new URLSearchParams({ name: file.name, size: String(file.size), parts: String(parts), part: String(part), upload, ...(options.save ? { save: options.save } : {}), ...(file.type ? { mime: file.type } : {}) });
     result = await postPart(`/api/assistant/attachments?${query}`, file.slice(part * UPLOAD_PART_BYTES, (part + 1) * UPLOAD_PART_BYTES), signal);
   }
-  return { name: file.name, size: file.size, chars: result?.chars || 0, text: result?.text || "", truncated: Boolean(result?.truncated), pageCount: result?.pageCount };
+  return { name: file.name, size: file.size, chars: result?.chars || 0, text: result?.text || "", truncated: Boolean(result?.truncated), pageCount: result?.pageCount, fileId: result?.fileId ?? null };
 }
 
 /** Best recording format this browser supports (Safari records mp4/aac, Chrome and Firefox webm/opus). */

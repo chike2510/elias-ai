@@ -318,6 +318,7 @@ async function main() {
   assert.equal((await finishOnboarding(newUser, "complete")).needed, false);
 
   await v3Checks(user);
+  await libraryChecks(user);
 
   // rate limiting
   const bucket = `test:${user}`;
@@ -449,6 +450,31 @@ async function v3Checks(user: string) {
   const open = await db`select relname from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'r' and relname like 'elias%' and not relrowsecurity`;
   assert.deepEqual(open.map((row) => row.relname), [], "RLS enabled");
   console.log("v3 checks passed");
+}
+
+/* ---------- v4: Library (elias_files) ---------- */
+async function libraryChecks(user: string) {
+  const { saveFile, listFiles, getFile, getFileData, saveStudy, renameFile, deleteFile, filesDb } = await import("@/lib/assistant/files");
+  const db = await filesDb();
+  const upload = await saveFile(user, { name: "notes.txt", mime: "text/plain", size: 12, kind: "upload", text: "Photosynthesis makes glucose.\u0000", data: Buffer.from("hello world!") });
+  const chat = await saveFile(`${user}_other`, { name: "secret.txt", text: "not yours", kind: "attachment" });
+  assert.equal(upload.hasData, true);
+  assert.equal(upload.chars, "Photosynthesis makes glucose.".length);
+  assert.deepEqual((await listFiles(user)).map((file) => file.id), [upload.id], "files are per user");
+  assert.equal((await listFiles(user, { q: "glucose" })).length, 1, "search reads contents");
+  assert.equal((await listFiles(user, { q: "nothing-like-this" })).length, 0);
+  assert.equal(await getFile(user, chat.id), null, "can't read another user's file");
+  assert.equal((await getFile(user, upload.id))?.text, "Photosynthesis makes glucose.");
+  assert.equal((await getFileData(user, upload.id))?.data.toString(), "hello world!");
+  const study = await saveStudy(user, upload.id, { flashcards: [{ front: "Photosynthesis", back: "Makes glucose" }] });
+  assert.equal(study?.flashcards?.length, 1);
+  assert.equal((await saveStudy(user, upload.id, { summary: "Plants make sugar." }))?.flashcards?.length, 1, "study aids merge");
+  assert.equal(await renameFile(user, upload.id, "Biology notes"), true);
+  assert.equal(await deleteFile(user, chat.id), false, "can't delete another user's file");
+  assert.equal(await deleteFile(user, upload.id), true);
+  const rls = await db`select relrowsecurity from pg_class where relname = 'elias_files'`;
+  assert.equal(rls[0]?.relrowsecurity, true, "RLS on elias_files");
+  console.log("library checks passed");
 }
 
 main().catch((error) => { console.error(error); process.exit(1); });

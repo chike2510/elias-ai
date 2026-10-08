@@ -3,6 +3,7 @@ import { jsonError, jsonOk } from "@/lib/http";
 import { reportError, requireUser } from "@/lib/assistant/session";
 import { hasDb, ready } from "@/lib/assistant/db";
 import { extractDocumentText } from "@/lib/documentPipeline";
+import { saveFile } from "@/lib/assistant/files";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -11,6 +12,9 @@ const MAX_FILE_BYTES = 10_500_000;
 const MAX_PART_BYTES = 3_600_000; // under Vercel's 4.5 MB request body cap
 const MAX_TEXT_CHARS = 60_000;
 const TEXT_EXTENSIONS = new Set(["pdf", "docx", "xlsx", "xls", "csv", "txt", "md", "markdown", "json", "html", "htm", "xml", "rtf", "log", "yaml", "yml", "tsv", "ts", "tsx", "js", "jsx", "py", "java", "go", "rs", "sql", "css", "ini", "toml", "srt", "vtt"]);
+
+const MIME: Record<string, string> = { pdf: "application/pdf", docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", xls: "application/vnd.ms-excel", csv: "text/csv", txt: "text/plain", md: "text/markdown", json: "application/json", html: "text/html", htm: "text/html" };
+function mimeFor(extension: string) { return MIME[extension] || "text/plain"; }
 
 let partsTable: Promise<void> | undefined;
 async function partsDb() {
@@ -28,6 +32,8 @@ async function partsDb() {
  * POST raw file bytes (application/octet-stream) -> extracted text for the chat.
  * Query: name, size, and for files over ~3.5 MB: upload (client id), part (0-based), parts.
  * Earlier parts are parked in Postgres; the last part assembles, extracts and deletes them.
+ * The extracted file is also saved to the user's Library (elias_files): `save=library` marks a Library upload
+ * (original bytes kept up to 5 MB), otherwise it is saved as a chat attachment (text only). `save=0` skips it.
  */
 export async function POST(request: NextRequest) {
   const auth = await requireUser(request, "read");
@@ -61,7 +67,14 @@ export async function POST(request: NextRequest) {
     if (buffer.length > MAX_FILE_BYTES) return jsonError("Files can be up to 10 MB.", 413, "PAYLOAD_TOO_LARGE");
     const { text, pageCount } = await extractDocumentText(buffer, name);
     const clean = text.replace(/\u0000/g, "");
-    return jsonOk({ name, size: buffer.length, pageCount, chars: clean.length, text: clean.slice(0, MAX_TEXT_CHARS), truncated: clean.length > MAX_TEXT_CHARS });
+    const save = params.get("save");
+    let fileId: string | null = null;
+    if (save !== "0" && hasDb() && clean.trim()) {
+      const library = save === "library";
+      fileId = await saveFile(auth.userId, { name, mime: params.get("mime") || mimeFor(extension), size: buffer.length, kind: library ? "upload" : "attachment", text: clean, pageCount, data: library ? buffer : null, conversationId: params.get("conversationId") })
+        .then((file) => file.id).catch((error) => { reportError(error, "assistant/attachments:save", auth.userId); return null; });
+    }
+    return jsonOk({ name, size: buffer.length, pageCount, chars: clean.length, text: clean.slice(0, MAX_TEXT_CHARS), truncated: clean.length > MAX_TEXT_CHARS, fileId });
   } catch (error) {
     return jsonError(`Couldn't read ${name}: ${reportError(error, "assistant/attachments", auth.userId)}`, 422, "EXTRACT_FAILED");
   }
