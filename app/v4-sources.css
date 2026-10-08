@@ -1,0 +1,25 @@
+/* v4 sources: collapsed-by-default Sources card (chat link cards + research reports). Theme tokens only, so dark mode follows. */
+.el-sources { display: block; gap: 0; width: min(100%, 520px); overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow-sm); }
+.v4r-report section.el-sources { display: block; gap: 0; }
+.el-sources-inline { width: 100%; box-shadow: none; }
+.el-sources-toggle { display: flex; align-items: center; gap: 8px; width: 100%; min-height: var(--tap, 44px); padding: 0 12px 0 14px; border: 0; border-radius: 0; background: transparent; color: var(--muted); font: inherit; text-align: left; cursor: pointer; -webkit-tap-highlight-color: transparent; transition: background .15s var(--ease, ease); }
+.el-sources-toggle:hover { background: var(--surface-2); }
+.el-sources-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.el-sources-globe { flex: 0 0 auto; color: var(--faint); }
+.el-sources-label { color: var(--faint); font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+.el-sources-count { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px; background: var(--surface-2); color: var(--muted); font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.el-sources-chips { display: inline-flex; align-items: center; margin-left: auto; padding-left: 6px; }
+.el-sources-chip { display: inline-grid; place-items: center; width: 22px; height: 22px; border: 2px solid var(--surface); border-radius: 50%; background: var(--surface-2); color: var(--muted); font-size: 10.5px; font-weight: 700; line-height: 1; }
+.el-sources-chip + .el-sources-chip { margin-left: -7px; }
+.el-sources-chevron { flex: 0 0 auto; color: var(--faint); transition: transform .22s var(--ease, ease); }
+.el-sources.is-open .el-sources-chevron { transform: rotate(180deg); }
+/* Smooth height: animate grid rows 0fr → 1fr so the panel grows to its natural height. */
+.el-sources-panel { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .24s var(--ease, ease), visibility 0s linear .24s; visibility: hidden; }
+.el-sources.is-open .el-sources-panel { grid-template-rows: 1fr; transition: grid-template-rows .24s var(--ease, ease), visibility 0s; visibility: visible; }
+.el-sources-inner { min-height: 0; overflow: hidden; }
+.el-sources.is-open .el-sources-inner { border-top: 1px solid var(--line); }
+.el-sources-inline .v4r-sources { padding: 8px; }
+.el-sources-inline .el-sources-chip { border-color: var(--surface); }
+@media (prefers-reduced-motion: reduce) {
+  .el-sources-panel, .el-sources.is-open .el-sources-panel, .el-sources-chevron { transition: none; }
+}
