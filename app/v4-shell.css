@@ -30,3 +30,16 @@
 
 /* You */
 @media (max-width: 899px) { .v4-desktop-only { display: none; } }
+
+/* Projects */
+.v4-notice { display: flex; align-items: center; gap: 12px; margin: 4px 0 6px; padding: 12px 12px 12px 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.v4-notice > div { flex: 1; min-width: 0; }
+.v4-notice strong { display: block; font-size: 15px; }
+.v4-notice p { margin: 2px 0 0; color: var(--muted); font-size: 13.5px; line-height: 1.45; }
+.v4-hint { margin: 6px 2px 0; color: var(--muted); font-size: 13.5px; line-height: 1.45; }
+.v4-hint a { color: var(--accent-text); font-weight: 600; }
+.v4-projects .el-section h2 { display: flex; align-items: center; gap: 8px; }
+.v4-count { color: var(--faint); font-size: 13px; font-weight: 500; }
+.v4-refresh { margin-left: auto; }
+.v4-open-repo { display: flex; gap: 10px; align-items: center; }
+.v4-projects .el-state { gap: 4px; }
