@@ -4,6 +4,7 @@ import { newId, ready } from "@/lib/assistant/db";
 import { notifyUser } from "@/lib/assistant/push";
 import { getGitHubConnection } from "@/lib/githubConnectionStore";
 import { captureError } from "@/lib/observability";
+import { RESEARCH_FORMAT, parseReport, reportCardFor } from "@/lib/research";
 
 /**
  * Background jobs: long work the user (or the agent, via start_background_job) hands off.
@@ -117,7 +118,7 @@ HOW TO WORK: Make real progress this slice with tools (up to ${job.kind === "cod
 Your earlier replies in this conversation are your notes from previous slices; build on them, don't redo work.
 Anything that sends, books, pays, invites or deletes pauses for the user's approval: just call the tool and end the slice.
 You are already inside a background job: never call start_background_job or background_jobs.
-${last ? "This is the LAST slice: do not call tools. Write the final result now and end with STATUS: DONE.\n" : ""}
+${job.kind === "research" && !job.prompt.includes("## Key findings") ? `${RESEARCH_FORMAT}\n` : ""}${last ? "This is the LAST slice: do not call tools. Write the final result now and end with STATUS: DONE.\n" : ""}
 END YOUR REPLY with exactly one of these on its own line:
 STATUS: CONTINUE, then your working notes (every finding, URL and decision the next slice needs; it will not see tool output).
 STATUS: DONE, then the final result for the user. It is posted to their chat: lead with the answer, then key details and sources. Short sections or bullets are fine here, unlike normal chat.`;
@@ -145,10 +146,13 @@ async function appendStep(jobId: string, owner: string, step: JobStep, set: { st
 async function finish(job: JobRow, owner: string, step: JobStep, result: string, failed = false) {
   const ok = await appendStep(job.id, owner, step, { status: failed ? "failed" : "done", slices: step.n, result: failed ? null : result, error: failed ? result : null, finished: true });
   if (!ok) return false;
+  // Research results become a cited report card in chat: the bubble keeps the answer, the card holds findings and sources.
+  const card = !failed && job.kind === "research" ? reportCardFor(job.title, job.id, result) : null;
+  const answer = card ? (card.summary || parseReport(result).summary || result) : result;
   const text = failed
     ? `Background job **${job.title}** couldn't finish: ${result}`
-    : `Background job done: **${job.title}**\n\n${result}`;
-  await addMessage(job.userId, job.conversationId, "assistant", text, { kind: failed ? "job_failed" : "job_result", jobId: job.id });
+    : `Background job done: **${job.title}**\n\n${answer}`;
+  await addMessage(job.userId, job.conversationId, "assistant", text, { kind: failed ? "job_failed" : "job_result", jobId: job.id, ...(card ? { cards: [card] } : {}) });
   await notifyUser(job.userId, "jobs", { title: failed ? `Job stopped: ${job.title}` : `Done: ${job.title}`, body: failed ? result : result.replace(/[*#`>_]/g, ""), url: `/chat?id=${job.conversationId}`, tag: `job-${job.id}` });
   return true;
 }

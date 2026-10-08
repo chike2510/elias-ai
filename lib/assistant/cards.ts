@@ -1,5 +1,6 @@
 /** Structured message attachments the chat renders as cards instead of markdown walls. */
 import type { DiffCard } from "@/lib/assistant/code/cards";
+import type { ResearchReportCard } from "@/lib/research";
 export type LinkItem = { title: string; url: string; snippet?: string };
 export type EmailItem = { id?: string; from: string; subject: string; date?: string; snippet?: string; unread?: boolean };
 export type EventItem = { id?: string; title: string; start?: string; end?: string; location?: string; link?: string; attendees?: string[] };
@@ -16,7 +17,8 @@ export type Card =
   | { kind: "events"; title: string; items: EventItem[] }
   | { kind: "schedule"; title: string; name: string; when: string }
   | WeatherCard
-  | DiffCard;
+  | DiffCard
+  | ResearchReportCard;
 
 export type ConnectCard = { provider: "google" | "browser"; configured: boolean };
 export type MemoryChip = { id: string; content: string };

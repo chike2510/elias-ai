@@ -7,13 +7,7 @@
 export type ReportSource = { n: number; title: string; url: string; domain: string; note?: string };
 export type ResearchReport = { summary: string; findings: string[]; sources: ReportSource[]; structured: boolean };
 
-export function researchPrompt(question: string) {
-  const q = question.replace(/\s+/g, " ").trim().slice(0, 1500);
-  return `Research this question and write a cited report: ${q}
-
-Method: search at least three different angles, open the 4-8 strongest sources (prefer primary, official and recent ones), and cross-check every number and claim against a second source where you can. Note each source's URL as you go.
-
-The final result (after STATUS: DONE) must use exactly this format:
+export const RESEARCH_FORMAT = `The final result (after STATUS: DONE) must use exactly this format:
 ## Summary
 Two to four sentences that directly answer the question.
 ## Key findings
@@ -21,6 +15,14 @@ Two to four sentences that directly answer the question.
 ## Sources
 1. [Page title](https://full.url) - publisher, date if known
 Only list sources you actually opened, numbered to match the citations.`;
+
+export function researchPrompt(question: string) {
+  const q = question.replace(/\s+/g, " ").trim().slice(0, 1500);
+  return `Research this question and write a cited report: ${q}
+
+Method: search at least three different angles, open the 4-8 strongest sources (prefer primary, official and recent ones), and cross-check every number and claim against a second source where you can. Note each source's URL as you go.
+
+${RESEARCH_FORMAT}`;
 }
 
 function domainOf(url: string) {
@@ -88,4 +90,14 @@ export function parseReport(markdown: string): ResearchReport {
   const findings = structured ? bullets(buckets.findings).concat(bullets(buckets.summary)) : bullets(buckets.pre);
   const tidy = (value: string) => value.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, "$1");
   return { summary: tidy(summary), findings: findings.slice(0, 12).map(tidy), sources, structured };
+}
+
+/** The chat card for a finished research job: findings and sources (the summary is the chat bubble). */
+export type ResearchReportCard = { kind: "report"; title: string; jobId: string; summary: string; findings: string[]; sources: ReportSource[] };
+
+/** Builds the report card for a research job result, or null when there is nothing beyond a plain answer. */
+export function reportCardFor(title: string, jobId: string, markdown: string): ResearchReportCard | null {
+  const report = parseReport(markdown);
+  if (!report.findings.length && !report.sources.length) return null;
+  return { kind: "report", title, jobId, summary: report.summary, findings: report.findings, sources: report.sources };
 }

@@ -66,3 +66,23 @@ test("unstructured text still yields a summary and its links", () => {
   assert.deepEqual(report.sources.map((item) => item.domain), ["cbn.gov.ng", "news.example.com"]);
   assert.deepEqual(parseReport("").sources, []);
 });
+
+test("research jobs started from chat get a report card (findings + sources), plain answers don't", () => {
+  const { reportCardFor, RESEARCH_FORMAT } = load();
+  assert.match(RESEARCH_FORMAT, /## Key findings/);
+  const card = reportCardFor("Phones", "job_1", "## Summary\nThe Tecno Spark is the pick [1].\n## Key findings\n- Cheapest at 120k [1]\n## Sources\n1. [Jumia](https://www.jumia.com.ng/x) - Jumia");
+  assert.equal(card.kind, "report");
+  assert.equal(card.jobId, "job_1");
+  assert.equal(card.findings.length, 1);
+  assert.equal(card.sources[0].domain, "jumia.com.ng");
+  assert.match(card.summary, /Tecno Spark/);
+  assert.equal(reportCardFor("Suya", "job_2", "**Glover Court Suya** is the pick: consistent, open late."), null);
+});
+
+test("chat renders the report card and jobs attach it", () => {
+  const cards = readFileSync(path.resolve("components/chat/Cards.tsx"), "utf8");
+  const jobs = readFileSync(path.resolve("lib/assistant/jobs.ts"), "utf8");
+  assert.match(cards, /card\.kind === "report"\) return <ResearchReportCardView/);
+  assert.match(jobs, /reportCardFor\(job\.title, job\.id, result\)/);
+  assert.match(jobs, /job\.kind === "research" && !job\.prompt\.includes\("## Key findings"\)/);
+});

@@ -11,7 +11,7 @@ const sourcePath = path.resolve("components/chat/SourcesCard.tsx");
 const component = read("components/chat/SourcesCard.tsx");
 const css = read("app/v4-sources.css");
 const cards = read("components/chat/Cards.tsx");
-const research = read("components/screens/ResearchScreen.tsx");
+const research = read("components/screens/ResearchScreen.tsx") + read("components/research/ReportView.tsx");
 const layout = read("app/layout.tsx");
 
 function load() {
@@ -56,7 +56,7 @@ test("toggle is a 44px tap target, animates height and uses theme tokens only", 
 test("chat link cards and research reports both render through SourcesCard", () => {
   assert.match(cards, /card\.kind === "links"\) return <SourcesCard/);
   assert.ok(research.includes('<SourcesCard variant="inline"'), "research report uses the shared card");
-  assert.ok(research.includes("openOnHash={`src-${job.id}-`}"), "citation links still open the list");
+  assert.ok(research.includes("openOnHash={`src-${anchor}-`}"), "citation links still open the list");
   assert.doesNotMatch(research, /<h3>Sources<\/h3>/);
 });
 

@@ -1,14 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { BookOpenCheck, CheckCircle2, ChevronDown, Copy, ExternalLink, Hourglass, LoaderCircle, MessageCircle, Search, XCircle } from "lucide-react";
+import { BookOpenCheck, CheckCircle2, ChevronDown, Hourglass, LoaderCircle, MessageCircle, Search, XCircle } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import AppShell, { ListSkeleton } from "@/components/AppShell";
 import NotificationPrompt from "@/components/NotificationPrompt";
-import { SiteIcon, SourcesCard } from "@/components/chat/SourcesCard";
+import { ReportBody } from "@/components/research/ReportView";
 import type { Job } from "@/components/screens/JobsSection";
 import { api, userTimezone } from "@/lib/chatClient";
-import { parseReport, type ReportSource, type ResearchReport } from "@/lib/research";
+import { parseReport, type ResearchReport } from "@/lib/research";
 
 const ACTIVE = new Set<Job["status"]>(["queued", "running", "waiting_approval"]);
 const STATUS: Record<Job["status"], string> = { queued: "Queued", running: "Researching", waiting_approval: "Needs your OK", done: "Report ready", failed: "Couldn't finish", cancelled: "Cancelled" };
@@ -22,34 +22,9 @@ function ago(iso: string) {
   return hours < 24 ? `${hours} h ago` : new Date(iso).toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
-/** Renders "text [1, 2]" with the citation numbers as links to the source list. */
-function Cited({ text, sources, jobId }: { text: string; sources: ReportSource[]; jobId: string }) {
-  const parts = text.split(/(\[\d+(?:\s*,\s*\d+)*\])/g);
-  return <>{parts.map((part, index) => {
-    const nums = part.match(/^\[(\d+(?:\s*,\s*\d+)*)\]$/)?.[1].split(/\s*,\s*/).map(Number);
-    if (!nums) return <span key={index}>{part}</span>;
-    return <sup key={index} className="v4r-cite">{nums.map((n, i) => {
-      const source = sources.find((item) => item.n === n);
-      return source ? <a key={i} href={`#src-${jobId}-${n}`} title={source.title}>{n}</a> : <span key={i}>{n}</span>;
-    })}</sup>;
-  })}</>;
-}
-
 function ReportCard({ job, report }: { job: Job; report: ResearchReport }) {
-  const [copied, setCopied] = useState(false);
-  async function copy() {
-    try { await navigator.clipboard.writeText(job.result || ""); setCopied(true); window.setTimeout(() => setCopied(false), 1600); } catch { /* clipboard blocked */ }
-  }
   return <article className="v4r-report" aria-label={`Report: ${job.title}`}>
-    {report.summary ? <section><h3>Summary</h3><p className="v4r-summary"><Cited text={report.summary} sources={report.sources} jobId={job.id} /></p></section> : null}
-    {report.findings.length ? <section><h3>Key findings</h3><ul className="v4r-findings">{report.findings.map((item, index) => <li key={index}><Cited text={item} sources={report.sources} jobId={job.id} /></li>)}</ul></section> : null}
-    {report.sources.length ? <SourcesCard variant="inline" domains={report.sources.map((source) => source.domain || source.url)} count={report.sources.length} openOnHash={`src-${job.id}-`}><ol className="v4r-sources">{report.sources.map((source) => <li key={`${source.n}-${source.url}`} id={`src-${job.id}-${source.n}`}>
-      <a href={source.url} target="_blank" rel="noreferrer"><span className="v4r-src-n">{source.n}</span><SiteIcon domain={source.domain || source.url} size={18} className="el-favicon el-favicon-sm" /><span className="v4r-src-text"><strong>{source.title}</strong><small>{source.domain}{source.note ? ` · ${source.note}` : ""}</small></span><ExternalLink size={15} aria-hidden="true" /></a>
-    </li>)}</ol></SourcesCard> : <p className="el-fineprint">No sources were listed for this report.</p>}
-    <div className="v4r-actions">
-      <Link className="el-btn el-btn-sm" href={`/chat?id=${job.conversationId}`}><MessageCircle size={15} /> Ask a follow-up</Link>
-      <button type="button" className="el-btn el-btn-sm el-btn-ghost" onClick={() => void copy()}><Copy size={15} /> {copied ? "Copied" : "Copy"}</button>
-    </div>
+    <ReportBody anchor={job.id} report={report} copyText={job.result || ""} actions={<Link className="el-btn el-btn-sm" href={`/chat?id=${job.conversationId}`}><MessageCircle size={15} /> Ask a follow-up</Link>} />
   </article>;
 }
 
