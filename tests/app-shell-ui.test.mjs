@@ -32,7 +32,8 @@ test("primary navigation is exactly Chat, Tasks and You; everything else is on Y
   const primary = nav.slice(nav.indexOf("PRIMARY"), nav.indexOf("MORE"));
   assert.deepEqual([...primary.matchAll(/label: "([^"]+)"/g)].map((match) => match[1]), ["Chat", "Tasks", "You"]);
   const more = [...nav.slice(nav.indexOf("MORE")).matchAll(/label: "([^"]+)"/g)].map((match) => match[1]);
-  for (const label of ["Projects", "Coding workspace", "Browser", "Library", "Research", "Study", "Skills", "Automations", "Connectors", "Memory", "Profile & settings"]) assert.ok(more.includes(label), `${label} must stay reachable`);
+  assert.ok(!more.includes("Study"), "Study is now Library");
+  for (const label of ["Projects", "Coding workspace", "Browser", "Library", "Research", "Skills", "Automations", "Connectors", "Memory", "Profile & settings"]) assert.ok(more.includes(label), `${label} must stay reachable`);
   assert.match(shell, /\{PRIMARY\.map\(\(item\) => <Link[^]*el-tabbar|className="el-tabbar"[^]*PRIMARY\.map/);
   assert.match(css, /\.el-tabbar \{[^}]*grid-template-columns: repeat\(3, 1fr\)/);
   assert.match(shell, /\[\.\.\.PRIMARY, \.\.\.MORE\]/, "the ⌘K palette lists every destination");
