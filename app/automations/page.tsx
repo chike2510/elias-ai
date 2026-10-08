@@ -1,5 +1,5 @@
-import AutomationBuilderScreen from "@/components/screens/AutomationBuilderScreen";
+import AutomationsScreen from "@/components/screens/AutomationsScreen";
 
 export default function AutomationsPage() {
-  return <AutomationBuilderScreen />;
+  return <AutomationsScreen />;
 }
