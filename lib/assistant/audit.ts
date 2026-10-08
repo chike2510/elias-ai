@@ -7,6 +7,7 @@ export const SIDE_EFFECT_TOOLS = new Set([
   "schedule_create", "schedule_update",
   "browser_click", "browser_type", "browser_select",
   "github_issue_create", "vercel_redeploy",
+  "code_commit", "code_open_pr", "code_merge_pr",
 ]);
 
 export const isSideEffect = (tool: string) => SIDE_EFFECT_TOOLS.has(tool);

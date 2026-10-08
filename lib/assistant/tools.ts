@@ -7,6 +7,7 @@ import { fetchUrl, searchWeb } from "@/lib/webSearch";
 import { cityFromTimezone, gatherBrief, getSettings, weatherFor } from "@/lib/assistant/brief";
 import { CONNECTOR_TOOLS, connectorGate } from "@/lib/assistant/connectors";
 import { isSideEffect, recordAudit, unsafeCall } from "@/lib/assistant/audit";
+import { CODE_TOOLS, isCodeTool } from "@/lib/assistant/code/github";
 
 export type ToolContext = {
   userId: string;
@@ -191,6 +192,7 @@ const TOOLS: Record<string, Tool> = {
   },
 
   ...CONNECTOR_TOOLS,
+  ...CODE_TOOLS,
 };
 
 export function toolSchemas(): ToolSchema[] {
@@ -232,4 +234,9 @@ export async function runTool(name: string, args: Args, ctx: ToolContext) {
     await recordAudit({ userId: ctx.userId, tool: name, args, status: "error", result: error instanceof Error ? error.message : String(error), approvalId: ctx.approvalId, conversationId: ctx.conversationId, origin: ctx.origin });
     throw error;
   }
+}
+
+/* v4 coding agent: repo_* and code_* tools are offered only in code mode (the coding workspace and code jobs). */
+export function toolSchemasFor(mode: "chat" | "code" = "chat"): ToolSchema[] {
+  return toolSchemas().filter((tool) => mode === "code" || !isCodeTool(tool.function.name));
 }
