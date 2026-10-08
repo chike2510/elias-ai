@@ -1,9 +1,10 @@
 "use client";
 
-import { CalendarDays, CloudSun, ExternalLink, Globe2, Mail, Plug, Repeat } from "lucide-react";
+import { CalendarDays, CloudSun, ExternalLink, Mail, Plug, Repeat } from "lucide-react";
 import type { Card, ConnectCard as ConnectInfo } from "@/lib/chatClient";
 import { ConnectorListCard, MemoryReview } from "@/components/chat/ExtraCards";
 import { DiffCard } from "@/components/code/DiffCard";
+import { domainLetter, SourcesCard } from "@/components/chat/SourcesCard";
 
 function host(url: string) {
   try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return url; }
@@ -27,14 +28,13 @@ export function MessageCard({ card }: { card: Card }) {
   if (card.kind === "list") return <ConnectorListCard card={card} />;
   if (card.kind === "diff") return <DiffCard card={card} />;
   if (card.kind === "memory_review") return <MemoryReview card={card} />;
-  if (card.kind === "links") return <section className="el-card" aria-label={card.title}>
-    <header className="el-card-head"><Globe2 size={15} /> {card.title}</header>
+  if (card.kind === "links") return <SourcesCard title={card.title} domains={card.items.map((item) => host(item.url))} count={card.items.length}>
     <ul className="el-card-rows">{card.items.map((item) => <li key={item.url}><a href={item.url} target="_blank" rel="noreferrer" className="el-card-row">
-      <span className="el-favicon" aria-hidden="true">{host(item.url).slice(0, 1).toUpperCase()}</span>
+      <span className="el-favicon" aria-hidden="true">{domainLetter(host(item.url))}</span>
       <span className="el-card-text"><strong>{item.title}</strong><small>{host(item.url)}{item.snippet ? ` · ${item.snippet}` : ""}</small></span>
       <ExternalLink size={14} className="el-card-trail" />
     </a></li>)}</ul>
-  </section>;
+  </SourcesCard>;
   if (card.kind === "emails") return <section className="el-card" aria-label={card.title}>
     <header className="el-card-head"><Mail size={15} /> {card.title}</header>
     <ul className="el-card-rows">{card.items.map((item, index) => <li key={item.id || index}><a className="el-card-row" href={item.id ? `https://mail.google.com/mail/u/0/#inbox/${item.id}` : undefined} target="_blank" rel="noreferrer">

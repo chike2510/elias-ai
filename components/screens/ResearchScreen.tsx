@@ -5,6 +5,7 @@ import { BookOpenCheck, CheckCircle2, ChevronDown, Copy, ExternalLink, Hourglass
 import { useCallback, useEffect, useRef, useState } from "react";
 import AppShell, { ListSkeleton } from "@/components/AppShell";
 import NotificationPrompt from "@/components/NotificationPrompt";
+import { SourcesCard } from "@/components/chat/SourcesCard";
 import type { Job } from "@/components/screens/JobsSection";
 import { api, userTimezone } from "@/lib/chatClient";
 import { parseReport, type ReportSource, type ResearchReport } from "@/lib/research";
@@ -42,9 +43,9 @@ function ReportCard({ job, report }: { job: Job; report: ResearchReport }) {
   return <article className="v4r-report" aria-label={`Report: ${job.title}`}>
     {report.summary ? <section><h3>Summary</h3><p className="v4r-summary"><Cited text={report.summary} sources={report.sources} jobId={job.id} /></p></section> : null}
     {report.findings.length ? <section><h3>Key findings</h3><ul className="v4r-findings">{report.findings.map((item, index) => <li key={index}><Cited text={item} sources={report.sources} jobId={job.id} /></li>)}</ul></section> : null}
-    {report.sources.length ? <section><h3>Sources</h3><ol className="v4r-sources">{report.sources.map((source) => <li key={`${source.n}-${source.url}`} id={`src-${job.id}-${source.n}`}>
+    {report.sources.length ? <SourcesCard variant="inline" domains={report.sources.map((source) => source.domain || source.url)} count={report.sources.length} openOnHash={`src-${job.id}-`}><ol className="v4r-sources">{report.sources.map((source) => <li key={`${source.n}-${source.url}`} id={`src-${job.id}-${source.n}`}>
       <a href={source.url} target="_blank" rel="noreferrer"><span className="v4r-src-n">{source.n}</span><span className="v4r-src-text"><strong>{source.title}</strong><small>{source.domain}{source.note ? ` · ${source.note}` : ""}</small></span><ExternalLink size={15} aria-hidden="true" /></a>
-    </li>)}</ol></section> : <p className="el-fineprint">No sources were listed for this report.</p>}
+    </li>)}</ol></SourcesCard> : <p className="el-fineprint">No sources were listed for this report.</p>}
     <div className="v4r-actions">
       <Link className="el-btn el-btn-sm" href={`/chat?id=${job.conversationId}`}><MessageCircle size={15} /> Ask a follow-up</Link>
       <button type="button" className="el-btn el-btn-sm el-btn-ghost" onClick={() => void copy()}><Copy size={15} /> {copied ? "Copied" : "Copy"}</button>
