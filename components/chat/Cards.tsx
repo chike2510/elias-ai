@@ -64,7 +64,7 @@ export function ConnectCard({ connect, returnTo }: { connect: ConnectInfo; retur
   </section>;
   return <section className="el-card el-connect">
     <span className="el-connect-mark" aria-hidden="true"><Plug size={16} /></span>
-    <div className="el-connect-copy"><strong>Browser not configured</strong><small>Interactive browsing (forms, carts, bookings) needs a Browserbase key on the server. Reading web pages still works.</small></div>
+    <div className="el-connect-copy"><strong>Browser not configured</strong><small>Interactive browsing (forms, carts, bookings) needs a Cloudflare Browser Run or Browserbase key on the server. Reading web pages still works.</small></div>
     <span className="el-pill">Not configured</span>
   </section>;
 }

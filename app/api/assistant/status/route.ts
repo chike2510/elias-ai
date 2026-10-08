@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { jsonOk } from "@/lib/http";
 import { requireUser } from "@/lib/assistant/session";
 import { googleConfigured, googleConnection } from "@/lib/assistant/google";
-import { browserConfigured } from "@/lib/assistant/browser";
+import { browserConfigured, browserProviders } from "@/lib/assistant/browser";
 import { agentProviders } from "@/lib/assistant/llm";
 import { hasDb } from "@/lib/assistant/db";
 import { ensureDailyBrief, getSettings } from "@/lib/assistant/brief";
@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
     database: db,
     providers: agentProviders(),
     google: { configured: googleConfigured(), connected: Boolean(google), email: google?.email || null },
-    browser: { configured: browserConfigured() },
+    browser: { configured: browserConfigured(), providers: browserProviders() },
     github: { connected: Boolean(auth.githubToken) },
     scheduler: { configured: Boolean(process.env.CRON_SECRET) },
     errorTracking: errorTrackingEnabled(),
