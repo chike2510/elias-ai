@@ -38,14 +38,17 @@ test("primary navigation is exactly Chat, Tasks and You; everything else is on Y
   assert.match(shell, /\[\.\.\.PRIMARY, \.\.\.MORE\]/, "the ⌘K palette lists every destination");
 });
 
-test("mobile shell follows the visual viewport, respects safe areas and opens history with an edge swipe", () => {
+test("mobile shell follows the visual viewport, respects safe areas and links chat history from the top bar", () => {
   assert.match(shell, /window\.visualViewport/);
   assert.match(shell, /--vvh/);
   assert.match(block(".el-shell"), /height: var\(--vvh, 100dvh\)/);
   assert.match(css, /env\(safe-area-inset-bottom/);
   assert.match(block(".el-tabbar"), /var\(--safe-bottom\)/);
-  assert.match(shell, /onTouchStart=\{[^}]*clientX < 28/);
-  assert.match(shell, /setHistoryOpen\(true\)/);
+  // v4: no hamburger or drawer; the chat top bar links to /chats and other screens get a back arrow.
+  assert.doesNotMatch(shell, /\bMenu\b|el-drawer|historyOpen/);
+  assert.match(shell, /href="\/chats"/);
+  assert.match(shell, /aria-label="Back"/);
+  assert.ok(read("app/chats/page.tsx").includes("ChatsScreen"));
   assert.match(css, /\.el-shell\.kb-open \.el-tabbar \{ display: none; \}/);
 });
 
@@ -74,4 +77,20 @@ test("one font, one accent, and readable light and dark themes", () => {
     assert.ok(contrast(theme["accent-text"], theme["accent-soft"]) >= 4.5, "accent text on soft accent");
   }
   assert.match(css, /@media \(prefers-color-scheme: dark\)/);
+});
+
+test("v4 shell: back arrows default to the parent screen and duplicate mobile headings are hidden", async () => {
+  const source = read("components/AppShell.tsx");
+  const fn = source.slice(source.indexOf("export function defaultBack"), source.indexOf("\n}\n", source.indexOf("export function defaultBack")) + 2);
+  const defaultBack = new Function(`${fn.replace("export function", "function").replace(/: string \| undefined/, "").replace(/\(pathname: string\)/, "(pathname)")}; return defaultBack;`)();
+  assert.equal(defaultBack("/"), undefined);
+  assert.equal(defaultBack("/tasks"), undefined);
+  assert.equal(defaultBack("/you"), undefined);
+  assert.equal(defaultBack("/chats"), "/");
+  assert.equal(defaultBack("/connectors/github"), "/connectors");
+  assert.equal(defaultBack("/repositories/o/r"), "/projects");
+  assert.equal(defaultBack("/memory"), "/you");
+  const v4 = read("app/v4-shell.css");
+  assert.match(v4, /@media \(max-width: 899px\)[^]*\.el-page-head h1[^]*display: none/);
+  assert.match(read("app/layout.tsx"), /import "\.\/v4-shell\.css"/);
 });

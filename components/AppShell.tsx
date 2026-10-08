@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { Command, LogOut, Menu, Search, SquarePen, Trash2, X } from "lucide-react";
+import { ChevronLeft, Command, History, LogOut, Search, SquarePen, Trash2 } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { MORE, PRIMARY } from "@/lib/navigation";
 import { CONVERSATIONS_CHANGED, announceConversationsChanged, api, type ConversationSummary } from "@/lib/chatClient";
 import { migrateLegacyConversations } from "@/lib/legacyImport";
@@ -19,8 +19,8 @@ function relative(iso: string) {
   return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(date);
 }
 
-/** Server conversations, shared by the sidebar and the history drawer. */
-function useConversations() {
+/** Server conversations, shared by the desktop sidebar and the /chats page. */
+export function useConversations() {
   const [items, setItems] = useState<ConversationSummary[] | null>(null);
   const [error, setError] = useState(false);
   const load = useCallback(() => api<{ conversations: ConversationSummary[] }>("/api/assistant/conversations").then((data) => { setItems(data.conversations); setError(false); }).catch(() => setError(true)), []);
@@ -36,7 +36,7 @@ export function ListSkeleton({ rows = 5 }: { rows?: number }) {
   return <div className="el-skeleton-list" aria-hidden="true">{Array.from({ length: rows }, (_, index) => <div key={index} className="el-skeleton-row"><span className="el-skeleton" style={{ width: `${70 - (index % 3) * 14}%` }} /><span className="el-skeleton el-skeleton-sm" style={{ width: `${40 + (index % 2) * 18}%` }} /></div>)}</div>;
 }
 
-function ConversationList({ items, error, reload, activeId, onPick, onDelete, compact }: { items: ConversationSummary[] | null; error: boolean; reload: () => void; activeId: string | null; onPick?: () => void; onDelete?: (id: string) => void; compact?: boolean }) {
+export function ConversationList({ items, error, reload, activeId, onPick, onDelete, compact }: { items: ConversationSummary[] | null; error: boolean; reload: () => void; activeId: string | null; onPick?: () => void; onDelete?: (id: string) => void; compact?: boolean }) {
   if (error && !items) return <div className="el-inline-error"><span>Couldn't load your chats.</span><button type="button" onClick={reload}>Retry</button></div>;
   if (!items) return <ListSkeleton rows={compact ? 4 : 7} />;
   if (!items.length) return <p className="el-muted el-pad">Your chats will show up here.</p>;
@@ -57,17 +57,32 @@ function ActiveConversation({ onChange }: { onChange: (id: string | null) => voi
   return null;
 }
 
-export default function AppShell({ children, title, chat = false }: { children: React.ReactNode; title?: string; chat?: boolean }) {
+/** Where the mobile top bar's back arrow goes when a screen doesn't say. Primary tabs have no back arrow. */
+export function defaultBack(pathname: string): string | undefined {
+  if (pathname === "/" || pathname.startsWith("/chat/") || pathname === "/chat" || pathname === "/tasks" || pathname === "/you") return undefined;
+  if (pathname === "/chats") return "/";
+  if (pathname.startsWith("/connectors/")) return "/connectors";
+  if (pathname.startsWith("/repositories/") || pathname.startsWith("/projects/") || pathname === "/agent") return "/projects";
+  if (pathname.startsWith("/tasks/")) return "/tasks";
+  if (pathname.startsWith("/you/")) return "/you";
+  return "/you";
+}
+
+/**
+ * Mobile: one top bar (back arrow or chat history, title, new chat) and the Chat/Tasks/You tab bar. Screens keep their
+ * own big headings for desktop; app/v4-shell.css hides those duplicates (and their back links) under 900px.
+ * `back`: a path for the back arrow, `false` for none, or omit to use defaultBack(pathname).
+ */
+export default function AppShell({ children, title, chat = false, back }: { children: React.ReactNode; title?: string; chat?: boolean; back?: string | false }) {
   const pathname = usePathname();
   const router = useRouter();
-  const [historyOpen, setHistoryOpen] = useState(false);
+  const backHref = back === false ? undefined : back || (chat ? undefined : defaultBack(pathname || "/"));
   const [commandOpen, setCommandOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [user, setUser] = useState<User>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [keyboard, setKeyboard] = useState(false);
   const conversations = useConversations();
-  const touch = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     try { setUser(JSON.parse(window.localStorage.getItem("elias.user") || "null")); } catch { /* ignore */ }
@@ -94,13 +109,13 @@ export default function AppShell({ children, title, chat = false }: { children: 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); setCommandOpen((value) => !value); setQuery(""); }
-      if (event.key === "Escape") { setCommandOpen(false); setHistoryOpen(false); }
+      if (event.key === "Escape") setCommandOpen(false);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
-  useEffect(() => { setHistoryOpen(false); setCommandOpen(false); }, [pathname]);
+  useEffect(() => { setCommandOpen(false); }, [pathname]);
 
   async function remove(id: string) {
     conversations.setItems((current) => current?.filter((item) => item.id !== id) || null);
@@ -123,11 +138,7 @@ export default function AppShell({ children, title, chat = false }: { children: 
   }, [query]);
   const initial = (user?.name || user?.login || "?").slice(0, 1).toUpperCase();
 
-  return <div
-    className={`el-shell ${chat ? "el-shell-chat" : ""} ${keyboard ? "kb-open" : ""}`}
-    onTouchStart={(event) => { const point = event.touches[0]; touch.current = point.clientX < 28 ? { x: point.clientX, y: point.clientY } : null; }}
-    onTouchMove={(event) => { const start = touch.current; if (!start) return; const point = event.touches[0]; if (point.clientX - start.x > 64 && Math.abs(point.clientY - start.y) < 48) { touch.current = null; setHistoryOpen(true); } }}
-  >
+  return <div className={`el-shell ${chat ? "el-shell-chat" : ""} ${keyboard ? "kb-open" : ""}`}>
     <Suspense fallback={null}><ActiveConversation onChange={setActiveId} /></Suspense>
     <aside className="el-sidebar" aria-label="Sidebar">
       <div className="el-sidebar-head">
@@ -147,22 +158,15 @@ export default function AppShell({ children, title, chat = false }: { children: 
 
     <div className="el-main">
       <header className="el-topbar">
-        <button type="button" className="el-icon-btn" onClick={() => setHistoryOpen(true)} aria-label="Open chat history"><Menu size={20} /></button>
+        {backHref ? <Link href={backHref} className="el-icon-btn" aria-label="Back"><ChevronLeft size={22} /></Link> : chat ? <Link href="/chats" className="el-icon-btn" aria-label="Your chats"><History size={19} /></Link> : <span aria-hidden="true" />}
         <div className="el-topbar-title">{title || "Elias"}</div>
-        {chat ? <Link href="/" className="el-icon-btn" aria-label="New chat"><SquarePen size={19} /></Link> : <button type="button" className="el-icon-btn" onClick={() => { setCommandOpen(true); setQuery(""); }} aria-label="Search and go to"><Search size={19} /></button>}
+        {chat ? <Link href="/" className="el-icon-btn" aria-label="New chat"><SquarePen size={19} /></Link> : <span aria-hidden="true" />}
       </header>
       <div className="el-content">{children}</div>
       <nav className="el-tabbar" aria-label="Primary">
         {PRIMARY.map((item) => <Link key={item.href} href={item.href} className={isActive(item.href) ? "active" : ""} aria-current={isActive(item.href) ? "page" : undefined}><item.icon size={22} strokeWidth={isActive(item.href) ? 2.2 : 1.7} /><span>{item.label}</span></Link>)}
       </nav>
     </div>
-
-    {historyOpen ? <div className="el-overlay" onClick={() => setHistoryOpen(false)}>
-      <aside className="el-drawer" aria-label="Chat history" onClick={(event) => event.stopPropagation()}>
-        <div className="el-drawer-head"><strong>Chats</strong><Link href="/" className="el-icon-btn" aria-label="New chat" onClick={() => setHistoryOpen(false)}><SquarePen size={18} /></Link><button type="button" className="el-icon-btn" onClick={() => setHistoryOpen(false)} aria-label="Close"><X size={19} /></button></div>
-        <div className="el-drawer-body"><ConversationList {...conversations} activeId={activeId} onPick={() => setHistoryOpen(false)} onDelete={(id) => void remove(id)} /></div>
-      </aside>
-    </div> : null}
 
     {commandOpen ? <div className="el-overlay el-overlay-center" onMouseDown={() => setCommandOpen(false)}>
       <section className="el-palette" role="dialog" aria-modal="true" aria-label="Go to" onMouseDown={(event) => event.stopPropagation()}>
