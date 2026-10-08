@@ -27,3 +27,6 @@
 .v4-chats .el-convo-list a { min-height: 60px; padding: 10px 12px; }
 .v4-chats .el-convo-title { font-size: 15px; }
 .v4-chats .el-convo-delete { opacity: .7; width: var(--tap); height: var(--tap); }
+
+/* You */
+@media (max-width: 899px) { .v4-desktop-only { display: none; } }
