@@ -102,6 +102,7 @@ function FileDetail({ id, onDeleted }: { id: string; onDeleted: () => void }) {
       <span className="v4l-file-icon"><FileText size={20} /></span>
       <div><h2 className="el-wrap">{file.name}</h2><p>{[KIND_LABEL[file.kind], file.pageCount ? `${file.pageCount} pages` : "", sizeLabel(file.size), dateLabel(file.createdAt)].filter(Boolean).join(" · ")}</p></div>
     </header>
+    {file.mime.startsWith("image/") && file.hasData ? <img className="v4l-image" src={`/api/assistant/files/${encodeURIComponent(file.id)}/download?inline=1`} alt={file.text || file.name} /> : null}
     <div className="v4l-actions">
       <Link className="el-btn el-btn-primary" href={`/chat?file=${encodeURIComponent(file.id)}`}><MessageCircle size={16} /> Ask about it</Link>
       <a className="el-btn" href={`/api/assistant/files/${encodeURIComponent(file.id)}/download`}><Download size={16} /> {file.hasData ? "Download" : "Text"}</a>

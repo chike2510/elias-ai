@@ -14,7 +14,9 @@ export async function GET(request: NextRequest, { params }: Params) {
   try {
     const original = await getFileData(auth.userId, id);
     const safe = (name: string) => encodeURIComponent(name.replace(/["\\]/g, ""));
-    if (original) return new NextResponse(new Uint8Array(original.data), { headers: { "Content-Type": original.mime || "application/octet-stream", "Content-Disposition": `attachment; filename*=UTF-8''${safe(original.name)}`, "Cache-Control": "private, no-store" } });
+    // ?inline=1 shows images in place (Studio gallery); everything else downloads.
+    const inline = request.nextUrl.searchParams.get("inline") === "1" && /^image\/(png|jpeg|webp|gif)$/.test(original?.mime || "");
+    if (original) return new NextResponse(new Uint8Array(original.data), { headers: { "Content-Type": original.mime || "application/octet-stream", "Content-Disposition": `${inline ? "inline" : "attachment"}; filename*=UTF-8''${safe(original.name)}`, "Cache-Control": inline ? "private, max-age=86400" : "private, no-store", "X-Content-Type-Options": "nosniff" } });
     const file = await getFile(auth.userId, id);
     if (!file) return jsonError("File not found.", 404, "NOT_FOUND");
     const name = `${file.name.replace(/\.[^.]+$/, "")}.txt`;

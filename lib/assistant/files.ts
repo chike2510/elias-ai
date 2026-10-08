@@ -16,6 +16,7 @@ export type LibraryFile = {
 
 export const MAX_STORED_TEXT = 200_000;
 export const MAX_STORED_BYTES = 5_000_000;
+/** The prompt of a generated image is kept as its text, so Library search finds it. */
 const KINDS = new Set<FileKind>(["upload", "attachment", "generated"]);
 
 let migrated: Promise<void> | undefined;
@@ -60,16 +61,19 @@ export async function saveFile(userId: string, input: { name: string; mime?: str
   return toFile(rows[0]);
 }
 
-export async function listFiles(userId: string, options: { q?: string; limit?: number } = {}) {
+export async function listFiles(userId: string, options: { q?: string; limit?: number; kind?: FileKind } = {}) {
   const db = await filesDb();
   const q = (options.q || "").trim().slice(0, 100);
   const limit = Math.max(1, Math.min(200, options.limit || 100));
-  const rows = q
+  const rows = options.kind
+    ? await db`select id, name, mime, size, kind, left(text, 300) as text, chars, page_count, truncated, conversation_id, (data is not null) as has_data, study, created_at, updated_at
+        from public.elias_files where user_id = ${userId} and kind = ${options.kind} order by created_at desc limit ${limit}`
+    : q
     ? await db`select id, name, mime, size, kind, chars, page_count, truncated, conversation_id, (data is not null) as has_data, study, created_at, updated_at
         from public.elias_files where user_id = ${userId} and (name ilike ${`%${q}%`} or text ilike ${`%${q}%`}) order by created_at desc limit ${limit}`
     : await db`select id, name, mime, size, kind, chars, page_count, truncated, conversation_id, (data is not null) as has_data, study, created_at, updated_at
         from public.elias_files where user_id = ${userId} order by created_at desc limit ${limit}`;
-  return rows.map((item) => toFile(item));
+  return rows.map((item) => toFile(item, Boolean(options.kind)));
 }
 
 export async function getFile(userId: string, id: string) {
