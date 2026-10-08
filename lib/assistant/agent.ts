@@ -9,8 +9,12 @@ import { googleConfigured, googleConnection } from "@/lib/assistant/google";
 import { approvalDetails, cardFor, EDITABLE_ARGS, statusLabel, type ApprovalDetails, type Card, type ConnectCard, type MemoryChip } from "@/lib/assistant/cards";
 import { briefCards, type BriefData } from "@/lib/assistant/brief";
 import { recordAudit } from "@/lib/assistant/audit";
+import { getCodeSet } from "@/lib/assistant/code/github";
+import { CODE_PROMPT, codeSetSummary } from "@/lib/assistant/code/prompt";
 
 const MAX_STEPS = 10;
+/** Code turns read, edit, commit and verify, so they get a bigger tool budget. */
+const CODE_MAX_STEPS = 16;
 const HISTORY_MESSAGES = 30;
 
 export type Approval = { id: string; tool: string; summary: string; status: string; createdAt: string; conversationId: string | null; result?: string | null; details: ApprovalDetails; editable: string[] };
@@ -48,9 +52,23 @@ type RunOptions = {
   attachments?: ChatAttachment[];
   /** "auto" (default), "fast", "strong" or "<provider>/<model>". */
   modelChoice?: string;
-  /** "code" offers the repo_/code_ tools (coding workspace and code jobs). */
+  /** "code" offers the repo_/code_ tools (coding workspace and code jobs). Default: from the conversation's kind. */
   mode?: "chat" | "code";
+  /** Code jobs: the chat whose working set the repo tools use. */
+  codeConversationId?: string;
 };
+
+/** Code mode for a conversation: kind 'code', or the work conversation of a code job (which uses its parent chat's working set). */
+export async function conversationMode(userId: string, conversationId: string): Promise<{ mode: "chat" | "code"; codeKey: string }> {
+  const db = await ready();
+  const conv = (await db`select kind from public.elias_conversations where id = ${conversationId} and user_id = ${userId}`)[0];
+  if (conv?.kind === "code") return { mode: "code", codeKey: conversationId };
+  if (conv?.kind === "job") {
+    const job = (await db`select conversation_id from public.elias_jobs where work_conversation_id = ${conversationId} and kind = 'code' limit 1`.catch(() => []))[0];
+    if (job) return { mode: "code", codeKey: String(job.conversation_id) };
+  }
+  return { mode: "chat", codeKey: conversationId };
+}
 
 /** History entry for a stored user message: its text plus what was attached (recent document text is kept). */
 function historyUserContent(item: StoredMessage, recent: boolean) {
@@ -174,7 +192,9 @@ export async function runTurn(options: RunOptions): Promise<TurnResult> {
   const emit = (event: TurnEvent) => { try { options.onEvent?.(event); } catch { /* a closed stream must not break the turn */ } };
   const timezone = options.timezone || "Africa/Lagos";
   const origin = options.origin || "chat";
-  const conversationId = await ensureConversation(options.userId, options.conversationId, options.title || options.text, origin === "schedule" ? "schedule" : origin === "job" ? "job" : "chat");
+  const conversationId = await ensureConversation(options.userId, options.conversationId, options.title || options.text, origin === "schedule" ? "schedule" : origin === "job" ? "job" : options.mode === "code" ? "code" : "chat");
+  const code = options.mode ? { mode: options.mode, codeKey: options.codeConversationId || conversationId } : await conversationMode(options.userId, conversationId).catch(() => ({ mode: "chat" as const, codeKey: conversationId }));
+  const codeExtra = code.mode === "code" ? `${CODE_PROMPT}\n\n${codeSetSummary(await getCodeSet(options.userId, code.codeKey).catch(() => null))}` : "";
   emit({ type: "conversation", conversationId });
   const [history, memories, google] = await Promise.all([
     getMessages(options.userId, conversationId, HISTORY_MESSAGES),
@@ -193,14 +213,14 @@ export async function runTurn(options: RunOptions): Promise<TurnResult> {
   const lastUserIndexes = new Set(history.map((item, index) => item.role === "user" ? index : -1).filter((index) => index >= 0).slice(-3));
 
   const messages: LlmMessage[] = [
-    { role: "system", content: systemPrompt({ name: options.userName, timezone, memories, googleEmail: google?.email || null, googleConfigured: googleConfigured(), browser: browserConfigured(), origin, extra: options.extraContext }) },
+    { role: "system", content: systemPrompt({ name: options.userName, timezone, memories, googleEmail: google?.email || null, googleConfigured: googleConfigured(), browser: browserConfigured(), origin, extra: [codeExtra, options.extraContext].filter(Boolean).join("\n\n") || undefined }) },
     ...history.map((item, index) => ({ item, index })).filter(({ item }) => item.role !== "event" || item.meta.kind === "approval").map(({ item, index }): LlmMessage => item.role === "assistant" ? { role: "assistant", content: item.content } : { role: "user", content: item.role === "event" ? `[system note] ${item.content}` : historyUserContent(item, lastUserIndexes.has(index)) }),
     { role: "user", content: userContent },
   ];
 
   const browsers = new Map<string, BrowserHandle>();
-  const ctx: ToolContext = { userId: options.userId, conversationId, timezone, githubToken: options.githubToken, browsers, origin: options.channel || origin };
-  const tools = toolSchemasFor(options.mode || "chat");
+  const ctx: ToolContext = { userId: options.userId, conversationId, timezone, githubToken: options.githubToken, browsers, origin: options.channel || origin, codeConversationId: code.codeKey };
+  const tools = toolSchemasFor(code.mode);
   const approvals: Approval[] = [];
   const actions: TurnResult["actions"] = [];
   const cards: Card[] = [...(options.presetCards || [])];
@@ -210,7 +230,8 @@ export async function runTurn(options: RunOptions): Promise<TurnResult> {
   let reply = "";
   let model: string | undefined;
   let tier: ModelTier | undefined;
-  const choice = parseChoice(options.modelChoice);
+  // Code mode runs on the strong tier unless the user picked a specific model.
+  const choice = parseChoice(code.mode === "code" && (!options.modelChoice || options.modelChoice === "auto" || options.modelChoice === "fast") ? "strong" : options.modelChoice);
   const db = await ready();
   const addCard = (card: Card | null) => {
     if (!card) return;
@@ -221,7 +242,7 @@ export async function runTurn(options: RunOptions): Promise<TurnResult> {
   const addConnect = (item: ConnectCard) => { if (!connect.some((existing) => existing.provider === item.provider)) { connect.push(item); emit({ type: "connect", connect: item }); } };
 
   try {
-    const maxSteps = Math.max(1, options.maxSteps ?? MAX_STEPS);
+    const maxSteps = Math.max(1, options.maxSteps ?? (code.mode === "code" ? CODE_MAX_STEPS : MAX_STEPS));
     for (let step = 0; step < maxSteps; step += 1) {
       let streamed = false;
       const route = resolveRoute(choice, { text: options.text, images: images.length, files: files.length, step, usedTool: actions.length > 0 });
@@ -336,7 +357,8 @@ export async function decideApproval(input: { userId: string; userName?: string;
     const browsers = new Map<string, BrowserHandle>();
     try {
       const { _context: _ignored, ...callArgs } = args;
-      const output = await runTool(tool, callArgs, { userId: input.userId, conversationId, timezone: input.timezone || "Africa/Lagos", githubToken: input.githubToken, browsers, approved: true, approvalId: input.approvalId, origin: "approval" });
+      const { codeKey } = await conversationMode(input.userId, conversationId).catch(() => ({ codeKey: conversationId }));
+      const output = await runTool(tool, callArgs, { userId: input.userId, conversationId, timezone: input.timezone || "Africa/Lagos", githubToken: input.githubToken, browsers, approved: true, approvalId: input.approvalId, origin: "approval", codeConversationId: codeKey });
       const text = compact(output).slice(0, 4000);
       await db`update public.elias_approvals set status = 'done', result = ${text} where id = ${input.approvalId}`;
       note = `User APPROVED and it was executed: ${summary}\nResult: ${text}`;
