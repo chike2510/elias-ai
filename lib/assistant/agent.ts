@@ -3,7 +3,7 @@ import { completeStream, type ContentPart, type LlmMessage } from "@/lib/assista
 import { fileContext, parseChoice, resolveRoute, toStored, type ChatAttachment, type ModelTier, type StoredAttachment } from "@/lib/assistant/modelRouter";
 import { newId, ready } from "@/lib/assistant/db";
 import { extractMemories, memoryContext, saveMemory } from "@/lib/assistant/memory";
-import { approvalSummary, hasTool, runTool, toolSchemas, type ToolContext } from "@/lib/assistant/tools";
+import { approvalSummary, hasTool, runTool, toolSchemasFor, type ToolContext } from "@/lib/assistant/tools";
 import { browserConfigured, closeAll, type BrowserHandle } from "@/lib/assistant/browser";
 import { googleConfigured, googleConnection } from "@/lib/assistant/google";
 import { approvalDetails, cardFor, EDITABLE_ARGS, statusLabel, type ApprovalDetails, type Card, type ConnectCard, type MemoryChip } from "@/lib/assistant/cards";
@@ -48,6 +48,8 @@ type RunOptions = {
   attachments?: ChatAttachment[];
   /** "auto" (default), "fast", "strong" or "<provider>/<model>". */
   modelChoice?: string;
+  /** "code" offers the repo_/code_ tools (coding workspace and code jobs). */
+  mode?: "chat" | "code";
 };
 
 /** History entry for a stored user message: its text plus what was attached (recent document text is kept). */
@@ -198,7 +200,7 @@ export async function runTurn(options: RunOptions): Promise<TurnResult> {
 
   const browsers = new Map<string, BrowserHandle>();
   const ctx: ToolContext = { userId: options.userId, conversationId, timezone, githubToken: options.githubToken, browsers, origin: options.channel || origin };
-  const tools = toolSchemas();
+  const tools = toolSchemasFor(options.mode || "chat");
   const approvals: Approval[] = [];
   const actions: TurnResult["actions"] = [];
   const cards: Card[] = [...(options.presetCards || [])];

@@ -67,6 +67,11 @@ jobs:
           ELIAS_EMBED_PROVIDER: hash
           TEST_EXPECT_VECTOR: "1"
 
+      - name: Coding agent integration (working set store, mock GitHub)
+        run: npx -y tsx scripts/test-code.ts
+        env:
+          POSTGRES_URL: postgres://postgres@127.0.0.1:5432/postgres
+
       - name: Evals (deterministic, scripted model)
         run: npx -y tsx evals/run.ts
         env:
