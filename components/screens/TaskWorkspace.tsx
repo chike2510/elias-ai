@@ -199,7 +199,7 @@ export default function TaskWorkspace() {
   const canRun = Boolean(task && ["queued", "planning", "running", "paused", "failed"].includes(task.status));
   const controlLocked = Boolean(task && ["completed", "cancelled"].includes(task.status));
 
-  return <AppShell title="Tasks">
+  return <AppShell title="Task workbench" back="/tasks">
     <main className="screen task-workspace-screen workspace-destination">
       <header className="screen-header task-workspace-header task-mock-header">
         <Link className="task-back" href="/" aria-label="Back to home"><ArrowLeft size={20} /></Link><div className="screen-header-copy"><span className="eyebrow">WORKSPACE</span><h1>Tasks</h1><p className="screen-description">Plans, approvals, and deliverables stay together.</p></div>

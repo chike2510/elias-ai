@@ -1,0 +1,29 @@
+/* v4 shell (pages-a): one mobile top bar. Screens keep their big headings and back links for desktop (no top bar
+   there); under 900px the top bar already shows the title and back arrow, so those duplicates are hidden. */
+@media (max-width: 899px) {
+  .el-shell .el-page-head h1,
+  .el-shell .screen-header-copy > h1,
+  .el-shell .screen-header-copy > .eyebrow,
+  .el-shell .mobile-screen-heading > h1,
+  .el-shell .mobile-screen-heading > a[aria-label^="Back"],
+  .el-shell .el-back-link,
+  .el-shell .skills-back,
+  .el-shell .task-back,
+  .el-shell .screen-header > .back[aria-label^="Back"],
+  .el-shell .screen-title { display: none !important; }
+  .el-shell .mobile-screen-heading { justify-content: flex-end; min-height: 0; margin-bottom: 12px; }
+  .el-shell .mobile-screen-heading > span:empty { display: none; }
+  .el-shell .el-page-head p,
+  .el-shell .screen-header-copy > .screen-description { margin-top: 0; }
+  .el-shell .el-page-head:not(:has(p)) { display: none; }
+}
+
+/* /chats */
+.v4-chats-tools { display: flex; gap: 10px; align-items: center; margin: 4px 0 14px; }
+.v4-search { display: flex; flex: 1; min-width: 0; align-items: center; gap: 8px; min-height: var(--tap); padding: 0 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--faint); }
+.v4-search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text); font: inherit; font-size: 16px; }
+.v4-search:focus-within { border-color: var(--line-strong); }
+.v4-chats .el-convo-list { gap: 2px; }
+.v4-chats .el-convo-list a { min-height: 60px; padding: 10px 12px; }
+.v4-chats .el-convo-title { font-size: 15px; }
+.v4-chats .el-convo-delete { opacity: .7; width: var(--tap); height: var(--tap); }
