@@ -77,6 +77,11 @@ jobs:
         env:
           POSTGRES_URL: postgres://postgres@127.0.0.1:5432/evals
 
+      - name: Coding agent evals (scripted model, mock GitHub)
+        run: npx -y tsx evals/code.ts
+        env:
+          POSTGRES_URL: postgres://postgres@127.0.0.1:5432/evals
+
       - name: Logs on failure
         if: failure()
         run: tail -n 50 /tmp/mock.log || true
