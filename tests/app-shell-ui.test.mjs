@@ -94,3 +94,12 @@ test("v4 shell: back arrows default to the parent screen and duplicate mobile he
   assert.match(v4, /@media \(max-width: 899px\)[^]*\.el-page-head h1[^]*display: none/);
   assert.match(read("app/layout.tsx"), /import "\.\/v4-shell\.css"/);
 });
+
+test("v4 tasks: New task sheet starts background jobs, jobs list has no inline composer on Tasks", () => {
+  const tasks = read("components/screens/TasksScreen.tsx");
+  const sheet = read("components/screens/NewTaskSheet.tsx");
+  assert.match(tasks, /<NewTaskSheet/);
+  assert.match(tasks, /<JobsSection composer=\{false\}/);
+  assert.match(sheet, /\/api\/assistant\/jobs/);
+  assert.match(sheet, /role="dialog"/);
+});

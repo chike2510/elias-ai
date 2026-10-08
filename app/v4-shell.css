@@ -43,3 +43,9 @@
 .v4-refresh { margin-left: auto; }
 .v4-open-repo { display: flex; gap: 10px; align-items: center; }
 .v4-projects .el-state { gap: 4px; }
+/* Tasks */
+.v4-new-task { width: 100%; margin-top: 14px; }
+.v4-seg-3 { grid-template-columns: repeat(3, 1fr); margin: 12px 0 0; }
+.v4-seg-3 button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.v4-task-sheet .v4-hint { margin: 10px 2px 10px; }
+.v4-task-sheet { display: flex; flex-direction: column; max-height: calc(var(--vvh, 100dvh) - 24px); overflow-y: auto; }

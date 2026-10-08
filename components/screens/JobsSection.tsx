@@ -35,8 +35,11 @@ function ago(iso: string) {
   return hours < 24 ? `${hours} h ago` : new Date(iso).toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
-/** Tasks → Jobs: hand work to the background, watch it live, cancel it, read the result. */
-export default function JobsSection() {
+/**
+ * Tasks → Jobs: hand work to the background, watch it live, cancel it, read the result.
+ * `composer={false}` when the page has its own New task sheet; bump `reloadKey` to refetch after it starts a job.
+ */
+export default function JobsSection({ composer = true, reloadKey = 0, title = "Background jobs" }: { composer?: boolean; reloadKey?: number; title?: string }) {
   const [jobs, setJobs] = useState<Job[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<string | null>(null);
@@ -54,6 +57,8 @@ export default function JobsSection() {
   // Live status: poll every 4s while anything is active and the tab is visible.
   useEffect(() => {
     void load();
+  }, [load, reloadKey]);
+  useEffect(() => {
     const onVisible = () => { if (document.visibilityState === "visible") void load(); };
     document.addEventListener("visibilitychange", onVisible);
     return () => document.removeEventListener("visibilitychange", onVisible);
@@ -80,7 +85,7 @@ export default function JobsSection() {
   }
 
   return <section className="el-section" id="jobs">
-    <div className="el-section-head"><h2>Background jobs</h2>{!composing ? <button type="button" className="el-btn el-btn-sm" onClick={() => setComposing(true)}><Rocket size={15} /> New job</button> : null}</div>
+    <div className="el-section-head"><h2>{title}</h2>{composer && !composing ? <button type="button" className="el-btn el-btn-sm" onClick={() => setComposing(true)}><Rocket size={15} /> New job</button> : null}</div>
     {composing ? <form className="el-job-new" onSubmit={(event) => { event.preventDefault(); void start(); }}>
       <label className="el-field"><span>What should Elias work on?</span><textarea rows={3} value={prompt} maxLength={6000} placeholder="e.g. Compare the 3 best budget Android phones in Nigeria right now, with prices and where to buy" onChange={(event) => setPrompt(event.target.value)} /></label>
       <div className="el-seg" role="radiogroup" aria-label="Kind of job">
@@ -90,7 +95,7 @@ export default function JobsSection() {
     </form> : null}
     {error ? <p className="el-error-text" role="alert">{error}</p> : null}
     {!jobs && !error ? <ListSkeleton rows={2} /> : null}
-    {jobs && !jobs.length && !composing ? <p className="el-empty-line"><Rocket size={16} /> No background jobs yet. Ask in chat: “research this in the background and ping me”.</p> : null}
+    {jobs && !jobs.length && !composing ? <p className="el-empty-line"><Rocket size={16} /> {composer ? "No background jobs yet. Ask in chat: “research this in the background and ping me”." : "Nothing running. Tap New task, or ask in chat: “research this in the background and ping me”."}</p> : null}
     {jobs?.some((job) => ACTIVE.has(job.status)) ? <NotificationPrompt reason="I'll let you know the moment your job is done, even if Elias is closed." /> : null}
     {jobs?.length ? <ul className="el-list">{jobs.map((job) => {
       const last = job.steps[job.steps.length - 1];

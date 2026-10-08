@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { ChevronRight, Clock3, MapPin, Pause, Pencil, Play, ShieldCheck, SquareKanban, Sun, Trash2, X } from "lucide-react";
+import { ChevronRight, Clock3, MapPin, Pause, Pencil, Play, Plus, ShieldCheck, SquareKanban, Sun, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import AppShell, { ListSkeleton } from "@/components/AppShell";
 import TaskWorkspace from "@/components/screens/TaskWorkspace";
 import JobsSection from "@/components/screens/JobsSection";
+import NewTaskSheet from "@/components/screens/NewTaskSheet";
 import { ErrorCard } from "@/components/chat/ChatView";
 import { api, userTimezone, type Approval } from "@/lib/chatClient";
 
@@ -37,6 +38,8 @@ function TasksHome() {
   const [city, setCity] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
+  const [sheet, setSheet] = useState(false);
+  const [jobsKey, setJobsKey] = useState(0);
 
   const load = useCallback(async () => {
     setError(null);
@@ -60,21 +63,20 @@ function TasksHome() {
 
   return <AppShell title="Tasks">
     <main className="el-page">
-      <header className="el-page-head"><h1>Tasks</h1><p>What Elias is working on in the background, does on a schedule, and what's waiting on your OK.</p></header>
+      <header className="el-page-head"><h1>Tasks</h1><p>What Elias is working on, what it does on a schedule, and what's waiting on your OK.</p></header>
+      <button type="button" className="el-btn el-btn-primary el-btn-lg v4-new-task" onClick={() => setSheet(true)}><Plus size={18} /> New task</button>
       {error ? <ErrorCard text={error} onRetry={() => void load()} /> : null}
 
-      <section className="el-section">
+      {approvals?.length ? <section className="el-section">
         <h2>Waiting on you</h2>
-        {!approvals && !error ? <ListSkeleton rows={2} /> : null}
-        {approvals && !approvals.length ? <p className="el-empty-line"><ShieldCheck size={16} /> Nothing needs your go-ahead.</p> : null}
         {approvals?.length ? <ul className="el-list">{approvals.map((item) => <li key={item.id}><Link className="el-list-row" href={item.conversationId ? `/chat?id=${item.conversationId}` : "/"}>
           <span className="el-list-icon warn"><ShieldCheck size={17} /></span>
           <span className="el-list-text"><strong>{item.details.kind === "email" ? `Email to ${item.details.to}` : item.details.kind === "event" ? `Invite: ${item.details.title}` : item.summary.split("\n")[0]}</strong><small>Tap to review in chat</small></span>
           <ChevronRight size={17} className="el-list-trail" />
         </Link></li>)}</ul> : null}
-      </section>
+      </section> : null}
 
-      <JobsSection />
+      <JobsSection composer={false} reloadKey={jobsKey} title="Working on" />
 
       <section className="el-section">
         <h2>Scheduled</h2>
@@ -103,10 +105,11 @@ function TasksHome() {
         <h2>Workbench</h2>
         <ul className="el-list"><li><Link className="el-list-row" href="/tasks?view=workbench">
           <span className="el-list-icon"><SquareKanban size={17} /></span>
-          <span className="el-list-text"><strong>Task workbench</strong><small>Multi-step tasks with plans, files and checkpoints</small></span>
+          <span className="el-list-text"><strong>Task workbench</strong><small>Plan a task step by step, with files and checkpoints</small></span>
           <ChevronRight size={17} className="el-list-trail" />
         </Link></li></ul>
       </section>
+      {sheet ? <NewTaskSheet onClose={() => setSheet(false)} onStarted={() => setJobsKey((value) => value + 1)} /> : null}
     </main>
   </AppShell>;
 }
