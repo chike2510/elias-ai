@@ -9,7 +9,7 @@ import { googleConfigured, googleConnection } from "@/lib/assistant/google";
 import { approvalDetails, cardFor, EDITABLE_ARGS, statusLabel, type ApprovalDetails, type Card, type ConnectCard, type MemoryChip } from "@/lib/assistant/cards";
 import { briefCards, type BriefData } from "@/lib/assistant/brief";
 import { recordAudit } from "@/lib/assistant/audit";
-import { getCodeSet } from "@/lib/assistant/code/github";
+import { getCodeSet, isCodeTool } from "@/lib/assistant/code/github";
 import { CODE_PROMPT, codeSetSummary } from "@/lib/assistant/code/prompt";
 import { codeCardFor } from "@/lib/assistant/code/cards";
 
@@ -261,6 +261,10 @@ export async function runTurn(options: RunOptions): Promise<TurnResult> {
         emit({ type: "status", id: call.id, tool: name, label });
         if (!steps.includes(label)) steps.push(label);
         if (!hasTool(name)) output = `Error: unknown tool ${name}.`;
+        else if (code.mode !== "code" && isCodeTool(name)) {
+          output = "Error: repo and code tools only run in the coding workspace (/agent). Tell the user in one line to open the Code workspace for repo changes.";
+          actions.push({ tool: name, ok: false });
+        }
         else if (GOOGLE_TOOLS.test(name) && !google) {
           addConnect({ provider: "google", configured: googleConfigured() });
           output = googleConfigured()
