@@ -59,3 +59,21 @@ test("chat link cards and research reports both render through SourcesCard", () 
   assert.ok(research.includes("openOnHash={`src-${job.id}-`}"), "citation links still open the list");
   assert.doesNotMatch(research, /<h3>Sources<\/h3>/);
 });
+
+test("site icons use real favicons, lazy and sized, with the letter circle as fallback", () => {
+  const { faviconUrl, siteHost } = load();
+  assert.equal(siteHost("https://www.bbc.co.uk/news?x=1"), "bbc.co.uk");
+  assert.equal(siteHost("WWW.GitHub.com"), "github.com");
+  assert.equal(faviconUrl("www.github.com"), "https://www.google.com/s2/favicons?domain=github.com&sz=64");
+  assert.equal(faviconUrl("https://en.wikipedia.org/wiki/Lagos"), "https://www.google.com/s2/favicons?domain=en.wikipedia.org&sz=64");
+  assert.equal(faviconUrl(""), "", "no domain, no request");
+  assert.equal(faviconUrl("not a domain"), "");
+  assert.match(component, /<img ref=\{image\} src=\{src\} alt="" width=\{size\} height=\{size\} loading="lazy"/);
+  assert.match(component, /onError=\{\(\) => setFailed\(true\)\}/, "broken image falls back");
+  assert.match(component, /naturalWidth <= 16\) setFailed\(true\)/, "Google's 16px default globe falls back too");
+  assert.match(component, /\{failed \? domainLetter\(host \|\| domain\) : <img/, "fallback is the existing letter");
+  assert.match(component, /<SiteIcon key=\{domain\} domain=\{domain\} size=\{18\} className="el-sources-chip" \/>/, "collapsed chips");
+  assert.match(cards, /<SiteIcon domain=\{host\(item\.url\)\} size=\{20\} className="el-favicon" \/>/, "expanded chat rows");
+  assert.match(research, /<SiteIcon domain=\{source\.domain \|\| source\.url\}/, "expanded research rows");
+  assert.match(css, /@media \(prefers-color-scheme: dark\) \{\s*\.el-site-icon \{ --site-icon-plate: var\(--text\); \}/, "light plate in dark mode");
+});

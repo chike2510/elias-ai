@@ -23,3 +23,15 @@
 @media (prefers-reduced-motion: reduce) {
   .el-sources-panel, .el-sources.is-open .el-sources-panel, .el-sources-chevron { transition: none; }
 }
+/* Real site icons (Google s2 favicons) with the letter circle as fallback. Icons sit on a light plate in both
+   themes so dark logos (GitHub, X) stay legible in dark mode; the letter fallback keeps the original styling. */
+.el-site-icon { --site-icon-plate: var(--surface); overflow: hidden; }
+.el-site-icon.has-img { background: var(--site-icon-plate); }
+.el-site-icon > img { display: block; width: 100%; height: 100%; object-fit: contain; border-radius: inherit; }
+.el-sources-chip.has-img { padding: 1px; }
+.el-favicon.has-img { padding: 5px; box-shadow: inset 0 0 0 1px var(--line); }
+.el-favicon-sm { width: 24px; height: 24px; border-radius: 7px; font-size: 11px; }
+.el-favicon-sm.has-img { padding: 3px; }
+@media (prefers-color-scheme: dark) {
+  .el-site-icon { --site-icon-plate: var(--text); }
+}
