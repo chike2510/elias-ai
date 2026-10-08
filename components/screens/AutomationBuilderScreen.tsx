@@ -77,8 +77,8 @@ export default function AutomationBuilderScreen() {
   async function copy(value: string) { await navigator.clipboard?.writeText(value); }
 
   const activeCount = useMemo(() => automations.filter((automation) => automation.status === "active").length, [automations]);
-  return <AppShell title="Automations"><main className="screen automation-screen">
-    <ScreenHeader title="Automation builder" />
+  return <AppShell title="Advanced automations" back="/automations"><main className="screen automation-screen">
+    <ScreenHeader title="Advanced automations" back="/automations" />
     <section className="automation-hero panel"><div className="automation-hero-icon"><Workflow size={24} /></div><div><span className="eyebrow">AI IN THE MIDDLE</span><h1>Build a controlled automation</h1><p>Connect an event to ELIAS, let it read and decide, then draft a result with an explicit approval brake before anything external happens.</p></div><div className="automation-hero-stats"><strong>{activeCount}</strong><span>active workflows</span></div></section>
     {error ? <div className="inline-error"><span>{error}</span></div> : null}
     {created ? <section className="automation-secret panel"><div><ShieldCheck size={18} /><div><strong>Automation created</strong><small>Copy the webhook secret now. It is shown only once.</small></div></div><div className="automation-secret-values">{created.url ? <label>Webhook URL<div><code>{created.url}</code><button type="button" onClick={() => void copy(created.url!)} aria-label="Copy webhook URL"><Copy size={14} /></button></div></label> : null}{created.secret ? <label>Webhook secret<div><code>{created.secret}</code><button type="button" onClick={() => void copy(created.secret!)} aria-label="Copy webhook secret"><Copy size={14} /></button></div></label> : null}</div></section> : null}
