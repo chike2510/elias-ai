@@ -472,6 +472,12 @@ async function libraryChecks(user: string) {
   assert.equal(await renameFile(user, upload.id, "Biology notes"), true);
   assert.equal(await deleteFile(user, chat.id), false, "can't delete another user's file");
   assert.equal(await deleteFile(user, upload.id), true);
+  // Studio gallery: generated images are kind "generated", listed with their prompt
+  const art = await saveFile(user, { name: "fox.png", mime: "image/png", size: 4, kind: "generated", text: "a geometric fox logo", data: Buffer.from([137, 80, 78, 71]) });
+  const gallery = await listFiles(user, { kind: "generated" });
+  assert.deepEqual(gallery.map((file) => [file.id, file.text, file.hasData]), [[art.id, "a geometric fox logo", true]]);
+  assert.equal((await listFiles(user, { kind: "upload" })).length, 0);
+  await deleteFile(user, art.id);
   const rls = await db`select relrowsecurity from pg_class where relname = 'elias_files'`;
   assert.equal(rls[0]?.relrowsecurity, true, "RLS on elias_files");
   console.log("library checks passed");
