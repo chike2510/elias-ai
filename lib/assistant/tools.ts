@@ -8,6 +8,7 @@ import { cityFromTimezone, gatherBrief, getSettings, weatherFor } from "@/lib/as
 import { CONNECTOR_TOOLS, connectorGate } from "@/lib/assistant/connectors";
 import { isSideEffect, recordAudit, unsafeCall } from "@/lib/assistant/audit";
 import { CODE_TOOLS, isCodeTool } from "@/lib/assistant/code/github";
+import { VERIFY_TOOLS } from "@/lib/assistant/code/verify";
 
 export type ToolContext = {
   userId: string;
@@ -193,6 +194,7 @@ const TOOLS: Record<string, Tool> = {
 
   ...CONNECTOR_TOOLS,
   ...CODE_TOOLS,
+  ...VERIFY_TOOLS,
 };
 
 export function toolSchemas(): ToolSchema[] {
