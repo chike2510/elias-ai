@@ -1,90 +1,104 @@
 "use client";
 
 import Link from "next/link";
-import { Camera, Check, Image as ImageIcon, Mic, MicOff, RefreshCcw, Sparkles, Video, WandSparkles, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
-import AppShell from "@/components/AppShell";
-import ScreenHeader from "@/components/ScreenHeader";
-import { makeId, saveArtifact } from "@/lib/persistence";
+import { Download, ImageIcon, LoaderCircle, MessageCircle, RefreshCw, Trash2, WandSparkles, X } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import AppShell, { ListSkeleton } from "@/components/AppShell";
+import { api } from "@/lib/chatClient";
 
-type Recognition = { lang: string; interimResults: boolean; onstart: (() => void) | null; onend: (() => void) | null; onresult: ((event: { results?: ArrayLike<ArrayLike<{ transcript?: string }>> }) => void) | null; start: () => void; stop: () => void };
+type GalleryImage = { id: string; name: string; mime: string; size: number; text?: string; createdAt: string };
+type Aspect = "square" | "portrait" | "landscape";
 
+const ASPECTS: Array<{ value: Aspect; label: string }> = [{ value: "square", label: "Square" }, { value: "portrait", label: "Portrait" }, { value: "landscape", label: "Landscape" }];
+const IDEAS = ["A cosy reading nook with plants and warm afternoon light, watercolour", "Lagos skyline at sunset, cinematic, wide shot", "A minimalist logo of a fox made of geometric shapes"];
+
+const src = (image: GalleryImage) => `/api/assistant/files/${encodeURIComponent(image.id)}/download?inline=1`;
+
+/** /studio: describe an image, generate it, and keep it in your gallery (stored in the Library). Voice and camera live in chat. */
 export default function StudioScreen() {
-  const [mode, setMode] = useState<"voice" | "camera" | "generate">("voice");
-  const [listening, setListening] = useState(false);
-  const [cameraReady, setCameraReady] = useState(false);
-  const [transcript, setTranscript] = useState("");
-  const [error, setError] = useState("");
-  const [generatePrompt, setGeneratePrompt] = useState("");
-  const [generateBusy, setGenerateBusy] = useState(false);
-  const [generated, setGenerated] = useState<{ taskId: string; name: string } | null>(null);
-  const video = useRef<HTMLVideoElement>(null);
-  const stream = useRef<MediaStream | null>(null);
-  const recognition = useRef<Recognition | null>(null);
+  const [prompt, setPrompt] = useState("");
+  const [aspect, setAspect] = useState<Aspect>("square");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [images, setImages] = useState<GalleryImage[] | null>(null);
+  const [latest, setLatest] = useState<GalleryImage | null>(null);
+  const [viewing, setViewing] = useState<GalleryImage | null>(null);
 
-  useEffect(() => {
-    const requestedMode = new URLSearchParams(window.location.search).get("mode");
-    if (requestedMode === "camera" || requestedMode === "voice" || requestedMode === "generate") setMode(requestedMode);
-    return () => { stream.current?.getTracks().forEach((track) => track.stop()); recognition.current?.stop(); };
+  const load = useCallback(async () => {
+    try { setImages((await api<{ images: GalleryImage[] }>("/api/assistant/studio")).images); }
+    catch (err) { setError((err as Error).message); setImages((current) => current || []); }
   }, []);
+  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    if (!viewing) return;
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setViewing(null); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [viewing]);
 
-  async function startCamera() {
-    setError("");
+  async function generate(text = prompt) {
+    if (text.trim().length < 3 || busy) return;
+    setBusy(true); setError(null);
     try {
-      if (!navigator.mediaDevices?.getUserMedia) throw new Error("Camera access is not available in this browser.");
-      stream.current?.getTracks().forEach((track) => track.stop());
-      stream.current = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
-      if (video.current) video.current.srcObject = stream.current;
-      setCameraReady(true);
-    } catch (caught) { setError(caught instanceof Error ? caught.message : "Camera permission was not granted."); }
+      const data = await api<{ image: GalleryImage }>("/api/assistant/studio", { method: "POST", body: JSON.stringify({ prompt: text, aspect }) });
+      setLatest(data.image);
+      setImages((current) => [data.image, ...(current || []).filter((item) => item.id !== data.image.id)]);
+    } catch (err) { setError((err as Error).message); }
+    finally { setBusy(false); }
   }
 
-  function stopCamera() { stream.current?.getTracks().forEach((track) => track.stop()); stream.current = null; setCameraReady(false); }
-
-  function toggleVoice() {
-    setError("");
-    const SpeechRecognition = (window as unknown as { SpeechRecognition?: new () => Recognition; webkitSpeechRecognition?: new () => Recognition }).SpeechRecognition || (window as unknown as { webkitSpeechRecognition?: new () => Recognition }).webkitSpeechRecognition;
-    if (!SpeechRecognition) { setError("Speech recognition is not available in this browser. You can still type in chat."); return; }
-    if (listening) { recognition.current?.stop(); setListening(false); return; }
-    const next = new SpeechRecognition();
-    next.lang = "en-US"; next.interimResults = true;
-    next.onstart = () => setListening(true);
-    next.onend = () => setListening(false);
-    next.onresult = (event) => { const value = Array.from(event.results || []).map((result) => result?.[0]?.transcript || "").join(" ").trim(); if (value) setTranscript(value); };
-    recognition.current = next;
-    next.start();
-  }
-
-  async function generateImage() {
-    const prompt = generatePrompt.trim();
-    if (!prompt || generateBusy) return;
-    setGenerateBusy(true); setError(""); setGenerated(null);
+  async function remove(image: GalleryImage) {
+    if (!window.confirm("Delete this image?")) return;
     try {
-      const response = await fetch("/api/generation", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: "image", prompt }) });
-      const payload = await response.json() as { task?: { id?: string }; artifact?: { name?: string }; error?: { message?: string } };
-      if (!response.ok || !payload.task?.id || !payload.artifact?.name) throw new Error(payload.error?.message || "Image generation failed.");
-      setGenerated({ taskId: payload.task.id, name: payload.artifact.name });
-    } catch (caught) { setError(caught instanceof Error ? caught.message : "Image generation failed."); }
-    finally { setGenerateBusy(false); }
+      await api(`/api/assistant/files/${encodeURIComponent(image.id)}`, { method: "DELETE" });
+      setImages((current) => (current || []).filter((item) => item.id !== image.id));
+      if (latest?.id === image.id) setLatest(null);
+      setViewing(null);
+    } catch (err) { setError((err as Error).message); }
   }
 
-  async function capture() {
-    if (!video.current || !cameraReady) return;
-    const canvas = document.createElement("canvas");
-    canvas.width = video.current.videoWidth || 720; canvas.height = video.current.videoHeight || 960;
-    canvas.getContext("2d")?.drawImage(video.current, 0, 0, canvas.width, canvas.height);
-    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.9));
-    if (!blob) return;
-    await saveArtifact({ id: makeId("artifact"), name: `capture-${new Date().toISOString().replaceAll(":", "-")}.jpg`, type: "image/jpeg", createdAt: Date.now(), blob });
-    setError("Snapshot saved to Files. Image analysis is not configured in this deployment.");
-  }
+  const actions = (image: GalleryImage) => <div className="v4s-actions">
+    <a className="el-btn el-btn-sm" href={`/api/assistant/files/${encodeURIComponent(image.id)}/download`}><Download size={15} /> Save</a>
+    <Link className="el-btn el-btn-sm" href={`/chat?prompt=${encodeURIComponent(`I generated an image from this prompt: "${image.text || ""}". Suggest three ways to improve the prompt.`)}`}><MessageCircle size={15} /> Improve prompt</Link>
+    <button type="button" className="el-icon-btn danger" aria-label="Delete image" onClick={() => void remove(image)}><Trash2 size={17} /></button>
+  </div>;
 
-  return <AppShell title="ELIAS AI Studio"><main className="screen studio-screen">
-    <ScreenHeader title="ELIAS AI Studio" />
-    <section className="studio-card panel">
-      <div className="studio-tabs" role="tablist" aria-label="Studio mode"><button type="button" className={mode === "voice" ? "active" : ""} onClick={() => { setMode("voice"); stopCamera(); }}><Mic size={16} /> Voice</button><button type="button" className={mode === "camera" ? "active" : ""} onClick={() => { setMode("camera"); void startCamera(); }}><Camera size={16} /> Camera</button><button type="button" className={mode === "generate" ? "active" : ""} onClick={() => { setMode("generate"); stopCamera(); }}><WandSparkles size={16} /> Generate</button></div>
-      {error ? <div className="inline-error"><span>{error}</span></div> : null}
-      {mode === "voice" ? <section className="voice-panel"><div className={`voice-orb ${listening ? "listening" : ""}`}><span><Mic size={30} /></span></div><h1>{listening ? "Listening…" : "ELIAS is ready"}</h1><p>{listening ? "Speak naturally. Your transcript stays visible before you send it." : "Use browser speech recognition, review the transcript, then hand it to chat."}</p><button type="button" className={`primary voice-button ${listening ? "danger" : ""}`} onClick={toggleVoice}>{listening ? <><MicOff size={17} /> stop</> : <><Mic size={17} /> start voice</>}</button>{transcript ? <div className="transcript-card"><strong>Transcript</strong><span>{transcript}</span><div className="transcript-actions"><Link className="primary" href={`/chat?prompt=${encodeURIComponent(transcript)}`}><Check size={15} /> use in chat</Link><Link className="secondary" href={`/chat?prompt=${encodeURIComponent(transcript)}`}>open chat</Link></div></div> : null}<div className="studio-capability-note"><div><Video size={16} /><span><strong>Video description</strong><small>Configure a video model to enable this capability.</small></span></div><div><ImageIcon size={16} /><span><strong>Image analysis</strong><small>Configure a vision model to analyze snapshots.</small></span></div></div></section> : mode === "generate" ? <section className="studio-generation-panel"><div className="studio-generation-intro"><span className="studio-generation-icon"><Sparkles size={22} /></span><div><h2>Generate an image</h2><p>Submit an image task through the free Pollinations provider. The completed asset is stored with the task and appears in Files.</p></div></div><textarea value={generatePrompt} onChange={(event) => setGeneratePrompt(event.target.value)} rows={5} placeholder="Describe the image you want Elias to generate…" /><button type="button" className="primary wide" disabled={!generatePrompt.trim() || generateBusy} onClick={() => void generateImage()}>{generateBusy ? "Generating…" : <><WandSparkles size={15} /> Generate image</>}</button>{generated ? <div className="studio-generation-success"><Check size={16} /><span><strong>{generated.name}</strong><small>Generation complete and stored in the task artifact pipeline.</small></span><Link className="secondary" href={`/tasks?id=${encodeURIComponent(generated.taskId)}`}>Open task</Link></div> : null}<div className="studio-capability-note"><div><Video size={16} /><span><strong>Video generation</strong><small>Deferred until a hosted video provider is configured.</small></span></div><div><Mic size={16} /><span><strong>Text to speech</strong><small>Deferred until a hosted TTS provider is configured.</small></span></div></div></section> : <section className="camera-panel"><div className="camera-frame">{cameraReady ? <video ref={video} autoPlay playsInline muted /> : <div className="camera-empty"><Camera size={28} /><strong>Camera preview</strong><small>Start camera to begin.</small></div>}</div><div className="camera-controls"><button type="button" onClick={stopCamera} aria-label="Stop camera"><X size={20} /></button><button type="button" className="shutter" onClick={() => void capture()} aria-label="Save snapshot" /><button type="button" onClick={() => void startCamera()} aria-label="Restart camera"><RefreshCcw size={20} /></button></div><small className="camera-caption">Snapshots are saved as local artifacts. No image is sent to a model.</small></section>}
-    </section>
-  </main></AppShell>;
+  return <AppShell title="Studio">
+    <main className="el-page v4s-page">
+      <header className="el-page-head"><h1>Studio</h1><p>Describe an image and Elias makes it. Everything you make is kept in your gallery.</p></header>
+
+      <form className="v4s-ask" onSubmit={(event) => { event.preventDefault(); void generate(); }}>
+        <label className="el-field"><span>Describe the image</span>
+          <textarea rows={3} maxLength={1000} value={prompt} placeholder="e.g. A golden retriever in a raincoat, children's book illustration" onChange={(event) => setPrompt(event.target.value)} />
+        </label>
+        <div className="v4s-aspect" role="radiogroup" aria-label="Shape">{ASPECTS.map((item) => <button key={item.value} type="button" role="radio" aria-checked={aspect === item.value} className={aspect === item.value ? "on" : ""} onClick={() => setAspect(item.value)}><span className={`v4s-shape ${item.value}`} aria-hidden="true" />{item.label}</button>)}</div>
+        <button type="submit" className="el-btn el-btn-primary v4s-go" disabled={busy || prompt.trim().length < 3}>{busy ? <><LoaderCircle size={16} className="el-spin" /> Making it… (up to a minute)</> : <><WandSparkles size={16} /> Generate</>}</button>
+        {!prompt ? <div className="v4s-ideas">{IDEAS.map((idea) => <button key={idea} type="button" className="v4s-idea" onClick={() => setPrompt(idea)}>{idea}</button>)}</div> : null}
+      </form>
+
+      {error ? <p className="el-error-text" role="alert">{error}</p> : null}
+
+      {busy ? <div className={`v4s-placeholder ${aspect}`} aria-hidden="true"><LoaderCircle size={22} className="el-spin" /></div> : latest ? <figure className="v4s-latest">
+        <img src={src(latest)} alt={latest.text || "Generated image"} />
+        <figcaption>{latest.text}</figcaption>
+        <div className="v4s-latest-bar">{actions(latest)}<button type="button" className="el-btn el-btn-sm el-btn-ghost" onClick={() => void generate(latest.text || prompt)}><RefreshCw size={15} /> Again</button></div>
+      </figure> : null}
+
+      <section className="el-section">
+        <div className="el-section-head"><h2>Gallery</h2></div>
+        {!images ? <ListSkeleton rows={2} /> : !images.length ? <p className="el-empty-line"><ImageIcon size={16} /> Nothing here yet. Your images will collect here.</p> : <ul className="v4s-grid">{images.map((image) => <li key={image.id}>
+          <button type="button" className="v4s-thumb" onClick={() => setViewing(image)} aria-label={`Open: ${image.text || image.name}`}><img src={src(image)} alt="" loading="lazy" /></button>
+        </li>)}</ul>}
+      </section>
+
+      {viewing ? <div className="v4s-viewer" role="dialog" aria-modal="true" aria-label="Image" onClick={(event) => { if (event.target === event.currentTarget) setViewing(null); }}>
+        <div className="v4s-viewer-card">
+          <button type="button" className="el-icon-btn v4s-close" aria-label="Close" onClick={() => setViewing(null)}><X size={18} /></button>
+          <img src={src(viewing)} alt={viewing.text || "Generated image"} />
+          {viewing.text ? <p>{viewing.text}</p> : null}
+          <div className="v4s-latest-bar">{actions(viewing)}<button type="button" className="el-btn el-btn-sm el-btn-ghost" onClick={() => { setPrompt(viewing.text || ""); setViewing(null); window.scrollTo({ top: 0, behavior: "smooth" }); }}>Use prompt</button></div>
+        </div>
+      </div> : null}
+    </main>
+  </AppShell>;
 }
