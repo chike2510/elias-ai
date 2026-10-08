@@ -22,6 +22,8 @@ function useRemoteStore() {
   if (process.env.VERCEL && !process.env.POSTGRES_URL) throw new Error("Durable repository-task storage is not configured. Add POSTGRES_URL to the Vercel environment and redeploy.");
   return Boolean(process.env.POSTGRES_URL);
 }
+/** jsonb read back as an object, or a JSON string from rows written by the old double-encoding writer. */
+function decodeJson<T>(value: unknown): T { let current = value; for (let depth = 0; depth < 3 && typeof current === "string"; depth += 1) { try { current = JSON.parse(current); } catch { break; } } return structuredClone(current) as T; }
 function db() { globalThis.__eliasGitHubRepositoryTaskDb ||= postgres(process.env.POSTGRES_URL!, { max: 1, prepare: false }); return globalThis.__eliasGitHubRepositoryTaskDb; }
 function state() {
   if (!globalThis.__eliasGitHubRepositoryTaskStore) globalThis.__eliasGitHubRepositoryTaskStore = { tasks: new Map(), loaded: false };
@@ -55,7 +57,7 @@ export async function createGitHubRepositoryTask(record: GitHubRepositoryTaskRec
   const saved = { ...clone(record), updatedAt: Date.now() };
   if (useRemoteStore()) {
     await ensureSchema();
-    await db()`insert into public.elias_github_repository_tasks (id, user_id, task, updated_at) values (${saved.id}, ${saved.userId}, ${JSON.stringify(saved.task)}::jsonb, now())`;
+    await db()`insert into public.elias_github_repository_tasks (id, user_id, task, updated_at) values (${saved.id}, ${saved.userId}, ${db().json(saved.task as unknown as postgres.JSONValue)}, now())`;
   } else {
     if (state().tasks.has(saved.id)) throw new Error("Repository task already exists.");
     state().tasks.set(saved.id, saved);
@@ -70,7 +72,7 @@ export async function getGitHubRepositoryTask(id: string, userId: string) {
     await ensureSchema();
     const rows = await db()<Array<{ task: TaskRecord; updated_at: Date | string }>>`select task, updated_at from public.elias_github_repository_tasks where id = ${id} and user_id = ${userId} limit 1`;
     const row = rows[0];
-    return row ? { id, userId, task: clone(row.task), updatedAt: new Date(row.updated_at).getTime() } : undefined;
+    return row ? { id, userId, task: decodeJson<TaskRecord>(row.task), updatedAt: new Date(row.updated_at).getTime() } : undefined;
   }
   const record = state().tasks.get(id);
   return record?.userId === userId ? clone(record) : undefined;
@@ -83,7 +85,7 @@ export async function claimGitHubRepositoryTaskStep(id: string, userId: string) 
     await ensureSchema();
     const rows = await db()<Array<{ task: TaskRecord; updated_at: Date | string }>>`update public.elias_github_repository_tasks set task = jsonb_set(task, '{status}', '"running"'::jsonb, true), updated_at = now() where id = ${id} and user_id = ${userId} and task->>'status' in ('queued', 'planning', 'paused', 'failed') and not exists (select 1 from jsonb_array_elements(coalesce(task->'approvals', '[]'::jsonb)) as approvals(value) where value->>'status' = 'pending') returning task, updated_at`;
     const row = rows[0];
-    return row ? { id, userId, task: clone(row.task), updatedAt: new Date(row.updated_at).getTime() } : undefined;
+    return row ? { id, userId, task: decodeJson<TaskRecord>(row.task), updatedAt: new Date(row.updated_at).getTime() } : undefined;
   }
   const current = state().tasks.get(id);
   if (!current || current.userId !== userId || !claimable.includes(current.task.status) || (current.task.approvals || []).some((approval) => approval.status === "pending")) return undefined;
@@ -102,7 +104,7 @@ export async function updateGitHubRepositoryTask(id: string, userId: string, upd
   record.updatedAt = Date.now();
   if (useRemoteStore()) {
     await ensureSchema();
-    const rows = await db()<Array<{ id: string }>>`update public.elias_github_repository_tasks set task = ${JSON.stringify(record.task)}::jsonb, updated_at = now() where id = ${id} and user_id = ${userId} returning id`;
+    const rows = await db()<Array<{ id: string }>>`update public.elias_github_repository_tasks set task = ${db().json(record.task as unknown as postgres.JSONValue)}, updated_at = now() where id = ${id} and user_id = ${userId} returning id`;
     if (!rows[0]) throw new Error("Repository task not found.");
   } else {
     const current = state().tasks.get(id);

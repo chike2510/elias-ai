@@ -43,6 +43,8 @@ function useRemoteStore() {
   if (process.env.VERCEL && !process.env.POSTGRES_URL) throw new Error("Durable GitHub approval storage is not configured. Add POSTGRES_URL to the Vercel Production environment and redeploy.");
   return Boolean(process.env.POSTGRES_URL);
 }
+/** jsonb read back as an object, or a JSON string from rows written by the old double-encoding writer. */
+function decodeJson<T>(value: unknown): T { let current = value; for (let depth = 0; depth < 3 && typeof current === "string"; depth += 1) { try { current = JSON.parse(current); } catch { break; } } return structuredClone(current) as T; }
 function db() { globalThis.__eliasGitHubProposalDb ||= postgres(process.env.POSTGRES_URL!, { max: 1, prepare: false }); return globalThis.__eliasGitHubProposalDb; }
 function state() {
   if (!globalThis.__eliasGitHubProposalStore) globalThis.__eliasGitHubProposalStore = { proposals: new Map(), loaded: false };
@@ -95,7 +97,7 @@ export async function createGitHubWriteProposal(userId: string, action: GitHubWr
   const proposal = proposalFromPayload(randomUUID(), userId, action, payload, Date.now(), ttlMs);
   if (useRemoteStore()) {
     await ensureSchema();
-    await db()`insert into public.elias_github_write_proposals (id, user_id, proposal, updated_at) values (${proposal.id}, ${proposal.userId}, ${JSON.stringify(proposal)}::jsonb, now())`;
+    await db()`insert into public.elias_github_write_proposals (id, user_id, proposal, updated_at) values (${proposal.id}, ${proposal.userId}, ${db().json(proposal as unknown as postgres.JSONValue)}, now())`;
   } else {
     state().proposals.set(proposal.id, proposal); persistLocal();
   }
@@ -107,7 +109,7 @@ export async function claimGitHubWriteProposal(id: string, userId: string, paylo
   if (useRemoteStore()) {
     await ensureSchema();
     const rows = await db()`update public.elias_github_write_proposals set proposal = jsonb_set(proposal, '{status}', '"executing"'::jsonb), updated_at = now() where id = ${id} and user_id = ${userId} and proposal->>'status' = 'pending' and proposal->>'payloadHash' = ${payloadHash} and (proposal->>'expiresAt')::bigint > ${now} returning proposal` as Array<{ proposal: GitHubWriteProposal }>;
-    return rows[0] ? clone(rows[0].proposal) : undefined;
+    return rows[0] ? decodeJson<GitHubWriteProposal>(rows[0].proposal) : undefined;
   }
   const proposal = state().proposals.get(id);
   if (!proposal || proposal.userId !== userId || proposal.payloadHash !== payloadHash || proposal.status !== "pending") return undefined;
@@ -119,7 +121,7 @@ export async function completeGitHubWriteProposal(id: string, userId: string, re
   const update = { status: "completed" as const, receipt };
   if (useRemoteStore()) {
     await ensureSchema();
-    await db()`update public.elias_github_write_proposals set proposal = proposal || ${JSON.stringify(update)}::jsonb, updated_at = now() where id = ${id} and user_id = ${userId}`;
+    await db()`update public.elias_github_write_proposals set proposal = proposal || ${db().json(update as unknown as postgres.JSONValue)}, updated_at = now() where id = ${id} and user_id = ${userId}`;
   } else {
     const proposal = state().proposals.get(id); if (proposal) { Object.assign(proposal, update); persistLocal(); }
   }
@@ -129,7 +131,7 @@ export async function failGitHubWriteProposal(id: string, userId: string, error:
   const update = { status: "failed" as const, error: error.slice(0, 500) };
   if (useRemoteStore()) {
     await ensureSchema();
-    await db()`update public.elias_github_write_proposals set proposal = proposal || ${JSON.stringify(update)}::jsonb, updated_at = now() where id = ${id} and user_id = ${userId}`;
+    await db()`update public.elias_github_write_proposals set proposal = proposal || ${db().json(update as unknown as postgres.JSONValue)}, updated_at = now() where id = ${id} and user_id = ${userId}`;
   } else {
     const proposal = state().proposals.get(id); if (proposal) { Object.assign(proposal, update); persistLocal(); }
   }
