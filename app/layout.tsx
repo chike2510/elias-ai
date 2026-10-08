@@ -3,6 +3,7 @@ import "./globals.css";
 import "./background.css";
 import "./v4-shell.css";
 import "./v4-pages-b.css";
+import "./v4-code.css";
 import AuthGate from "@/components/AuthGate";
 import PwaRegistration from "@/components/PwaRegistration";
 

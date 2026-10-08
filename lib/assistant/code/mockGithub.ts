@@ -163,6 +163,11 @@ export function createMockGithub(options: MockGithubOptions) {
       triggerCi(head, refs.get(head) as string, "pull_request");
       return json(201, { number, html_url: pull.html_url, state: "open", head: { ref: head, sha: refs.get(head) }, base: { ref: pull.base } });
     }
+    if (method === "GET" && rest === "/pulls") {
+      const head = (url.searchParams.get("head") || "").replace(/^[^:]+:/, "");
+      const state = url.searchParams.get("state") || "open";
+      return json(200, pulls.filter((pull) => (!head || pull.head === head) && (state === "all" || pull.state === state)).map((pull) => ({ number: pull.number, html_url: pull.html_url, state: pull.state, head: { ref: pull.head } })));
+    }
     m = rest.match(/^\/pulls\/(\d+)$/);
     if (method === "GET" && m) { const pull = pulls.find((item) => item.number === Number(m![1])); if (!pull) return notFound(); return json(200, { number: pull.number, title: pull.title, state: pull.state, merged: pull.merged, html_url: pull.html_url, head: { ref: pull.head, sha: refs.get(pull.head) }, base: { ref: pull.base }, mergeable: true, mergeable_state: "clean" }); }
     m = rest.match(/^\/pulls\/(\d+)\/merge$/);
