@@ -1,4 +1,5 @@
 /** Structured message attachments the chat renders as cards instead of markdown walls. */
+import type { DiffCard } from "@/lib/assistant/code/cards";
 export type LinkItem = { title: string; url: string; snippet?: string };
 export type EmailItem = { id?: string; from: string; subject: string; date?: string; snippet?: string; unread?: boolean };
 export type EventItem = { id?: string; title: string; start?: string; end?: string; location?: string; link?: string; attendees?: string[] };
@@ -14,7 +15,8 @@ export type Card =
   | { kind: "emails"; title: string; items: EmailItem[] }
   | { kind: "events"; title: string; items: EventItem[] }
   | { kind: "schedule"; title: string; name: string; when: string }
-  | WeatherCard;
+  | WeatherCard
+  | DiffCard;
 
 export type ConnectCard = { provider: "google" | "browser"; configured: boolean };
 export type MemoryChip = { id: string; content: string };
@@ -140,3 +142,12 @@ export function connectorCard(tool: string, output: unknown): ListCard | null {
   if (tool === "payments_summary") return { kind: "list", icon: "payments", title: `Payments · last ${data.days} days`, items: Object.entries(rec(data.byCurrency)).map(([currency, raw]) => { const bucket = rec(raw); return { title: money(Number(bucket.total), currency), detail: `${bucket.successful} successful · ${bucket.failed} failed`, state: "info" as const }; }), footer: "Read-only. Elias never moves money." };
   return null;
 }
+
+/* v4 coding agent (appended): PR approvals can be edited; status labels for repo_/code_ tools. */
+EDITABLE_ARGS.code_open_pr = ["title", "body"];
+Object.assign(STATUS_LABELS, {
+  repo_tree: "Looking through the repo", repo_grep: "Searching the code", repo_read: "Reading code",
+  code_edit: "Editing code", code_patch: "Applying a patch", code_create_file: "Creating a file", code_delete_file: "Deleting a file",
+  code_diff: "Reviewing the diff", code_commit: "Committing", code_verify: "Running checks", code_open_pr: "Opening a PR", code_merge_pr: "Merging",
+  code_start_job: "Starting a coding job",
+});

@@ -11,6 +11,7 @@ import { briefCards, type BriefData } from "@/lib/assistant/brief";
 import { recordAudit } from "@/lib/assistant/audit";
 import { getCodeSet } from "@/lib/assistant/code/github";
 import { CODE_PROMPT, codeSetSummary } from "@/lib/assistant/code/prompt";
+import { codeCardFor } from "@/lib/assistant/code/cards";
 
 const MAX_STEPS = 10;
 /** Code turns read, edit, commit and verify, so they get a bigger tool budget. */
@@ -287,7 +288,7 @@ export async function runTurn(options: RunOptions): Promise<TurnResult> {
               output = compact(raw);
               actions.push({ tool: name, ok: true });
               if (name === "daily_brief") for (const card of briefCards(raw as BriefData)) addCard(card);
-              else addCard(cardFor(name, raw));
+              else addCard(codeCardFor(name, raw) ?? cardFor(name, raw));
               if ((name === "memory_save" || name === "memory_update") && raw && typeof raw === "object" && "id" in raw && (raw as { created?: boolean }).created !== false) {
                 const chip = { id: String((raw as { id: string }).id), content: String((raw as { content?: string }).content || "") };
                 if (!memoriesSaved.some((item) => item.id === chip.id)) { memoriesSaved.push(chip); emit({ type: "memory", memory: chip }); }

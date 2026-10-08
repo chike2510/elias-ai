@@ -9,6 +9,7 @@ import { CONNECTOR_TOOLS, connectorGate } from "@/lib/assistant/connectors";
 import { isSideEffect, recordAudit, unsafeCall } from "@/lib/assistant/audit";
 import { CODE_TOOLS, isCodeTool } from "@/lib/assistant/code/github";
 import { VERIFY_TOOLS } from "@/lib/assistant/code/verify";
+import { PR_TOOLS } from "@/lib/assistant/code/pr";
 
 export type ToolContext = {
   userId: string;
@@ -197,6 +198,7 @@ const TOOLS: Record<string, Tool> = {
   ...CONNECTOR_TOOLS,
   ...CODE_TOOLS,
   ...VERIFY_TOOLS,
+  ...PR_TOOLS,
 };
 
 export function toolSchemas(): ToolSchema[] {

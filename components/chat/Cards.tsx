@@ -3,6 +3,7 @@
 import { CalendarDays, CloudSun, ExternalLink, Globe2, Mail, Plug, Repeat } from "lucide-react";
 import type { Card, ConnectCard as ConnectInfo } from "@/lib/chatClient";
 import { ConnectorListCard, MemoryReview } from "@/components/chat/ExtraCards";
+import { DiffCard } from "@/components/code/DiffCard";
 
 function host(url: string) {
   try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return url; }
@@ -24,6 +25,7 @@ function shortDate(value?: string) {
 
 export function MessageCard({ card }: { card: Card }) {
   if (card.kind === "list") return <ConnectorListCard card={card} />;
+  if (card.kind === "diff") return <DiffCard card={card} />;
   if (card.kind === "memory_review") return <MemoryReview card={card} />;
   if (card.kind === "links") return <section className="el-card" aria-label={card.title}>
     <header className="el-card-head"><Globe2 size={15} /> {card.title}</header>
