@@ -4,7 +4,7 @@ import { CalendarDays, CloudSun, ExternalLink, Mail, Plug, Repeat } from "lucide
 import type { Card, ConnectCard as ConnectInfo } from "@/lib/chatClient";
 import { ConnectorListCard, MemoryReview } from "@/components/chat/ExtraCards";
 import { DiffCard } from "@/components/code/DiffCard";
-import { domainLetter, SourcesCard } from "@/components/chat/SourcesCard";
+import { SiteIcon, SourcesCard } from "@/components/chat/SourcesCard";
 
 function host(url: string) {
   try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return url; }
@@ -30,7 +30,7 @@ export function MessageCard({ card }: { card: Card }) {
   if (card.kind === "memory_review") return <MemoryReview card={card} />;
   if (card.kind === "links") return <SourcesCard title={card.title} domains={card.items.map((item) => host(item.url))} count={card.items.length}>
     <ul className="el-card-rows">{card.items.map((item) => <li key={item.url}><a href={item.url} target="_blank" rel="noreferrer" className="el-card-row">
-      <span className="el-favicon" aria-hidden="true">{domainLetter(host(item.url))}</span>
+      <SiteIcon domain={host(item.url)} size={20} className="el-favicon" />
       <span className="el-card-text"><strong>{item.title}</strong><small>{host(item.url)}{item.snippet ? ` · ${item.snippet}` : ""}</small></span>
       <ExternalLink size={14} className="el-card-trail" />
     </a></li>)}</ul>
