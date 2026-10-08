@@ -13,7 +13,7 @@ export async function GET(request: Request) {
   const url = new URL("https://github.com/login/oauth/authorize");
   url.searchParams.set("client_id", credentials.clientId);
   url.searchParams.set("redirect_uri", oauthRedirectUri(request, "github"));
-  url.searchParams.set("scope", "repo read:org");
+  url.searchParams.set("scope", "repo read:org workflow");
   url.searchParams.set("state", state);
   return NextResponse.redirect(url);
 }

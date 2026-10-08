@@ -60,7 +60,7 @@ function decodeTask(value: unknown): TaskRecord | undefined {
 }
 
 async function remoteGet(id: string) { await ensureSchema(); const rows = await db()<Array<{ task: unknown }>>`select task from public.elias_task_records where id = ${id} limit 1`; return rows[0] ? decodeTask(rows[0].task) : undefined; }
-async function remoteSave(task: TaskRecord) { await ensureSchema(); task.updatedAt = Date.now(); await db()`insert into public.elias_task_records (id, task, updated_at) values (${task.id}, ${JSON.stringify(task)}::jsonb, now()) on conflict (id) do update set task = excluded.task, updated_at = now()`; return clone(task); }
+async function remoteSave(task: TaskRecord) { await ensureSchema(); task.updatedAt = Date.now(); await db()`insert into public.elias_task_records (id, task, updated_at) values (${task.id}, ${db().json(task as unknown as postgres.JSONValue)}, now()) on conflict (id) do update set task = excluded.task, updated_at = now()`; return clone(task); }
 
 export async function createStoredTask(task: TaskRecord) { return useRemoteStore() ? remoteSave(task) : localSave(task); }
 export async function restoreStoredTask(task: TaskRecord) { return useRemoteStore() ? remoteSave(task) : localSave(task); }

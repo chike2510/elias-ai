@@ -21,7 +21,7 @@ export async function GET(request: Request) {
 
   const callbackUrl = oauthRedirectUri(request, "github");
   const tokenResponse = await fetch("https://github.com/login/oauth/access_token", { method: "POST", headers: { Accept: "application/json", "Content-Type": "application/json" }, body: JSON.stringify({ client_id: credentials.clientId, client_secret: credentials.clientSecret, code, redirect_uri: callbackUrl, state }) });
-  const tokenData = await tokenResponse.json() as { access_token?: string; error?: string };
+  const tokenData = await tokenResponse.json() as { access_token?: string; error?: string; scope?: string };
   if (!tokenResponse.ok || !tokenData.access_token) return NextResponse.redirect(new URL(`${flowPath}?error=${encodeURIComponent(tokenData.error || "github_token_exchange")}`, request.url));
 
   const profileResponse = await fetch("https://api.github.com/user", { headers: { Authorization: `Bearer ${tokenData.access_token}`, Accept: "application/vnd.github+json", "User-Agent": "Elias" } });
@@ -43,7 +43,7 @@ export async function GET(request: Request) {
     return NextResponse.redirect(new URL("/connectors/github?error=github_account_mismatch", request.url));
   }
   if (flow === "connect" && previous) {
-    await saveGitHubConnection({ userId: previous.userId, login: profile.login, name: profile.name || undefined, email: previous.email || email, avatarUrl: profile.avatar_url || previous.avatarUrl, token: tokenData.access_token, scopes: ["repo", "read:org"], connectionType: "repository", connectedAt: previous.createdAt, updatedAt: Date.now() }).catch(() => undefined);
+    await saveGitHubConnection({ userId: previous.userId, login: profile.login, name: profile.name || undefined, email: previous.email || email, avatarUrl: profile.avatar_url || previous.avatarUrl, token: tokenData.access_token, scopes: tokenData.scope ? tokenData.scope.split(/[ ,]+/).filter(Boolean) : ["repo", "read:org"], connectionType: "repository", connectedAt: previous.createdAt, updatedAt: Date.now() }).catch(() => undefined);
     await setSession({ ...previous, githubToken: tokenData.access_token, githubTokenType: "repository", githubConnected: true });
     return NextResponse.redirect(new URL("/connectors/github?connected=github", request.url));
   }
