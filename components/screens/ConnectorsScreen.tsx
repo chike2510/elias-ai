@@ -4,7 +4,7 @@ import Link from "next/link";
 import { ArrowLeft, Brain, ChevronRight, CircleDot, Code2, CreditCard, Database, Github, Globe2, Plus, Search, Send, Server, Sparkles, SquareCode } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import "@/components/brain.css";
-import AppShell from "@/components/AppShell";
+import AppShell, { ListSkeleton } from "@/components/AppShell";
 import GoogleStatusRow, { GoogleReturnNotice } from "@/components/google/GoogleStatusRow";
 import { api, type Status } from "@/lib/chatClient";
 import { CONNECTOR_REGISTRY, categoryLabel, type ConnectorCategory, type ConnectorDefinition } from "@/lib/connectors";
@@ -26,9 +26,11 @@ export default function ConnectorsScreen() {
 function AssistantConnections() {
   const [status, setStatus] = useState<Status | null>(null);
   const [busy, setBusy] = useState(false);
-  useEffect(() => { void api<Status>("/api/assistant/status").then(setStatus).catch(() => undefined); }, []);
+  const [failed, setFailed] = useState(false);
+  const load = () => { setFailed(false); void api<Status>("/api/assistant/status").then(setStatus).catch(() => setFailed(true)); };
+  useEffect(load, []);
   async function disconnect() { setBusy(true); await api("/api/connect/google/disconnect", { method: "POST", body: "{}" }).catch(() => undefined); setStatus((current) => current ? { ...current, google: { ...current.google, connected: false, email: null, status: "none", renewBy: null, expiresSoon: false, drive: false } } : current); setBusy(false); }
-  if (!status) return null;
+  if (!status) return <section className="el-section el-connections" aria-busy={!failed}><h2>Personal assistant</h2>{failed ? <div className="el-inline-error" role="alert"><span>Couldn't check your connections.</span><button type="button" onClick={load}>Retry</button></div> : <ListSkeleton rows={3} />}</section>;
   return <section className="el-section el-connections"><h2>Personal assistant</h2><GoogleReturnNotice /><ul className="el-list">
     <li><GoogleStatusRow google={status.google} returnTo="/connectors" icon={<Globe2 size={17} />} busy={busy} onDisconnect={() => void disconnect()} /></li>
     <li><div className="el-list-row static"><span className="el-list-icon"><Server size={17} /></span><span className="el-list-text"><strong>Browser</strong><small>{status.browser.configured ? "Remote browser for forms, carts and bookings" : "Browser not configured: the server needs CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_BROWSER_TOKEN (or BROWSERBASE_API_KEY + BROWSERBASE_PROJECT_ID)."}</small></span><span className={`el-state ${status.browser.configured ? "on" : "na"}`}>{status.browser.configured ? "Ready" : "Not configured"}</span></div></li>

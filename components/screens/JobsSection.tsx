@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import MarkdownMessage from "@/components/MarkdownMessage";
 import NotificationPrompt from "@/components/NotificationPrompt";
 import { ListSkeleton } from "@/components/AppShell";
+import { ErrorCard } from "@/components/chat/ChatView";
 import { api, userTimezone } from "@/lib/chatClient";
 
 type JobStep = { n: number; at: string; summary: string; tools: string[]; ok: boolean };
@@ -93,7 +94,8 @@ export default function JobsSection({ composer = true, reloadKey = 0, title = "B
       </div>
       <div className="el-editor-actions"><button type="button" className="el-btn" onClick={() => setComposing(false)}>Cancel</button><button type="submit" className="el-btn el-btn-primary" disabled={busy || !prompt.trim()}>{busy ? "Starting…" : "Start"}</button></div>
     </form> : null}
-    {error ? <p className="el-error-text" role="alert">{error}</p> : null}
+    {error && jobs ? <p className="el-error-text" role="alert">{error}</p> : null}
+    {error && !jobs ? <ErrorCard text={error} onRetry={() => { setError(null); void load(); }} /> : null}
     {!jobs && !error ? <ListSkeleton rows={2} /> : null}
     {jobs && !jobs.length && !composing ? <p className="el-empty-line"><Rocket size={16} /> {composer ? "No background jobs yet. Ask in chat: “research this in the background and ping me”." : "Nothing running. Tap New task, or ask in chat: “research this in the background and ping me”."}</p> : null}
     {jobs?.some((job) => ACTIVE.has(job.status)) ? <NotificationPrompt reason="I'll let you know the moment your job is done, even if Elias is closed." /> : null}

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { BookOpenCheck, CheckCircle2, ChevronDown, Hourglass, LoaderCircle, MessageCircle, Search, XCircle } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ErrorCard } from "@/components/chat/ChatView";
 import AppShell, { ListSkeleton } from "@/components/AppShell";
 import NotificationPrompt from "@/components/NotificationPrompt";
 import { ReportBody } from "@/components/research/ReportView";
@@ -35,14 +36,15 @@ export default function ResearchScreen() {
   const [open, setOpen] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const timer = useRef<number | null>(null);
 
   const load = useCallback(async () => {
     try {
       const data = await api<{ reports: Job[] }>("/api/assistant/research");
-      setReports(data.reports); setError(null);
+      setReports(data.reports); setLoadError(null);
       setOpen((current) => current ?? data.reports.find((job) => job.status === "done")?.id ?? null);
-    } catch (err) { setError((err as Error).message); }
+    } catch (err) { setLoadError((err as Error).message); }
   }, []);
 
   useEffect(() => {
@@ -89,7 +91,8 @@ export default function ResearchScreen() {
 
       <section className="el-section">
         <div className="el-section-head"><h2>Reports</h2></div>
-        {!reports && !error ? <ListSkeleton rows={2} /> : null}
+        {!reports && loadError ? <ErrorCard text={loadError} onRetry={() => { setLoadError(null); void load(); }} /> : null}
+        {!reports && !loadError ? <ListSkeleton rows={2} /> : null}
         {reports && !reports.length ? <div className="v4r-empty">
           <p className="el-empty-line"><BookOpenCheck size={16} /> No reports yet. Try one of these:</p>
           <div className="v4r-ideas">{IDEAS.map((idea) => <button key={idea} type="button" className="v4r-idea" onClick={() => setQuestion(idea)}>{idea}</button>)}</div>

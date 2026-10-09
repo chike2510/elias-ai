@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { CalendarClock, ChevronRight, Clock3, LoaderCircle, Pause, Play, Plug, Sparkles, Trash2, Wand2, Zap } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { ErrorCard } from "@/components/chat/ChatView";
 import AppShell, { ListSkeleton } from "@/components/AppShell";
 import { api, userTimezone } from "@/lib/chatClient";
 import type { AutomationPlan } from "@/lib/automationPlan";
@@ -36,10 +37,12 @@ export default function AutomationsScreen() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [items, setItems] = useState<Automation[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
+    setLoadError(null);
     try { setItems((await api<{ automations: Automation[] }>("/api/assistant/automations")).automations); }
-    catch (err) { setError((err as Error).message); setItems((current) => current || []); }
+    catch (err) { setLoadError((err as Error).message); }
   }, []);
   useEffect(() => { void load(); }, [load]);
 
@@ -108,7 +111,7 @@ export default function AutomationsScreen() {
 
       <section className="el-section">
         <div className="el-section-head"><h2>Your automations</h2></div>
-        {!items ? <ListSkeleton rows={3} /> : !items.length ? <p className="el-empty-line"><Clock3 size={16} /> Nothing yet. Describe one above.</p> : <ul className="el-list">{items.map((item) => {
+        {!items && loadError ? <ErrorCard text={loadError} onRetry={() => void load()} /> : !items ? <ListSkeleton rows={3} /> : !items.length ? <p className="el-empty-line"><Clock3 size={16} /> Nothing yet. Describe one above.</p> : <ul className="el-list">{items.map((item) => {
           const paused = item.status === "paused";
           return <li key={item.id} className="el-list-item">
             <div className="el-list-row static">
