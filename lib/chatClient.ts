@@ -7,7 +7,7 @@ import type { Card, ConnectCard, MemoryChip } from "@/lib/assistant/cards";
 import type { ChatAttachment, StoredAttachment } from "@/lib/assistant/modelRouter";
 
 export type { Approval, Card, ChatAttachment, ConnectCard, MemoryChip, StoredAttachment, StoredMessage, TurnEvent, TurnResult };
-export type ChatInput = { text: string; conversationId?: string; attachments?: ChatAttachment[]; model?: string };
+export type ChatInput = { text: string; conversationId?: string; attachments?: ChatAttachment[]; model?: string; replyTo?: string };
 export type ConversationSummary = { id: string; title: string; kind: string; source: string; updatedAt: string; pendingApprovals: number; preview: string };
 /** v5: status/renewBy/expiresSoon/drive/testing describe the Google connection's health (optional for older servers). */
 export type GoogleStatus = { configured: boolean; connected: boolean; email: string | null; status?: "ok" | "expired" | "revoked" | "none"; renewBy?: string | null; expiresSoon?: boolean; drive?: boolean; testing?: boolean };
@@ -58,7 +58,7 @@ export function announceConversationsChanged() {
  * response can't be streamed (old browsers, proxies that buffer), emitting the same events.
  */
 export async function sendChat(input: ChatInput, onEvent: (event: TurnEvent) => void, signal?: AbortSignal): Promise<TurnResult> {
-  const body = JSON.stringify({ text: input.text, conversationId: input.conversationId, timezone: userTimezone(), stream: true, attachments: input.attachments?.length ? input.attachments : undefined, model: input.model });
+  const body = JSON.stringify({ text: input.text, conversationId: input.conversationId, timezone: userTimezone(), stream: true, attachments: input.attachments?.length ? input.attachments : undefined, model: input.model, replyTo: input.replyTo || undefined });
   let response: Response;
   try {
     response = await fetch("/api/assistant/chat", { method: "POST", headers: { "Content-Type": "application/json", Accept: "text/event-stream" }, body, signal });
@@ -107,7 +107,7 @@ export async function sendChat(input: ChatInput, onEvent: (event: TurnEvent) => 
 
 /** Non-streaming fallback. */
 export async function sendChatJson(input: ChatInput, onEvent: (event: TurnEvent) => void) {
-  const data = await api<TurnResult>("/api/assistant/chat", { method: "POST", body: JSON.stringify({ text: input.text, conversationId: input.conversationId, timezone: userTimezone(), attachments: input.attachments?.length ? input.attachments : undefined, model: input.model }) });
+  const data = await api<TurnResult>("/api/assistant/chat", { method: "POST", body: JSON.stringify({ text: input.text, conversationId: input.conversationId, timezone: userTimezone(), attachments: input.attachments?.length ? input.attachments : undefined, model: input.model, replyTo: input.replyTo || undefined }) });
   replayResult(data, onEvent);
   return data;
 }

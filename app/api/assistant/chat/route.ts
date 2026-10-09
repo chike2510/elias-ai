@@ -9,13 +9,13 @@ import { getModelChoice } from "@/lib/assistant/models";
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
-type Body = { text?: string; conversationId?: string; timezone?: string; stream?: boolean; attachments?: unknown; model?: string };
+type Body = { text?: string; conversationId?: string; timezone?: string; stream?: boolean; attachments?: unknown; model?: string; replyTo?: string };
 
 /**
  * POST { text, conversationId?, timezone?, stream?, attachments?, model? }.
  * attachments: images as downscaled data URLs ({ kind: "image", dataUrl, thumb }) and documents already
  * extracted by /api/assistant/attachments ({ kind: "file", name, text }). model: "auto" | "fast" | "strong" |
- * "<provider>/<model>"; when absent the user's saved choice is used.
+ * "<provider>/<model>"; when absent the user's saved choice is used. replyTo: text of an earlier message being replied to.
  * With stream:true (or Accept: text/event-stream) the reply streams as Server-Sent Events:
  * conversation, status, tool_done, card, connect, approval, memory, delta, reset, done, error.
  * Without it, the finished turn comes back as JSON (the non-streaming fallback).
@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
   if (!text) return jsonError("Message is empty.", 400, "BAD_REQUEST");
   void ensureDailyBrief(auth.userId, body.timezone).catch(() => undefined);
   const modelChoice = typeof body.model === "string" && body.model ? body.model : await getModelChoice(auth.userId).catch(() => "auto");
-  const turn = (onEvent?: (event: TurnEvent) => void) => runTurn({ userId: auth.userId, userName: auth.userName, conversationId: body.conversationId, text: text.slice(0, 12_000), timezone: body.timezone, githubToken: auth.githubToken, onEvent, attachments, modelChoice });
+  const turn = (onEvent?: (event: TurnEvent) => void) => runTurn({ userId: auth.userId, userName: auth.userName, conversationId: body.conversationId, text: text.slice(0, 12_000), timezone: body.timezone, githubToken: auth.githubToken, onEvent, attachments, modelChoice, replyTo: typeof body.replyTo === "string" ? body.replyTo : undefined });
 
   const wantsStream = body.stream === true || (request.headers.get("accept") || "").includes("text/event-stream");
   if (!wantsStream) {
