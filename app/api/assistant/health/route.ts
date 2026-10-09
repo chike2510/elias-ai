@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { browserProviders, probeBrowser } from "@/lib/assistant/browser";
 import { systemPrompt } from "@/lib/assistant/agent";
 import { toolSchemasFor } from "@/lib/assistant/tools";
-import { AllProvidersFailedError, agentProviders, complete, completeStream, discoveredModels, estimateTokens, type ContentPart, type LlmMessage, type ModelTier } from "@/lib/assistant/llm";
+import { AllProvidersFailedError, agentProviders, providerCooldowns, complete, completeStream, discoveredModels, estimateTokens, type ContentPart, type LlmMessage, type ModelTier } from "@/lib/assistant/llm";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -39,10 +39,12 @@ export async function GET(request: Request) {
     const tools = toolSchemasFor("chat");
     const started = Date.now();
     try {
-      const result = await completeStream(messages, tools, () => undefined, { route: { tier: "strong", provider: params.get("provider") || undefined } });
+      const pinned = params.get("provider") || undefined;
+      if (pinned && !providers.includes(pinned as never)) return NextResponse.json({ ok: false, providers, agent: true, error: `${pinned} is not configured on this deployment.` }, { status: 400 });
+      const result = await completeStream(messages, tools, () => undefined, { route: { tier: "strong", provider: pinned }, only: Boolean(pinned) });
       return NextResponse.json({ ok: true, providers, agent: true, estimatedTokens: estimateTokens(messages, tools), tools: tools.length, ms: Date.now() - started, provider: result.provider, model: result.model, toolCalls: result.toolCalls.map((call) => call.function.name), reply: result.content.slice(0, 200) });
     } catch (error) {
-      return NextResponse.json({ ok: false, providers, agent: true, estimatedTokens: estimateTokens(messages, tools), error: error instanceof Error ? error.message.slice(0, 1500) : String(error), ...(error instanceof AllProvidersFailedError ? { summary: error.summary, raw: error.raw.slice(0, 2500) } : {}) }, { status: 502 });
+      return NextResponse.json({ ok: false, providers, agent: true, estimatedTokens: estimateTokens(messages, tools), error: error instanceof Error ? error.message.slice(0, 1500) : String(error), ...(error instanceof AllProvidersFailedError ? { summary: error.summary, hints: error.summary.flatMap((item) => item.hint ? [item.hint] : []), raw: error.raw.slice(0, 2500) } : {}), cooldowns: providerCooldowns() }, { status: 502 });
     }
   }
   if (params.get("discover")) return NextResponse.json({ ok: true, providers, models: await discoveredModels() });
@@ -57,9 +59,9 @@ export async function GET(request: Request) {
   const messages: LlmMessage[] = [{ role: "user", content }];
   try {
     const result = await complete(messages, [], { route: { tier, provider, model }, only: Boolean(provider) });
-    return NextResponse.json({ ok: true, providers, tier, provider: result.provider, model: result.model, reply: result.content.slice(0, 40) });
+    return NextResponse.json({ ok: true, providers, tier, provider: result.provider, model: result.model, reply: result.content.slice(0, 40), cooldowns: providerCooldowns() });
   } catch (error) {
     // Owner-only: the raw per-model dump rides along for diagnosis; users only ever see the friendly summary.
-    return NextResponse.json({ ok: false, providers, tier, error: error instanceof Error ? error.message.slice(0, 1500) : String(error), ...(error instanceof AllProvidersFailedError ? { summary: error.summary, raw: error.raw.slice(0, 2500) } : {}) }, { status: 502 });
+    return NextResponse.json({ ok: false, providers, tier, error: error instanceof Error ? error.message.slice(0, 1500) : String(error), ...(error instanceof AllProvidersFailedError ? { summary: error.summary, hints: error.summary.flatMap((item) => item.hint ? [item.hint] : []), raw: error.raw.slice(0, 2500) } : {}), cooldowns: providerCooldowns() }, { status: 502 });
   }
 }

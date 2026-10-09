@@ -177,3 +177,12 @@ The Code workspace (`/agent`) and code conversations run Elias in **code mode**:
 - **APIs**: `POST /api/code/chat` (SSE), `GET/POST /api/code/state` (working set, diff, CI; actions open/verify/discard/tree/read).
 - **Tests**: `tests/code-*.test.mjs` (mock GitHub in `lib/assistant/code/mockGithub.ts`), `scripts/test-code.ts` (Postgres), `evals/code.ts` + `evals/code.jsonl` (scripted model, mock GitHub), all in CI.
 - **Owner setup**: reconnect GitHub once so the token has the `workflow` scope (needed to dispatch CI and edit workflow files). CI must run on `push` to `elias/**` or `workflow_dispatch` in repos you want verified.
+
+## Cloudflare Workers AI provider
+
+Elias tries Cloudflare Workers AI first (after an explicit `ELIAS_AGENT_BASE_URL`), then Groq, Gemini and the rest. It calls the OpenAI-compatible endpoint `https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/ai/v1/chat/completions`.
+
+- Token: `CLOUDFLARE_AI_TOKEN`, else `CLOUDFLARE_API_TOKEN`, else the Browser Run token `CLOUDFLARE_BROWSER_TOKEN`. It needs the account permission "Workers AI: Read".
+- Models: strong `@cf/openai/gpt-oss-120b`, then `@cf/meta/llama-3.3-70b-instruct-fp8-fast`, then `@cf/openai/gpt-oss-20b`; fast starts with `@cf/openai/gpt-oss-20b`. Override with `CLOUDFLARE_AGENT_MODEL` / `CLOUDFLARE_FAST_MODEL`. Requests are trimmed to `CLOUDFLARE_TOKEN_BUDGET` (default 32k tokens) to save neurons.
+- Errors: daily free neurons used up (code 3036) rests the provider until 00:00 UTC; other 429s rest it for retry-after or 1 hour; out of capacity (3040) moves to the next model; 401/403 rests it 1 hour with the hint "create a token with Workers AI: Read and save it as CLOUDFLARE_AI_TOKEN"; paid-only or missing models are skipped.
+- Check: `GET /api/assistant/health?agent=1&provider=cloudflare` (Bearer `ELIAS_HEALTH_TOKEN`) tries only Cloudflare; failures return `summary`, `hints` and `cooldowns`.
