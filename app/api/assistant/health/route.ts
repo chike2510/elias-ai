@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { browserProviders, probeBrowser } from "@/lib/assistant/browser";
-import { AllProvidersFailedError, agentProviders, complete, discoveredModels, type ContentPart, type LlmMessage, type ModelTier } from "@/lib/assistant/llm";
+import { systemPrompt } from "@/lib/assistant/agent";
+import { toolSchemasFor } from "@/lib/assistant/tools";
+import { AllProvidersFailedError, agentProviders, complete, completeStream, discoveredModels, estimateTokens, type ContentPart, type LlmMessage, type ModelTier } from "@/lib/assistant/llm";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -12,6 +14,7 @@ const TEST_IMAGE = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAA
  * Owner-only model check: which provider/model answers right now. Bearer ELIAS_HEALTH_TOKEN.
  * Optional: ?provider=gemini (try only that provider), ?model=<id> (pin a model), ?tier=fast|strong|vision,
  * ?discover=1 (list each provider's /models ids instead of calling a model),
+ * ?agent=1 (a real-size chat request: the full system prompt and every chat tool schema, no user data or DB writes),
  * ?browser=1 (open example.com in the remote browser; returns the title and which provider served it).
  */
 export async function GET(request: Request) {
@@ -26,6 +29,20 @@ export async function GET(request: Request) {
       return NextResponse.json({ ok: true, browsers, ...(await probeBrowser()) });
     } catch (error) {
       return NextResponse.json({ ok: false, browsers, error: error instanceof Error ? error.message.slice(0, 600) : String(error) }, { status: 502 });
+    }
+  }
+  if (params.get("agent")) {
+    const messages: LlmMessage[] = [
+      { role: "system", content: systemPrompt({ name: "Owner", timezone: "Africa/Lagos", memories: "No saved memories yet.", googleEmail: null, googleConfigured: false, browser: false, origin: "chat" }) },
+      { role: "user", content: "Health check: in one short sentence, say what you can help me with today." },
+    ];
+    const tools = toolSchemasFor("chat");
+    const started = Date.now();
+    try {
+      const result = await completeStream(messages, tools, () => undefined, { route: { tier: "strong", provider: params.get("provider") || undefined } });
+      return NextResponse.json({ ok: true, providers, agent: true, estimatedTokens: estimateTokens(messages, tools), tools: tools.length, ms: Date.now() - started, provider: result.provider, model: result.model, toolCalls: result.toolCalls.map((call) => call.function.name), reply: result.content.slice(0, 200) });
+    } catch (error) {
+      return NextResponse.json({ ok: false, providers, agent: true, estimatedTokens: estimateTokens(messages, tools), error: error instanceof Error ? error.message.slice(0, 1500) : String(error), ...(error instanceof AllProvidersFailedError ? { summary: error.summary, raw: error.raw.slice(0, 2500) } : {}) }, { status: 502 });
     }
   }
   if (params.get("discover")) return NextResponse.json({ ok: true, providers, models: await discoveredModels() });

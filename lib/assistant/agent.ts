@@ -89,7 +89,7 @@ function historyUserContent(item: StoredMessage, recent: boolean) {
   return [content, ...images, docs].filter(Boolean).join("\n\n");
 }
 
-function systemPrompt(input: { name?: string; timezone: string; memories: string; googleEmail: string | null; googleStatus?: GoogleConnection | null; googleConfigured: boolean; browser: boolean; origin: string; extra?: string }) {
+export function systemPrompt(input: { name?: string; timezone: string; memories: string; googleEmail: string | null; googleStatus?: GoogleConnection | null; googleConfigured: boolean; browser: boolean; origin: string; extra?: string }) {
   const now = new Date();
   return `You are Elias, a personal AI that runs errands across the user's life: memory of them, their Gmail and Calendar, the web, a real browser, GitHub, weather and scheduled tasks.
 
