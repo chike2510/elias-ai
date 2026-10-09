@@ -4,7 +4,7 @@ import type { ModelRoute, ModelTier } from "@/lib/assistant/modelRouter";
 
 export type { ModelRoute, ModelTier };
 /** Every provider the agent can use: the shared registry plus the agent-only custom endpoint and Gemini. */
-export type AgentProvider = ProviderName | "custom" | "gemini";
+export type AgentProvider = ProviderName | "custom" | "gemini" | "cloudflare";
 export type ContentPart = { type: "text"; text: string } | { type: "image_url"; image_url: { url: string; detail?: "auto" | "low" | "high" } };
 export type ToolCall = { id: string; type: "function"; function: { name: string; arguments: string } };
 export type LlmMessage =
@@ -25,10 +25,28 @@ const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai
 const GEMINI_MODELS = ["gemini-3.8-flash", "gemini-flash-latest", "gemini-3.7-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-flash-lite-latest"];
 const GEMINI_LITE_FIRST = ["gemini-3.5-flash-lite", "gemini-flash-lite-latest", "gemini-3.1-flash-lite", "gemini-3.8-flash", "gemini-flash-latest"];
 
+/**
+ * Cloudflare Workers AI through its OpenAI-compatible endpoint. Reuses CLOUDFLARE_ACCOUNT_ID (set for Browser Run)
+ * and takes CLOUDFLARE_AI_TOKEN when set, else CLOUDFLARE_API_TOKEN, else the Browser Run token. The token needs
+ * "Workers AI: Read" on the account. Free plan: 10,000 neurons a day, reset at 00:00 UTC.
+ */
+export function cloudflareConfig() {
+  const accountId = (process.env.CLOUDFLARE_ACCOUNT_ID || "").trim();
+  const key = (process.env.CLOUDFLARE_AI_TOKEN || process.env.CLOUDFLARE_API_TOKEN || process.env.CLOUDFLARE_BROWSER_TOKEN || "").trim();
+  return accountId && key ? { accountId, key, baseUrl: `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1` } : null;
+}
+/** Tool-calling chat models on Workers AI (checked against developers.cloudflare.com/workers-ai/models, Oct 2026). */
+const CF_STRONG = "@cf/openai/gpt-oss-120b";
+const CF_FAST = "@cf/openai/gpt-oss-20b";
+const CF_FALLBACK = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
+export const CLOUDFLARE_HINT = "Cloudflare Workers AI: the token was rejected. Create a Cloudflare API token with \"Workers AI: Read\" for this account and save it as CLOUDFLARE_AI_TOKEN.";
+export const CLOUDFLARE_QUOTA_HINT = "Cloudflare Workers AI: today's free 10,000 neurons are used up; it comes back at 00:00 UTC (01:00 WAT).";
+
 type CandidateTable = Partial<Record<Exclude<AgentProvider, "custom">, () => string[]>>;
 
 /** Models tried in order per provider (the "strong" tier). The first one the account can use wins and is remembered. */
 const MODEL_CANDIDATES: CandidateTable = {
+  cloudflare: () => [...env("CLOUDFLARE_AGENT_MODEL"), CF_STRONG, CF_FALLBACK, CF_FAST],
   gemini: () => [...env("GEMINI_AGENT_MODEL"), ...GEMINI_MODELS],
   // Each Groq model has its own free-tier rate limit, so the smaller ones are real fallbacks for a rate-limited 120b.
   groq: () => [...env("GROQ_AGENT_MODEL"), "openai/gpt-oss-120b", "moonshotai/kimi-k2-instruct-0905", "moonshotai/kimi-k2-instruct", "openai/gpt-oss-20b", "qwen/qwen3.8-27b", "qwen/qwen3-32b", "llama-3.3-70b-versatile", "llama-3.1-8b-instant"],
@@ -42,6 +60,7 @@ const MODEL_CANDIDATES: CandidateTable = {
 
 /** Small, quick models for plain chat. Providers missing here use their normal list. */
 const FAST_CANDIDATES: CandidateTable = {
+  cloudflare: () => [...env("CLOUDFLARE_FAST_MODEL"), CF_FAST, CF_FALLBACK, CF_STRONG],
   groq: () => [...env("GROQ_FAST_MODEL"), "openai/gpt-oss-20b", "llama-3.1-8b-instant", "qwen/qwen3.8-27b", "openai/gpt-oss-120b"],
   cerebras: () => [...env("CEREBRAS_FAST_MODEL"), "llama3.1-8b", "gpt-oss-120b", "qwen-3.8-27b", "llama-3.3-70b"],
   gemini: () => [...env("GEMINI_FAST_MODEL"), ...GEMINI_LITE_FIRST],
@@ -58,7 +77,7 @@ const VISION_CANDIDATES: CandidateTable = {
 };
 
 const TIER_TABLE: Record<ModelTier, CandidateTable> = { strong: MODEL_CANDIDATES, fast: FAST_CANDIDATES, vision: VISION_CANDIDATES };
-const FAST_FIRST: AgentProvider[] = ["groq", "cerebras", "gemini"];
+const FAST_FIRST: AgentProvider[] = ["cloudflare", "groq", "cerebras", "gemini"];
 const VISION_ORDER: AgentProvider[] = ["custom", "groq", "openrouter", "gemini", "github"];
 
 const VISION_GUESS = /vision|-vl\b|\bvl-|llama-4|maverick|scout|gemma-3|pixtral|gpt-4o|gpt-4\.1|gpt-5|gemini|llava|qwen2\.5-vl|qwen3-vl|phi-4-multimodal/i;
@@ -70,7 +89,7 @@ const NOT_CHAT = /whisper|tts|embed|guard|safeguard|orpheus|allam|audio|image|ba
  * 200 text/plain "OK". It stays out of the default order; ELIAS_GITHUB_MODELS=1 opts back in.
  */
 const RETIRED: AgentProvider[] = ["github"];
-const DEFAULT_ORDER = "custom,groq,gemini,cerebras,openrouter,mistral,huggingface,qwen";
+const DEFAULT_ORDER = "custom,cloudflare,groq,gemini,cerebras,openrouter,mistral,huggingface,qwen";
 
 /** Output cap for one reply. Free tiers count prompt + max_tokens against small per-minute budgets. */
 const MAX_TOKENS = () => Math.max(256, Number(process.env.ELIAS_MAX_TOKENS) || 2048);
@@ -100,6 +119,8 @@ const GROQ_TPM: Record<string, number> = {
 export function tokenBudget(provider: AgentProvider, model: string): number | null {
   if (provider === "groq") return Number(process.env.GROQ_TPM_BUDGET) || GROQ_TPM[model] || 6_000;
   if (provider === "cerebras") return Number(process.env.CEREBRAS_TPM_BUDGET) || 60_000;
+  // Workers AI bills neurons per token from a 10k/day free pool, so keep each request lean.
+  if (provider === "cloudflare") return Number(process.env.CLOUDFLARE_TOKEN_BUDGET) || 32_000;
   if (provider === "openrouter" || provider === "mistral" || provider === "huggingface") return 32_000;
   return null;
 }
@@ -117,12 +138,12 @@ export class ProviderError extends Error {
    * model: this model can't be used (skip it for good). account: the key is out of quota/credits/invalid (cool the provider down).
    * busy: overloaded, rate-limited or too large right now (try the next model). reason: a few words for the user-facing summary.
    */
-  constructor(message: string, readonly kind: ErrorKind, readonly reason = "error", readonly retryAfterMs?: number, readonly suggested?: string) { super(message); }
+  constructor(message: string, readonly kind: ErrorKind, readonly reason = "error", readonly retryAfterMs?: number, readonly suggested?: string, readonly cooldownMs?: number) { super(message); }
 }
 
 /** Every provider failed. message is the friendly sentence plus a short per-provider summary; raw keeps the full dump for logs. */
 export class AllProvidersFailedError extends Error {
-  constructor(readonly summary: Array<{ provider: string; reason: string }>, readonly raw: string) {
+  constructor(readonly summary: Array<{ provider: string; reason: string; hint?: string }>, readonly raw: string) {
     super(friendlyFailure(summary));
   }
 }
@@ -173,7 +194,42 @@ function suggestedModel(body: string) {
   return body.match(/use (?:models\/)?([a-z0-9][\w.\-:/]*[a-z0-9])/i)?.[1];
 }
 
+/** Milliseconds until the next 00:00 UTC, when Workers AI's daily free neurons reset. */
+export function msUntilUtcMidnight(now = Date.now()) {
+  const next = new Date(now);
+  next.setUTCHours(24, 0, 0, 0);
+  return next.getTime() - now;
+}
+
+/** Workers AI errors (developers.cloudflare.com/workers-ai/platform/errors), or null to use the generic rules. */
+export function cloudflareError(model: string, status: number, body: string, headers?: Headers): ProviderError | null {
+  const text = body.toLowerCase();
+  const message = `cloudflare/${model} HTTP ${status}: ${body.slice(0, 300)}`;
+  // 3036: the daily free allocation of 10,000 neurons is used up. Rest until it resets at 00:00 UTC.
+  if (/neurons|daily free allocation|"code":\s*3036/.test(text)) return new ProviderError(message, "account", "daily free neurons used up", undefined, undefined, msUntilUtcMidnight());
+  // 3040: out of capacity for this model right now. Try the next model.
+  if (status === 429 && /capacity|"code":\s*3040/.test(text)) return new ProviderError(message, "busy", "out of capacity", retryAfterMs(headers, body));
+  // Any other 429: rest the provider for what it asks, or an hour.
+  if (status === 429) return new ProviderError(message, "account", "rate limited", undefined, undefined, retryAfterMs(headers, body) || ACCOUNT_COOLDOWN_MS);
+  // Paid-only, private, or terms-gated models: skip just that model.
+  if (status === 403 && /paid plan|not allowed to access this model|model terms|"code":\s*(5035|5018|3041|5016)/.test(text)) return new ProviderError(message, "model", "model needs a paid plan or access");
+  // 401/403 otherwise (code 10000 "Authentication error"): the token lacks Workers AI permission.
+  if (status === 401 || status === 403) return new ProviderError(message, "account", /blocked|3023/.test(text) ? "account blocked" : "token lacks Workers AI permission");
+  if (status === 413) return new ProviderError(message, "busy", "request too large");
+  if ((status === 400 || status === 404) && /no such model|invalid model|model name is invalid|"code":\s*(5007|3042)/.test(text)) return new ProviderError(message, "model", "model unavailable");
+  return null;
+}
+
+/** A sentence telling the owner what fixes a provider's failure, when there is one. */
+export function providerHint(provider: string, reason: string): string | undefined {
+  if (provider !== "cloudflare") return undefined;
+  if (/permission|blocked|key rejected/.test(reason)) return CLOUDFLARE_HINT;
+  if (/neurons/.test(reason)) return CLOUDFLARE_QUOTA_HINT;
+  return undefined;
+}
+
 function httpError(provider: AgentProvider, model: string, status: number, body: string, headers?: Headers) {
+  if (provider === "cloudflare") { const error = cloudflareError(model, status, body, headers); if (error) return error; }
   const kind = classify(status, body);
   return new ProviderError(`${provider}/${model} HTTP ${status}: ${body.slice(0, 300)}`, kind, reasonFor(status, body, kind), kind === "busy" ? retryAfterMs(headers, body) : undefined, kind === "model" ? suggestedModel(body) : undefined);
 }
@@ -185,11 +241,13 @@ function nonJson(provider: AgentProvider, model: string, text: string) {
 
 async function availableModels(provider: AgentProvider, baseUrl: string, key: string) {
   if (!discovered.has(provider)) {
-    discovered.set(provider, fetch(`${baseUrl}/models`, { headers: { Authorization: `Bearer ${key}` }, cache: "no-store", signal: AbortSignal.timeout(8_000) })
+    // Workers AI has no /v1/models; its model search lists names under result[].
+    const url = provider === "cloudflare" ? `${baseUrl.replace(/\/v1$/, "")}/models/search?task=Text%20Generation&per_page=200` : `${baseUrl}/models`;
+    discovered.set(provider, fetch(url, { headers: { Authorization: `Bearer ${key}` }, cache: "no-store", signal: AbortSignal.timeout(8_000) })
       .then(async (response) => {
         if (!response.ok) return null;
-        const data = (await response.json()) as { data?: Array<{ id?: string }>; models?: Array<{ name?: string }> };
-        const ids = [...(data.data || []).map((item) => item.id || ""), ...(data.models || []).map((item) => item.name || "")].map((id) => id.replace(/^models\//, "")).filter(Boolean);
+        const data = (await response.json()) as { data?: Array<{ id?: string }>; models?: Array<{ name?: string }>; result?: Array<{ name?: string }> };
+        const ids = [...(data.data || []).map((item) => item.id || ""), ...(data.models || []).map((item) => item.name || ""), ...(Array.isArray(data.result) ? data.result : []).map((item) => item.name || "")].map((id) => id.replace(/^models\//, "")).filter(Boolean);
         return new Set(ids);
       })
       .catch(() => null));
@@ -214,6 +272,7 @@ export function rankGemini(available: Iterable<string>, tier: ModelTier) {
 function configFor(provider: AgentProvider): { baseUrl: string; key: string } {
   if (provider === "custom") { const custom = customConfig(); return { baseUrl: custom?.baseUrl || "", key: custom?.key || "" }; }
   if (provider === "gemini") return { baseUrl: GEMINI_BASE_URL, key: process.env.GEMINI_API_KEY || "" };
+  if (provider === "cloudflare") { const cf = cloudflareConfig(); return { baseUrl: cf?.baseUrl || "", key: cf?.key || "" }; }
   const config = providerConfig(provider);
   return { baseUrl: config?.baseUrl || "", key: config?.key || "" };
 }
@@ -244,6 +303,8 @@ function withDiscovery(provider: AgentProvider, route: ModelRoute, candidates: s
     return [...new Set([...envFirst, ...(known && ranked.includes(known) ? [known] : []), ...ranked])].filter((model) => model === pinned || !deadModels.has(`${provider}/${model}`));
   }
   const usable = candidates.filter((model) => model === pinned || (available.has(model) && free(model)));
+  // Workers AI's catalogue is mostly models without tool calling: keep to our list (listed ones first), never add extras.
+  if (provider === "cloudflare") return [...usable, ...candidates.filter((model) => !usable.includes(model))];
   if (route.tier === "vision") {
     if (usable.length) return usable;
     // None of the known vision ids are offered: try what discovery lists that looks multimodal.
@@ -296,7 +357,7 @@ async function withModels(provider: AgentProvider, route: ModelRoute, run: (mode
         } else if (error.kind === "busy") {
           if (error.retryAfterMs) modelCooldown.set(`${provider}/${model}`, Date.now() + Math.min(error.retryAfterMs, ACCOUNT_COOLDOWN_MS));
         } else if (error.kind === "account") {
-          providerCooldown.set(provider, { until: Date.now() + ACCOUNT_COOLDOWN_MS, reason: error.reason });
+          providerCooldown.set(provider, { until: Date.now() + (error.cooldownMs || ACCOUNT_COOLDOWN_MS), reason: error.reason });
           throw error;
         } else throw error;
         break;
@@ -318,6 +379,8 @@ export function agentProviders(): AgentProvider[] {
   const order = (process.env.ELIAS_AGENT_PROVIDERS || DEFAULT_ORDER).split(",").map((item) => item.trim());
   // Gemini sits right after Groq whenever its key is set, even with an older custom order.
   if (process.env.GEMINI_API_KEY && !order.includes("gemini")) order.splice(order.includes("groq") ? order.indexOf("groq") + 1 : 0, 0, "gemini");
+  // Cloudflare Workers AI goes first (after an explicit custom endpoint) whenever it is configured, even with an older custom order.
+  if (cloudflareConfig() && !order.includes("cloudflare")) order.splice(order.includes("custom") ? order.indexOf("custom") + 1 : 0, 0, "cloudflare");
   const optIn = process.env.ELIAS_GITHUB_MODELS === "1";
   if (optIn && !order.includes("github")) order.push("github");
   const retired = optIn ? [] : RETIRED;
@@ -334,6 +397,12 @@ export function providersFor(route: ModelRoute = { tier: "strong" }): AgentProvi
   const pinned = route.provider as AgentProvider | undefined;
   if (pinned && base.includes(pinned)) order = [pinned, ...order.filter((name) => name !== pinned)];
   return order;
+}
+
+/** Providers resting right now and why, with a fix hint where there is one (owner health check). */
+export function providerCooldowns() {
+  const now = Date.now();
+  return [...providerCooldown].filter(([, value]) => value.until > now).map(([provider, value]) => ({ provider, reason: value.reason, until: new Date(value.until).toISOString(), ...(providerHint(provider, value.reason) ? { hint: providerHint(provider, value.reason) } : {}) }));
 }
 
 /** Raw /models ids per configured provider (owner health check diagnostics). */
@@ -577,7 +646,7 @@ function summarize(failures: Array<{ provider: AgentProvider; error: unknown }>)
     for (const part of reason.split(", ")) if (!list.includes(part)) list.push(part);
     byProvider.set(provider, list);
   }
-  return [...byProvider].map(([provider, reasons]) => ({ provider, reason: reasons.join(", ") }));
+  return [...byProvider].map(([provider, reasons]) => { const reason = reasons.join(", "); const hint = providerHint(provider, reason); return hint ? { provider, reason, hint } : { provider, reason }; });
 }
 
 function allFailed(failures: Array<{ provider: AgentProvider; error: unknown }>) {
@@ -590,11 +659,12 @@ function allFailed(failures: Array<{ provider: AgentProvider; error: unknown }>)
  * Same as complete() but streams visible reply text through onDelta. Falls back to the next
  * provider only when nothing has been streamed yet, so the user never sees two half-answers.
  */
-export async function completeStream(messages: LlmMessage[], tools: ToolSchema[], onDelta: (text: string) => void, options: { temperature?: number; route?: ModelRoute } = {}): Promise<LlmResult> {
+export async function completeStream(messages: LlmMessage[], tools: ToolSchema[], onDelta: (text: string) => void, options: { temperature?: number; route?: ModelRoute; only?: boolean } = {}): Promise<LlmResult> {
   const route = options.route || { tier: "strong" };
-  const providers = providersFor(route);
+  // only: just the pinned provider (the owner health check's ?agent=1&provider=X).
+  const providers = options.only && route.provider ? providersFor(route).filter((name) => name === route.provider) : providersFor(route);
   if (!providers.length && route.tier === "vision") throw new Error("No vision-capable model is configured. Set GROQ_API_KEY, OPENROUTER_API_KEY or GEMINI_API_KEY.");
-  if (!providers.length) throw new Error("No tool-capable model provider is configured. Set GROQ_API_KEY, GEMINI_API_KEY, CEREBRAS_API_KEY, OPENROUTER_API_KEY, MISTRAL_API_KEY or HF_TOKEN.");
+  if (!providers.length) throw new Error("No tool-capable model provider is configured. Set CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_AI_TOKEN, GROQ_API_KEY, GEMINI_API_KEY, CEREBRAS_API_KEY, OPENROUTER_API_KEY, MISTRAL_API_KEY or HF_TOKEN.");
   const failures: Array<{ provider: AgentProvider; error: unknown }> = [];
   for (const provider of providers) {
     let streamed = false;
@@ -619,7 +689,7 @@ export async function complete(messages: LlmMessage[], tools: ToolSchema[] = [],
   // only: try just the pinned provider (the owner health check uses this to test one provider directly).
   const providers = options.only && route.provider ? providersFor(route).filter((name) => name === route.provider) : providersFor(route);
   if (options.preferred && providers.includes(options.preferred)) providers.unshift(...providers.splice(providers.indexOf(options.preferred), 1));
-  if (!providers.length) throw new Error("No tool-capable model provider is configured. Set GROQ_API_KEY, GEMINI_API_KEY, CEREBRAS_API_KEY, OPENROUTER_API_KEY, MISTRAL_API_KEY or HF_TOKEN.");
+  if (!providers.length) throw new Error("No tool-capable model provider is configured. Set CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_AI_TOKEN, GROQ_API_KEY, GEMINI_API_KEY, CEREBRAS_API_KEY, OPENROUTER_API_KEY, MISTRAL_API_KEY or HF_TOKEN.");
   const failures: Array<{ provider: AgentProvider; error: unknown }> = [];
   for (const provider of providers) {
     try { return await withModels(provider, route, (model) => callProvider(provider, messages, tools, options.temperature ?? 0.3, model)); }

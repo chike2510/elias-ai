@@ -81,7 +81,7 @@ test("model label for the reply footer", () => {
 
 test("llm.ts wires Gemini after Groq with the newest flash models first (no closed 2.x), retired GitHub Models last in vision order", () => {
   const source = readFileSync(path.resolve("lib/assistant/llm.ts"), "utf8");
-  assert.match(source, /DEFAULT_ORDER = "custom,groq,gemini,cerebras/);
+  assert.match(source, /DEFAULT_ORDER = "custom,cloudflare,groq,gemini,cerebras/);
   assert.match(source, /GEMINI_MODELS = \["gemini-3\.8-flash", "gemini-flash-latest"/);
   assert.doesNotMatch(source.match(/const GEMINI_MODELS = [^\n]*/)[0], /gemini-2\./);
   assert.match(source, /VISION_ORDER: AgentProvider\[\] = \["custom", "groq", "openrouter", "gemini", "github"\]/);

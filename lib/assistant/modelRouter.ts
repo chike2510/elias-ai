@@ -25,7 +25,7 @@ export const FILE_CHARS_TOTAL = 48_000;
 /** Document text kept on the stored message so follow-up turns can still see it. */
 export const STORED_FILE_CHARS = 24_000;
 
-export const PROVIDER_IDS = ["custom", "groq", "gemini", "cerebras", "github", "openrouter", "mistral", "huggingface", "qwen"];
+export const PROVIDER_IDS = ["custom", "cloudflare", "groq", "gemini", "cerebras", "github", "openrouter", "mistral", "huggingface", "qwen"];
 
 /** "auto" | "fast" | "strong" | "<provider>/<model id>" (model ids may contain slashes). */
 export function parseChoice(raw: unknown): ModelChoice {
