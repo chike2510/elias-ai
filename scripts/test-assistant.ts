@@ -109,6 +109,9 @@ async function main() {
   assert.equal(approvals[0].status, "failed", "gmail with a bad token fails cleanly");
   assert.equal((approvals[0].details as { subject: string }).subject, "Edited subject", "edit applied");
   await assert.rejects(decideApproval({ userId: user, approvalId: t4.approvals[0].id, decision: "approve" }), /no longer pending/);
+  // v5: the fake token has no refresh token, so that failure marked the row expired (the chat would show Reconnect). Revive it for the next case.
+  assert.equal((await db`select status from public.elias_oauth_tokens where user_id = ${user} and provider = 'google'`)[0]?.status, "expired");
+  await db`update public.elias_oauth_tokens set status = 'ok' where user_id = ${user} and provider = 'google'`;
   const t4b = await runTurn({ userId: user, conversationId: t1.conversationId, text: "invite ada to a sync" });
   assert.equal(t4b.approvals[0].details.kind, "event");
   assert.deepEqual((t4b.approvals[0].details as { guests: string[] }).guests, ["ada@example.com"]);

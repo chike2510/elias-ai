@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { ChevronRight, Globe2, LogOut, Mail, Github, MessagesSquare, Sparkles, History } from "lucide-react";
+import { ChevronRight, Globe2, LogOut, Github, MessagesSquare, Sparkles, History } from "lucide-react";
 import NotificationSettings from "@/components/NotificationSettings";
 import TelegramLink from "@/components/screens/TelegramLink";
+import GoogleStatusRow from "@/components/google/GoogleStatusRow";
 import { useEffect, useState } from "react";
 import AppShell, { ListSkeleton } from "@/components/AppShell";
 import { MORE } from "@/lib/navigation";
@@ -35,7 +36,7 @@ export default function YouScreen() {
         {!status && !statusError ? <ListSkeleton rows={3} /> : null}
         {statusError ? <p className="el-empty-line">Couldn't check connections right now.</p> : null}
         {status ? <ul className="el-list">
-          <li><ConnectionRow icon={<Mail size={17} />} name="Google" detail={status.google.connected ? `Gmail & Calendar · ${status.google.email || "connected"}` : status.google.configured ? "Gmail & Calendar" : "Not configured yet"} state={status.google.connected ? "on" : status.google.configured ? "off" : "na"} href={status.google.connected || !status.google.configured ? "/connectors" : "/api/connect/google?return=/you"} action={status.google.configured && !status.google.connected ? "Connect" : undefined} /></li>
+          <li><GoogleStatusRow google={status.google} returnTo="/you" /></li>
           <li><ConnectionRow icon={<Github size={17} />} name="GitHub" detail={status.github.connected ? "Repository access" : "Repository access not connected"} state={status.github.connected ? "on" : "off"} href="/connectors/github" /></li>
           <li><ConnectionRow icon={<Globe2 size={17} />} name="Browser" detail={status.browser.configured ? "Interactive browsing ready" : "Browser not configured"} state={status.browser.configured ? "on" : "na"} href="/browser" /></li>
         </ul> : null}

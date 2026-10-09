@@ -1,0 +1,9 @@
+/* v5 Google: connection health on You / Connectors (theme tokens only, so dark mode follows). */
+.v5g-row { gap: 10px; }
+.v5g-row .el-list-text { min-width: 0; }
+.v5g-row .el-list-text small { overflow-wrap: anywhere; }
+.v5g-warn-text { color: var(--warn); }
+.v5g-action, .v5g-row .el-btn { min-height: 44px; min-width: 44px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; }
+.el-state.warn { color: var(--warn); background: var(--warn-soft); }
+.v5g-notice { margin: 0 0 8px; padding: 10px 12px; border-radius: 12px; background: var(--surface-2); }
+.v5g-notice.warn { color: var(--warn); background: var(--warn-soft); }

@@ -1,150 +1,158 @@
 import { decrypt, encrypt, ready } from "@/lib/assistant/db";
 import { needsReencrypt } from "@/lib/assistant/crypto";
+import * as core from "@/lib/assistant/googleCore";
+import { BASE_SCOPES, DRIVE_SCOPE, TESTING_REFRESH_DAYS, scopeFlags, type ConnectionStatus, type FetchLike, type GoogleClient, type TokenRecord, type TokenStore } from "@/lib/assistant/googleCore";
 
-export const GOOGLE_SCOPES = [
-  "openid", "email", "profile",
-  "https://www.googleapis.com/auth/gmail.modify",
-  "https://www.googleapis.com/auth/gmail.compose",
-  "https://www.googleapis.com/auth/calendar.events",
-  "https://www.googleapis.com/auth/calendar.readonly",
-];
+export { GoogleReconnectError, isReconnectError, reconnectText, DRIVE_SCOPE } from "@/lib/assistant/googleCore";
+export const GOOGLE_SCOPES = BASE_SCOPES;
 
 export function googleConfigured() {
   return Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
 }
 
+/** While the OAuth app is in Google's "Testing" status, refresh tokens die 7 days after consent. Set GOOGLE_OAUTH_PUBLISHED=1 once it's published. */
+export function googleTestingMode() {
+  return process.env.GOOGLE_OAUTH_PUBLISHED !== "1";
+}
+
+/* Tests swap in lib/assistant/googleMock.ts here. */
+let fetchImpl: FetchLike | undefined;
+export function setGoogleFetch(next: FetchLike | undefined) { fetchImpl = next; }
+const gfetch: FetchLike = (url, init) => (fetchImpl || ((u, i) => fetch(u, i)))(url, init);
+
 export function googleRedirectUri(request: Request) {
   return process.env.GOOGLE_REDIRECT_URI || `${new URL(request.url).origin}/api/connect/google/callback`;
 }
 
-export function googleAuthUrl(request: Request, state: string) {
+export function googleAuthUrl(request: Request, state: string, extraScopes: string[] = []) {
   const params = new URLSearchParams({
     client_id: process.env.GOOGLE_CLIENT_ID || "", redirect_uri: googleRedirectUri(request), response_type: "code",
-    scope: GOOGLE_SCOPES.join(" "), access_type: "offline", prompt: "consent", include_granted_scopes: "true", state,
+    scope: [...new Set([...GOOGLE_SCOPES, ...extraScopes])].join(" "), access_type: "offline", prompt: "consent", include_granted_scopes: "true", state,
   });
   return `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
 }
 
+/* v5 columns on elias_oauth_tokens (connected_at, status, last_error, extra_scopes) are created in ready() (lib/assistant/db.ts). */
+const db = ready;
+
 type TokenResponse = { access_token?: string; refresh_token?: string; expires_in?: number; scope?: string; id_token?: string; error?: string; error_description?: string };
 
+/** Code → tokens. Both tokens are stored AES-256-GCM encrypted (ELIAS_ENCRYPTION_KEY); a reconnect clears any expired/revoked state. */
 export async function exchangeGoogleCode(request: Request, code: string, userId: string) {
-  const response = await fetch("https://oauth2.googleapis.com/token", {
+  const response = await gfetch("https://oauth2.googleapis.com/token", {
     method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ code, client_id: process.env.GOOGLE_CLIENT_ID || "", client_secret: process.env.GOOGLE_CLIENT_SECRET || "", redirect_uri: googleRedirectUri(request), grant_type: "authorization_code" }),
+    body: new URLSearchParams({ code, client_id: process.env.GOOGLE_CLIENT_ID || "", client_secret: process.env.GOOGLE_CLIENT_SECRET || "", redirect_uri: googleRedirectUri(request), grant_type: "authorization_code" }).toString(),
   });
-  const data = await response.json() as TokenResponse;
+  const data = await response.json().catch(() => ({})) as TokenResponse;
   if (!response.ok || !data.access_token) throw new Error(data.error_description || data.error || "Google token exchange failed.");
-  const profile = await fetch("https://openidconnect.googleapis.com/v1/userinfo", { headers: { Authorization: `Bearer ${data.access_token}` } }).then((res) => res.json() as Promise<{ email?: string }>).catch(() => ({} as { email?: string }));
-  const db = await ready();
+  const profile = await gfetch("https://openidconnect.googleapis.com/v1/userinfo", { headers: { Authorization: `Bearer ${data.access_token}` } }).then((res) => res.json() as Promise<{ email?: string }>).catch(() => ({} as { email?: string }));
+  const sql = await db();
   const expires = new Date(Date.now() + (data.expires_in || 3600) * 1000);
   const refresh = data.refresh_token ? encrypt(data.refresh_token) : null;
-  await db`insert into public.elias_oauth_tokens (user_id, provider, email, scope, access_token, refresh_token, expires_at)
-    values (${userId}, 'google', ${profile.email || null}, ${data.scope || null}, ${encrypt(data.access_token)}, ${refresh}, ${expires})
-    on conflict (user_id, provider) do update set email = excluded.email, scope = excluded.scope, access_token = excluded.access_token,
-    refresh_token = coalesce(excluded.refresh_token, public.elias_oauth_tokens.refresh_token), expires_at = excluded.expires_at, updated_at = now()`;
-  return profile.email || null;
+  await sql`insert into public.elias_oauth_tokens (user_id, provider, email, scope, access_token, refresh_token, expires_at, connected_at, status, last_error)
+    values (${userId}, 'google', ${profile.email || null}, ${data.scope || null}, ${encrypt(data.access_token)}, ${refresh}, ${expires}, now(), 'ok', null)
+    on conflict (user_id, provider) do update set email = coalesce(excluded.email, public.elias_oauth_tokens.email), scope = excluded.scope, access_token = excluded.access_token,
+    refresh_token = coalesce(excluded.refresh_token, public.elias_oauth_tokens.refresh_token), expires_at = excluded.expires_at,
+    connected_at = case when excluded.refresh_token is not null then now() else public.elias_oauth_tokens.connected_at end,
+    status = case when excluded.refresh_token is not null or public.elias_oauth_tokens.refresh_token is not null then 'ok' else public.elias_oauth_tokens.status end,
+    last_error = null, updated_at = now()`;
+  return { email: profile.email || null, scope: data.scope || "", refreshToken: Boolean(data.refresh_token) };
 }
 
-export async function googleConnection(userId: string) {
-  const db = await ready();
-  const rows = await db`select email, scope, updated_at from public.elias_oauth_tokens where user_id = ${userId} and provider = 'google'`;
-  return rows[0] ? { email: rows[0].email as string | null, scope: rows[0].scope as string | null } : null;
+export type GoogleConnection = {
+  email: string | null; scope: string | null; status: ConnectionStatus; connectedAt: string | null;
+  /** When Google will drop the refresh token (testing mode only). */
+  renewBy: string | null; expiresSoon: boolean; scopes: ReturnType<typeof scopeFlags>; driveRequested: boolean;
+};
+
+/** Null when there is no row. A row whose refresh token died is returned with status expired/revoked so the UI can offer a reconnect. */
+export async function googleConnection(userId: string): Promise<GoogleConnection | null> {
+  const sql = await db();
+  const rows = await sql`select email, scope, status, connected_at, extra_scopes, refresh_token is not null as has_refresh from public.elias_oauth_tokens where user_id = ${userId} and provider = 'google'`;
+  const row = rows[0];
+  if (!row) return null;
+  const connectedAt = row.connected_at ? new Date(row.connected_at as string) : null;
+  const renewBy = googleTestingMode() && connectedAt && row.has_refresh ? new Date(connectedAt.getTime() + TESTING_REFRESH_DAYS * 86400_000) : null;
+  return {
+    email: row.email as string | null, scope: row.scope as string | null, status: (row.status as ConnectionStatus) || "ok", connectedAt: connectedAt?.toISOString() || null,
+    renewBy: renewBy?.toISOString() || null, expiresSoon: Boolean(renewBy && renewBy.getTime() - Date.now() < 36 * 3600_000),
+    scopes: scopeFlags(row.scope as string | null), driveRequested: String(row.extra_scopes || "").includes(DRIVE_SCOPE),
+  };
+}
+
+/** Scopes the user asked for beyond the base set (Drive), added on their next connect. */
+export async function googleExtraScopes(userId: string) {
+  const sql = await db();
+  const rows = await sql`select extra_scopes from public.elias_oauth_tokens where user_id = ${userId} and provider = 'google'`;
+  return String(rows[0]?.extra_scopes || "").split(/\s+/).filter(Boolean);
 }
 
 export async function disconnectGoogle(userId: string) {
-  const db = await ready();
-  await db`delete from public.elias_oauth_tokens where user_id = ${userId} and provider = 'google'`;
-}
-
-async function accessToken(userId: string) {
-  const db = await ready();
-  const rows = await db`select * from public.elias_oauth_tokens where user_id = ${userId} and provider = 'google'`;
-  const record = rows[0];
-  if (!record) throw new Error("Google is not connected. Ask the user to connect Google in Elias (Connectors > Google).");
-  if (needsReencrypt(record.access_token as string) || needsReencrypt(record.refresh_token as string | null)) {
-    // Transparent migration: plaintext or legacy-key rows are rewritten with ELIAS_ENCRYPTION_KEY.
-    await db`update public.elias_oauth_tokens set access_token = ${encrypt(decrypt(record.access_token as string))},
-      refresh_token = ${record.refresh_token ? encrypt(decrypt(record.refresh_token as string)) : null} where user_id = ${userId} and provider = 'google'`.catch(() => undefined);
+  const sql = await db();
+  const rows = await sql`select access_token, refresh_token from public.elias_oauth_tokens where user_id = ${userId} and provider = 'google'`;
+  const row = rows[0];
+  if (row) {
+    // Revoke at Google too (best effort), so the grant doesn't linger in the user's Google account.
+    try {
+      const token = decrypt((row.refresh_token || row.access_token) as string);
+      await gfetch("https://oauth2.googleapis.com/revoke", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ token }).toString(), signal: AbortSignal.timeout(5000) } as RequestInit);
+    } catch { /* already revoked or unreachable: deleting our copy is what matters */ }
   }
-  if (new Date(record.expires_at as string).getTime() > Date.now() + 60_000) return decrypt(record.access_token as string);
-  if (!record.refresh_token) throw new Error("Google access expired. Ask the user to reconnect Google.");
-  const response = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ client_id: process.env.GOOGLE_CLIENT_ID || "", client_secret: process.env.GOOGLE_CLIENT_SECRET || "", refresh_token: decrypt(record.refresh_token as string), grant_type: "refresh_token" }),
-  });
-  const data = await response.json() as TokenResponse;
-  if (!response.ok || !data.access_token) throw new Error("Google access could not be refreshed. Ask the user to reconnect Google.");
-  await db`update public.elias_oauth_tokens set access_token = ${encrypt(data.access_token)}, expires_at = ${new Date(Date.now() + (data.expires_in || 3600) * 1000)}, updated_at = now() where user_id = ${userId} and provider = 'google'`;
-  return data.access_token;
+  await sql`delete from public.elias_oauth_tokens where user_id = ${userId} and provider = 'google'`;
 }
 
-async function google<T>(userId: string, url: string, init: RequestInit = {}): Promise<T> {
-  const token = await accessToken(userId);
-  const response = await fetch(url, { ...init, headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", ...(init.headers || {}) }, cache: "no-store" });
-  const text = await response.text();
-  if (!response.ok) throw new Error(`Google API ${response.status}: ${text.slice(0, 300)}`);
-  return (text ? JSON.parse(text) : {}) as T;
+/** The Postgres token store: decrypts on load, encrypts on save, migrates plaintext/legacy rows on first read. */
+export const dbTokenStore: TokenStore = {
+  async load(userId) {
+    const sql = await db();
+    const rows = await sql`select * from public.elias_oauth_tokens where user_id = ${userId} and provider = 'google'`;
+    const row = rows[0];
+    if (!row) return null;
+    if (needsReencrypt(row.access_token as string) || needsReencrypt(row.refresh_token as string | null)) {
+      await sql`update public.elias_oauth_tokens set access_token = ${encrypt(decrypt(row.access_token as string))},
+        refresh_token = ${row.refresh_token ? encrypt(decrypt(row.refresh_token as string)) : null} where user_id = ${userId} and provider = 'google'`.catch(() => undefined);
+    }
+    const record: TokenRecord = {
+      email: row.email as string | null, scope: row.scope as string | null, accessToken: decrypt(row.access_token as string),
+      refreshToken: row.refresh_token ? decrypt(row.refresh_token as string) : null, expiresAt: row.expires_at ? new Date(row.expires_at as string) : null,
+      connectedAt: row.connected_at ? new Date(row.connected_at as string) : null, status: (row.status as ConnectionStatus) || "ok", lastError: row.last_error as string | null,
+      extraScopes: String(row.extra_scopes || "").split(/\s+/).filter(Boolean),
+    };
+    return record;
+  },
+  async saveAccess(userId, accessToken, expiresAt, refreshToken) {
+    const sql = await db();
+    await sql`update public.elias_oauth_tokens set access_token = ${encrypt(accessToken)}, expires_at = ${expiresAt},
+      refresh_token = ${refreshToken ? encrypt(refreshToken) : sql`refresh_token`}, updated_at = now() where user_id = ${userId} and provider = 'google'`;
+  },
+  async markBroken(userId, status, error) {
+    const sql = await db();
+    await sql`update public.elias_oauth_tokens set status = ${status}, last_error = ${error.slice(0, 300)}, updated_at = now() where user_id = ${userId} and provider = 'google'`;
+  },
+  async wantScope(userId, scope) {
+    const sql = await db();
+    await sql`update public.elias_oauth_tokens set extra_scopes = trim(extra_scopes || ' ' || ${scope}) where user_id = ${userId} and provider = 'google' and position(${scope} in extra_scopes) = 0`;
+  },
+};
+
+export function googleClient(userId: string): GoogleClient {
+  return core.createGoogleClient({ userId, store: dbTokenStore, fetch: gfetch });
 }
 
-type GmailHeader = { name: string; value: string };
-type GmailPart = { mimeType?: string; body?: { data?: string }; parts?: GmailPart[]; headers?: GmailHeader[] };
-type GmailMessage = { id: string; threadId: string; snippet?: string; labelIds?: string[]; payload?: GmailPart };
-
-function header(message: GmailMessage, name: string) {
-  return message.payload?.headers?.find((item) => item.name.toLowerCase() === name.toLowerCase())?.value || "";
-}
-
-function bodyText(part?: GmailPart): string {
-  if (!part) return "";
-  if (part.mimeType === "text/plain" && part.body?.data) return Buffer.from(part.body.data, "base64url").toString("utf8");
-  for (const child of part.parts || []) { const text = bodyText(child); if (text) return text; }
-  if (part.mimeType === "text/html" && part.body?.data) return Buffer.from(part.body.data, "base64url").toString("utf8").replace(/<style[\s\S]*?<\/style>/gi, "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
-  return "";
-}
-
-export async function gmailSearch(userId: string, query: string, max = 10) {
-  const list = await google<{ messages?: Array<{ id: string }> }>(userId, `https://gmail.googleapis.com/gmail/v1/users/me/messages?${new URLSearchParams({ q: query, maxResults: String(Math.min(max, 25)) })}`);
-  const messages = await Promise.all((list.messages || []).map((item) => google<GmailMessage>(userId, `https://gmail.googleapis.com/gmail/v1/users/me/messages/${item.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`)));
-  return messages.map((message) => ({ id: message.id, threadId: message.threadId, from: header(message, "From"), subject: header(message, "Subject"), date: header(message, "Date"), snippet: message.snippet, unread: message.labelIds?.includes("UNREAD") }));
-}
-
-export async function gmailRead(userId: string, id: string) {
-  const message = await google<GmailMessage>(userId, `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(id)}?format=full`);
-  return { id: message.id, threadId: message.threadId, from: header(message, "From"), to: header(message, "To"), cc: header(message, "Cc"), subject: header(message, "Subject"), date: header(message, "Date"), messageId: header(message, "Message-ID"), body: bodyText(message.payload).slice(0, 12_000) };
-}
-
-function rawEmail(input: { to: string; subject: string; body: string; cc?: string; inReplyTo?: string }) {
-  const lines = [`To: ${input.to}`, ...(input.cc ? [`Cc: ${input.cc}`] : []), `Subject: ${input.subject}`, "MIME-Version: 1.0", "Content-Type: text/plain; charset=UTF-8",
-    ...(input.inReplyTo ? [`In-Reply-To: ${input.inReplyTo}`, `References: ${input.inReplyTo}`] : []), "", input.body];
-  return Buffer.from(lines.join("\r\n"), "utf8").toString("base64url");
-}
-
-export async function gmailDraft(userId: string, input: { to: string; subject: string; body: string; cc?: string; threadId?: string; inReplyTo?: string }) {
-  const draft = await google<{ id: string }>(userId, "https://gmail.googleapis.com/gmail/v1/users/me/drafts", { method: "POST", body: JSON.stringify({ message: { raw: rawEmail(input), ...(input.threadId ? { threadId: input.threadId } : {}) } }) });
-  return { draftId: draft.id };
-}
-
-export async function gmailSend(userId: string, input: { to: string; subject: string; body: string; cc?: string; threadId?: string; inReplyTo?: string }) {
-  const sent = await google<{ id: string }>(userId, "https://gmail.googleapis.com/gmail/v1/users/me/messages/send", { method: "POST", body: JSON.stringify({ raw: rawEmail(input), ...(input.threadId ? { threadId: input.threadId } : {}) }) });
-  return { messageId: sent.id };
-}
-
-type CalendarEvent = { id: string; summary?: string; start?: { dateTime?: string; date?: string }; end?: { dateTime?: string; date?: string }; location?: string; attendees?: Array<{ email: string; responseStatus?: string }>; htmlLink?: string; hangoutLink?: string };
-
-export async function calendarList(userId: string, timeMin: string, timeMax: string) {
-  const data = await google<{ items?: CalendarEvent[] }>(userId, `https://www.googleapis.com/calendar/v3/calendars/primary/events?${new URLSearchParams({ timeMin, timeMax, singleEvents: "true", orderBy: "startTime", maxResults: "50" })}`);
-  return (data.items || []).map((event) => ({ id: event.id, title: event.summary, start: event.start?.dateTime || event.start?.date, end: event.end?.dateTime || event.end?.date, location: event.location, attendees: event.attendees?.map((item) => item.email), link: event.hangoutLink || event.htmlLink }));
-}
-
-export async function calendarCreate(userId: string, input: { summary: string; start: string; end: string; timezone?: string; location?: string; description?: string; attendees?: string[] }) {
-  const event = await google<CalendarEvent>(userId, `https://www.googleapis.com/calendar/v3/calendars/primary/events?sendUpdates=${input.attendees?.length ? "all" : "none"}`, {
-    method: "POST",
-    body: JSON.stringify({ summary: input.summary, location: input.location, description: input.description, start: { dateTime: input.start, timeZone: input.timezone }, end: { dateTime: input.end, timeZone: input.timezone }, attendees: input.attendees?.map((email) => ({ email })) }),
-  });
-  return { id: event.id, link: event.htmlLink };
-}
-
-export async function calendarDelete(userId: string, eventId: string) {
-  await google(userId, `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}`, { method: "DELETE" });
-  return { deleted: eventId };
-}
+/* userId-based wrappers (the API the rest of the app uses). */
+export const gmailSearch = (userId: string, query: string, max = 10) => core.gmailSearch(googleClient(userId), query, max);
+export const gmailRead = (userId: string, id: string) => core.gmailRead(googleClient(userId), id);
+export const gmailThread = (userId: string, threadId: string) => core.gmailThread(googleClient(userId), threadId);
+export const gmailTriage = (userId: string, options: { days?: number; max?: number } = {}) => core.gmailTriage(googleClient(userId), options);
+export const gmailDraft = (userId: string, input: core.EmailInput) => core.gmailDraft(googleClient(userId), input);
+export const gmailDraftReply = (userId: string, input: { threadId?: string; messageId?: string; body: string; replyAll?: boolean }) => core.gmailDraftReply(googleClient(userId), input);
+export const gmailSend = (userId: string, input: core.EmailInput & { draftId?: string }) => core.gmailSend(googleClient(userId), input);
+export const calendarList = (userId: string, timeMin: string, timeMax: string) => core.calendarList(googleClient(userId), timeMin, timeMax);
+export const calendarAgenda = (userId: string, input: { date?: string; days?: number; timezone: string }) => core.calendarAgenda(googleClient(userId), input);
+export const calendarFreeTime = (userId: string, input: { date?: string; days?: number; timezone: string; dayStart?: string; dayEnd?: string; minMinutes?: number }) => core.calendarFreeTime(googleClient(userId), input);
+export const calendarGet = (userId: string, eventId: string) => core.calendarGet(googleClient(userId), eventId);
+export const calendarCreate = (userId: string, input: { summary: string; start: string; end: string; timezone?: string; location?: string; description?: string; attendees?: string[] }) => core.calendarCreate(googleClient(userId), input);
+export const calendarMove = (userId: string, input: { eventId: string; start: string; end?: string; timezone?: string; summary?: string; location?: string }) => core.calendarMove(googleClient(userId), input);
+export const calendarDelete = (userId: string, eventId: string) => core.calendarDelete(googleClient(userId), eventId);
+export const driveSearch = (userId: string, query: string, max = 10) => core.driveSearch(googleClient(userId), query, max);
+export const driveRead = (userId: string, fileId: string) => core.driveRead(googleClient(userId), fileId);

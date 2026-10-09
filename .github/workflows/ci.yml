@@ -72,6 +72,11 @@ jobs:
         env:
           POSTGRES_URL: postgres://postgres@127.0.0.1:5432/postgres
 
+      - name: Google integration (encrypted tokens, refresh/expiry, reconnect card, mock Google)
+        run: npx -y tsx scripts/test-google.ts
+        env:
+          POSTGRES_URL: postgres://postgres@127.0.0.1:5432/postgres
+
       - name: Evals (deterministic, scripted model)
         run: npx -y tsx evals/run.ts
         env:

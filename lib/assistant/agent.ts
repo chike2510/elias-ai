@@ -5,9 +5,9 @@ import { newId, ready } from "@/lib/assistant/db";
 import { extractMemories, memoryContext, saveMemory } from "@/lib/assistant/memory";
 import { approvalSummary, hasTool, runTool, toolSchemasFor, type ToolContext } from "@/lib/assistant/tools";
 import { browserConfigured, closeAll, type BrowserHandle } from "@/lib/assistant/browser";
-import { googleConfigured, googleConnection } from "@/lib/assistant/google";
-import { approvalDetails, cardFor, EDITABLE_ARGS, statusLabel, type ApprovalDetails, type Card, type ConnectCard, type MemoryChip } from "@/lib/assistant/cards";
-import { briefCards, type BriefData } from "@/lib/assistant/brief";
+import { googleConfigured, googleConnection, isReconnectError, reconnectText, type GoogleConnection } from "@/lib/assistant/google";
+import { googleApprovalDetails, googleCardFor, EDITABLE_ARGS, statusLabel, type ApprovalDetails, type Card, type ConnectCard, type MemoryChip } from "@/lib/assistant/cards";
+import { briefCards, briefConnect, type BriefData } from "@/lib/assistant/brief";
 import { recordAudit } from "@/lib/assistant/audit";
 import { getCodeSet, isCodeTool } from "@/lib/assistant/code/github";
 import { CODE_PROMPT, codeSetSummary } from "@/lib/assistant/code/prompt";
@@ -50,6 +50,8 @@ type RunOptions = {
   extraContext?: string;
   /** Cards to attach to the reply regardless of tool use (e.g. the daily brief). */
   presetCards?: Card[];
+  /** Connect/Reconnect cards to attach regardless of tool use (e.g. a brief whose Google access expired). */
+  presetConnect?: ConnectCard[];
   title?: string;
   /** Images (sent to a vision model) and extracted documents (injected as context) for this message. */
   attachments?: ChatAttachment[];
@@ -83,7 +85,7 @@ function historyUserContent(item: StoredMessage, recent: boolean) {
   return [item.content, ...images, docs].filter(Boolean).join("\n\n");
 }
 
-function systemPrompt(input: { name?: string; timezone: string; memories: string; googleEmail: string | null; googleConfigured: boolean; browser: boolean; origin: string; extra?: string }) {
+function systemPrompt(input: { name?: string; timezone: string; memories: string; googleEmail: string | null; googleStatus?: GoogleConnection | null; googleConfigured: boolean; browser: boolean; origin: string; extra?: string }) {
   const now = new Date();
   return `You are Elias, a personal AI that runs errands across the user's life: memory of them, their Gmail and Calendar, the web, a real browser, GitHub, weather and scheduled tasks.
 
@@ -99,7 +101,7 @@ VOICE: You are texting. Reply like a sharp, warm friend would by text message.
 
 NOW: ${now.toLocaleString("en-GB", { timeZone: input.timezone, dateStyle: "full", timeStyle: "short" })} (${input.timezone}). ISO ${now.toISOString()}.
 USER: ${input.name || "unknown name"}.
-GOOGLE: ${input.googleEmail ? `connected as ${input.googleEmail}` : input.googleConfigured ? "not connected. If a request needs Gmail or Calendar, still call the tool: the chat shows the user a Connect Google button." : "not available on this server yet (the owner hasn't added Google OAuth keys). Say so in one line if they ask for email or calendar."}
+GOOGLE: ${input.googleEmail ? `connected as ${input.googleEmail} (Gmail, Calendar${input.googleStatus?.scopes.drive ? ", Drive read-only" : "; Drive not allowed yet, drive_ tools show a Reconnect button"}). For "check my email" use gmail_triage; for the day use calendar_agenda; creating or moving events and sending email always pause for approval.` : input.googleStatus && input.googleStatus.status !== "ok" ? `connected as ${input.googleStatus.email || "the user"} but access ${input.googleStatus.status} (Google testing mode signs out every 7 days). Still call the tool: the chat shows a Reconnect Google button.` : input.googleConfigured ? "not connected. If a request needs Gmail or Calendar, still call the tool: the chat shows the user a Connect Google button." : "not available on this server yet (the owner hasn't added Google OAuth keys). Say so in one line if they ask for email or calendar."}
 BROWSER: ${input.browser ? "available" : "not configured; use web_search/web_open, and say interactive browsing isn't set up if they need it"}.
 
 WHAT YOU REMEMBER ABOUT THE USER (use it quietly, never recite it):
@@ -169,7 +171,7 @@ export async function deleteConversation(userId: string, conversationId: string)
 function approvalRow(item: Record<string, unknown>): Approval {
   const tool = String(item.tool);
   const args = (item.args || {}) as Record<string, unknown>;
-  return { id: String(item.id), tool, summary: String(item.summary), status: String(item.status), createdAt: new Date(item.created_at as string).toISOString(), conversationId: (item.conversation_id as string) || null, result: (item.result as string) || null, details: approvalDetails(tool, args, String(item.summary)), editable: EDITABLE_ARGS[tool] || [] };
+  return { id: String(item.id), tool, summary: String(item.summary), status: String(item.status), createdAt: new Date(item.created_at as string).toISOString(), conversationId: (item.conversation_id as string) || null, result: (item.result as string) || null, details: googleApprovalDetails(tool, args, String(item.summary)), editable: EDITABLE_ARGS[tool] || [] };
 }
 
 export async function listApprovals(userId: string, conversationId?: string) {
@@ -189,7 +191,7 @@ function compact(value: unknown) {
   return (text ?? "null").slice(0, 14_000);
 }
 
-const GOOGLE_TOOLS = /^(gmail_|calendar_)/;
+const GOOGLE_TOOLS = /^(gmail_|calendar_|drive_)/;
 const BROWSER_TOOLS = /^browser_/;
 
 /** One user turn: memory + history in, tool loop (streamed), reply out. */
@@ -206,6 +208,8 @@ export async function runTurn(options: RunOptions): Promise<TurnResult> {
     memoryContext(options.userId, options.text).catch(() => "Memory unavailable this turn."),
     googleConnection(options.userId).catch(() => null),
   ]);
+  // A row whose refresh token died (7-day testing expiry, revoked) is not "connected": tools get the reconnect card instead.
+  const googleOk = Boolean(google && google.status === "ok");
   const attachments = origin === "chat" ? options.attachments || [] : [];
   const images = attachments.filter((item) => item.kind === "image");
   const files = attachments.filter((item) => item.kind === "file");
@@ -218,7 +222,7 @@ export async function runTurn(options: RunOptions): Promise<TurnResult> {
   const lastUserIndexes = new Set(history.map((item, index) => item.role === "user" ? index : -1).filter((index) => index >= 0).slice(-3));
 
   const messages: LlmMessage[] = [
-    { role: "system", content: systemPrompt({ name: options.userName, timezone, memories, googleEmail: google?.email || null, googleConfigured: googleConfigured(), browser: browserConfigured(), origin, extra: [codeExtra, options.extraContext].filter(Boolean).join("\n\n") || undefined }) },
+    { role: "system", content: systemPrompt({ name: options.userName, timezone, memories, googleEmail: googleOk ? google?.email || null : null, googleStatus: google, googleConfigured: googleConfigured(), browser: browserConfigured(), origin, extra: [codeExtra, options.extraContext].filter(Boolean).join("\n\n") || undefined }) },
     ...history.map((item, index) => ({ item, index })).filter(({ item }) => item.role !== "event" || item.meta.kind === "approval").map(({ item, index }): LlmMessage => item.role === "assistant" ? { role: "assistant", content: item.content } : { role: "user", content: item.role === "event" ? `[system note] ${item.content}` : historyUserContent(item, lastUserIndexes.has(index)) }),
     { role: "user", content: userContent },
   ];
@@ -229,7 +233,7 @@ export async function runTurn(options: RunOptions): Promise<TurnResult> {
   const approvals: Approval[] = [];
   const actions: TurnResult["actions"] = [];
   const cards: Card[] = [...(options.presetCards || [])];
-  const connect: ConnectCard[] = [];
+  const connect: ConnectCard[] = [...(options.presetConnect || [])];
   const memoriesSaved: TurnResult["memories"] = [];
   const steps: string[] = [];
   let reply = "";
@@ -269,7 +273,11 @@ export async function runTurn(options: RunOptions): Promise<TurnResult> {
           output = "Error: repo and code tools only run in the coding workspace (/agent). Tell the user in one line to open the Code workspace for repo changes.";
           actions.push({ tool: name, ok: false });
         }
-        else if (GOOGLE_TOOLS.test(name) && !google) {
+        else if (GOOGLE_TOOLS.test(name) && google && !googleOk && googleConfigured()) {
+          addConnect({ provider: "google", configured: true, reconnect: true, reason: google.status === "revoked" ? "revoked" : "expired", email: google.email });
+          output = reconnectText(google.status === "revoked" ? "revoked" : "expired");
+          actions.push({ tool: name, ok: false });
+        } else if (GOOGLE_TOOLS.test(name) && !googleOk) {
           addConnect({ provider: "google", configured: googleConfigured() });
           output = googleConfigured()
             ? "Google isn't connected. The user now sees a Connect Google button in the chat. Tell them in one line to tap it, then you can finish this."
@@ -295,15 +303,19 @@ export async function runTurn(options: RunOptions): Promise<TurnResult> {
               const raw = await runTool(name, args, ctx);
               output = compact(raw);
               actions.push({ tool: name, ok: true });
-              if (name === "daily_brief") for (const card of briefCards(raw as BriefData)) addCard(card);
-              else addCard(codeCardFor(name, raw) ?? cardFor(name, raw));
+              if (name === "daily_brief") { for (const card of briefCards(raw as BriefData)) addCard(card); const again = briefConnect(raw as BriefData); if (again) addConnect(again); }
+              else addCard(codeCardFor(name, raw) ?? googleCardFor(name, raw));
               if ((name === "memory_save" || name === "memory_update") && raw && typeof raw === "object" && "id" in raw && (raw as { created?: boolean }).created !== false) {
                 const chip = { id: String((raw as { id: string }).id), content: String((raw as { content?: string }).content || "") };
                 if (!memoriesSaved.some((item) => item.id === chip.id)) { memoriesSaved.push(chip); emit({ type: "memory", memory: chip }); }
               }
             }
           } catch (error) {
-            output = `Error: ${error instanceof Error ? error.message : String(error)}`;
+            if (isReconnectError(error)) {
+              // Expired/revoked mid-turn, or a missing permission (e.g. Drive): show Reconnect Google instead of an error.
+              addConnect({ provider: "google", configured: googleConfigured(), reconnect: error.reason !== "not_connected", reason: error.reason, scope: error.scope, email: google?.email || null });
+              output = reconnectText(error.reason);
+            } else output = `Error: ${error instanceof Error ? error.message : String(error)}`;
             actions.push({ tool: name, ok: false });
           }
         }
@@ -369,6 +381,7 @@ export async function decideApproval(input: { userId: string; userName?: string;
     }
   }
   let note: string;
+  let reconnect: ConnectCard | null = null;
   if (input.decision === "decline") {
     note = `User DECLINED: ${summary}`;
     await recordAudit({ userId: input.userId, tool, args, status: "declined", approvalId: input.approvalId, conversationId, origin: "approval" });
@@ -385,12 +398,13 @@ export async function decideApproval(input: { userId: string; userName?: string;
       const message = error instanceof Error ? error.message : String(error);
       await db`update public.elias_approvals set status = 'failed', result = ${message} where id = ${input.approvalId}`;
       note = `User approved but execution FAILED: ${summary}\nError: ${message}`;
+      if (isReconnectError(error)) { reconnect = { provider: "google", configured: googleConfigured(), reconnect: error.reason !== "not_connected", reason: error.reason, scope: error.scope }; note += "\nThe user sees a Reconnect Google button; after reconnecting they can approve it again."; }
     } finally {
       await closeAll(browsers);
     }
   }
   await addMessage(input.userId, conversationId, "event", note, { kind: "approval", approvalId: input.approvalId });
-  return runTurn({ userId: input.userId, userName: input.userName, conversationId, text: `[system note] ${note}\nConfirm the outcome to the user in one or two lines, or continue the task if more steps remain.`, timezone: input.timezone, githubToken: input.githubToken, origin: "approval" });
+  return runTurn({ userId: input.userId, userName: input.userName, conversationId, text: `[system note] ${note}\nConfirm the outcome to the user in one or two lines, or continue the task if more steps remain.`, timezone: input.timezone, githubToken: input.githubToken, origin: "approval", presetConnect: reconnect ? [reconnect] : undefined });
 }
 
 /* ---------- one-time import of conversations kept in the browser (IndexedDB) ---------- */

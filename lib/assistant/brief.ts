@@ -1,7 +1,7 @@
 import { ready } from "@/lib/assistant/db";
-import { calendarList, gmailSearch, googleConnection } from "@/lib/assistant/google";
+import { calendarList, gmailTriage, googleConnection, isReconnectError } from "@/lib/assistant/google";
 import { createSchedule, validTimezone, zonedTime } from "@/lib/assistant/schedules";
-import type { Card, EmailItem, EventItem, WeatherCard } from "@/lib/assistant/cards";
+import type { Card, ConnectCard, EmailItem, EventItem, WeatherCard } from "@/lib/assistant/cards";
 
 export const DAILY_BRIEF_PROMPT = "Send my morning brief: today's calendar, important unread email, reminders due today, and the weather.";
 
@@ -70,7 +70,8 @@ export async function ensureDailyBrief(userId: string, timezone?: string) {
   }
 }
 
-export type BriefData = { date: string; timezone: string; google: boolean; events: EventItem[]; emails: EmailItem[]; reminders: Array<{ name: string; at: string }>; pendingApprovals: number; weather: Omit<WeatherCard, "kind"> | null; notes: string[] };
+/** google: true only when Gmail/Calendar were actually read. googleState says why not: "none" (never connected) or "reconnect" (expired/revoked). */
+export type BriefData = { date: string; timezone: string; google: boolean; googleState?: "ok" | "none" | "reconnect"; googleEmail?: string | null; inbox?: string; events: EventItem[]; emails: EmailItem[]; reminders: Array<{ name: string; at: string }>; pendingApprovals: number; weather: Omit<WeatherCard, "kind"> | null; notes: string[] };
 
 /** Everything the morning brief needs, gathered without the model so it works even when tools are flaky. */
 export async function gatherBrief(userId: string, timezone: string, city?: string | null): Promise<BriefData> {
@@ -82,29 +83,48 @@ export async function gatherBrief(userId: string, timezone: string, city?: strin
   const db = await ready();
   const notes: string[] = [];
   const google = await googleConnection(userId).catch(() => null);
+  let googleState: NonNullable<BriefData["googleState"]> = !google ? "none" : google.status === "ok" ? "ok" : "reconnect";
+  const live = googleState === "ok";
+  let inbox: string | undefined;
   const settings = await getSettings(userId).catch(() => null);
   const place = city || settings?.city || cityFromTimezone(tz);
+  const googleFailed = (label: string) => (error: unknown) => {
+    if (isReconnectError(error)) { if (error.reason === "expired" || error.reason === "revoked" || error.reason === "not_connected") googleState = "reconnect"; }
+    else notes.push(`${label}: ${error instanceof Error ? error.message : String(error)}`);
+    return [];
+  };
   const [events, emails, weather, reminderRows, approvals] = await Promise.all([
-    google ? calendarList(userId, start.toISOString(), end.toISOString()).then((items) => items.map((item) => ({ id: item.id, title: item.title || "(untitled)", start: item.start, end: item.end, location: item.location, link: item.link }))).catch((error) => { notes.push(`Calendar: ${error.message}`); return []; }) : Promise.resolve([] as EventItem[]),
-    google ? gmailSearch(userId, "is:unread is:important newer_than:2d", 5).catch(() => gmailSearch(userId, "is:unread newer_than:1d", 5)).then((items) => items.map((item) => ({ id: item.id, from: (item.from || "").replace(/<[^>]+>/, "").trim(), subject: item.subject || "(no subject)", date: item.date, snippet: (item.snippet || "").slice(0, 140), unread: item.unread }))).catch((error) => { notes.push(`Gmail: ${error.message}`); return []; }) : Promise.resolve([] as EmailItem[]),
+    live ? calendarList(userId, start.toISOString(), end.toISOString()).then((items) => items.map((item): EventItem => ({ id: item.id, title: item.title || "(untitled)", start: item.start, end: item.end, location: item.location, link: item.link, attendees: item.attendees?.length ? item.attendees.filter((value): value is string => Boolean(value)) : undefined }))).catch(googleFailed("Calendar")) : Promise.resolve([] as EventItem[]),
+    // Inbox triage (read-only): what needs a reply, what's important, what's about money, instead of a raw unread list.
+    live ? gmailTriage(userId, { days: 1, max: 30 }).then((triage) => {
+      inbox = triage.summary;
+      const pick = (items: typeof triage.needsReply) => items.map((item): EmailItem => ({ id: item.id, from: item.from, subject: item.subject, date: item.date, snippet: `${item.why} · ${item.snippet}`.slice(0, 140), unread: true }));
+      return [...pick(triage.needsReply), ...pick(triage.important), ...pick(triage.money)].slice(0, 5);
+    }).catch(googleFailed("Gmail")) : Promise.resolve([] as EmailItem[]),
     weatherFor(place).catch((error) => { notes.push(`Weather: ${error.message}`); return null; }),
     db`select name, next_run_at from public.elias_schedules where user_id = ${userId} and status = 'active' and kind <> 'daily_brief' and next_run_at >= ${now} and next_run_at < ${end} order by next_run_at`,
     db`select count(*)::int as n from public.elias_approvals where user_id = ${userId} and status = 'pending'`,
   ]);
-  if (!google) notes.push("Google isn't connected, so calendar and email are skipped.");
+  if (googleState === "none") notes.push("Google isn't connected, so calendar and email are skipped.");
+  if (googleState === "reconnect") notes.push("Google access expired (testing mode signs out every 7 days), so calendar and email are skipped. The user sees a Reconnect Google button.");
   return {
-    date: now.toLocaleDateString("en-GB", { timeZone: tz, weekday: "long", day: "numeric", month: "long" }), timezone: tz, google: Boolean(google),
+    date: now.toLocaleDateString("en-GB", { timeZone: tz, weekday: "long", day: "numeric", month: "long" }), timezone: tz, google: googleState === "ok", googleState, googleEmail: google?.email || null, inbox,
     events, emails, weather,
     reminders: reminderRows.map((row) => ({ name: String(row.name), at: new Date(row.next_run_at as string).toLocaleTimeString("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit" }) })),
     pendingApprovals: Number(approvals[0]?.n || 0), notes,
   };
 }
 
+/** The Reconnect Google card to show under a brief whose Google access has expired. */
+export function briefConnect(data: BriefData): ConnectCard | null {
+  return data.googleState === "reconnect" ? { provider: "google", configured: true, reconnect: true, reason: "expired", email: data.googleEmail || null } : null;
+}
+
 export function briefCards(data: BriefData): Card[] {
   const cards: Card[] = [];
   if (data.weather) cards.push({ kind: "weather", ...data.weather });
   if (data.events.length) cards.push({ kind: "events", title: "Today", items: data.events });
-  if (data.emails.length) cards.push({ kind: "emails", title: "Unread & important", items: data.emails });
+  if (data.emails.length) cards.push({ kind: "emails", title: data.inbox ? "Needs you" : "Unread & important", items: data.emails });
   return cards;
 }
 
@@ -114,9 +134,10 @@ export function fallbackBrief(data: BriefData) {
   const lines = [`Morning! Here's ${data.date}.`];
   if (data.weather) lines.push(`${data.weather.place}: ${data.weather.summary}${data.weather.high !== undefined ? `, ${data.weather.low}–${data.weather.high}°C` : ""}${data.weather.rainChance ? `, ${data.weather.rainChance}% chance of rain` : ""}.`);
   if (data.google) lines.push(data.events.length ? `${data.events.length} on your calendar, first: ${data.events[0].title} at ${time(data.events[0].start)}.` : "Nothing on your calendar today.");
-  if (data.google) lines.push(data.emails.length ? `${data.emails.length} unread worth a look, top one from ${data.emails[0].from}.` : "No important unread email.");
+  if (data.google) lines.push(data.inbox ? `${data.inbox}${data.emails[0] ? ` Top: ${data.emails[0].from}, "${data.emails[0].subject}".` : ""}` : data.emails.length ? `${data.emails.length} unread worth a look, top one from ${data.emails[0].from}.` : "No important unread email.");
   if (data.reminders.length) lines.push(`Reminders: ${data.reminders.map((item) => `${item.name} at ${item.at}`).join(", ")}.`);
   if (data.pendingApprovals) lines.push(`${data.pendingApprovals} thing${data.pendingApprovals === 1 ? "" : "s"} waiting on your OK.`);
-  if (!data.google) lines.push("Connect Google and I'll add your calendar and inbox here.");
+  if (data.googleState === "reconnect") lines.push("Google signed me out, so I couldn't read your calendar and inbox. Tap Reconnect Google below.");
+  else if (!data.google) lines.push("Connect Google and I'll add your calendar and inbox here.");
   return lines.join("\n");
 }

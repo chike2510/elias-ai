@@ -1,6 +1,6 @@
 import type { ToolSchema } from "@/lib/assistant/llm";
 import { deleteMemory, saveMemory, searchMemories, updateMemory } from "@/lib/assistant/memory";
-import { calendarCreate, calendarDelete, calendarList, gmailDraft, gmailRead, gmailSearch, gmailSend } from "@/lib/assistant/google";
+import { calendarAgenda, calendarCreate, calendarDelete, calendarFreeTime, calendarGet, calendarList, calendarMove, driveRead, driveSearch, gmailDraft, gmailDraftReply, gmailRead, gmailSearch, gmailSend, gmailThread, gmailTriage } from "@/lib/assistant/google";
 import { createSchedule, describeSpec, listSchedules, setScheduleStatus } from "@/lib/assistant/schedules";
 import { elementLabel, endBrowser, looksConsequential, openBrowser, snapshot, type BrowserHandle } from "@/lib/assistant/browser";
 import { fetchUrl, searchWeb } from "@/lib/webSearch";
@@ -78,36 +78,73 @@ const TOOLS: Record<string, Tool> = {
     run: async (args, ctx) => ({ deleted: await deleteMemory(ctx.userId, str(args.id)) }),
   },
 
+  gmail_triage: {
+    schema: { name: "gmail_triage", description: "Inbox triage: sorts unread inbox mail from the last few days into needs-a-reply, important, money (bills, receipts, alerts), and counts of updates and promotions. Read-only. Use for 'check my email', 'what needs my attention in my inbox', morning catch-ups.", parameters: obj({ days: { type: "number", description: "How far back, 1-14 (default 2)" } }) },
+    run: async (args, ctx) => gmailTriage(ctx.userId, { days: Number(args.days) || 2 }),
+  },
   gmail_search: {
-    schema: { name: "gmail_search", description: "Search the user's Gmail with Gmail query syntax (e.g. 'is:unread newer_than:2d', 'from:bank').", parameters: obj({ query: s("Gmail query"), max: { type: "number" } }, ["query"]) },
+    schema: { name: "gmail_search", description: "Search the user's Gmail with Gmail query syntax (e.g. 'is:unread newer_than:2d', 'from:bank', 'subject:invoice').", parameters: obj({ query: s("Gmail query"), max: { type: "number" } }, ["query"]) },
     run: async (args, ctx) => gmailSearch(ctx.userId, str(args.query), Number(args.max) || 10),
   },
   gmail_read: {
-    schema: { name: "gmail_read", description: "Read one email in full by id.", parameters: obj({ id: s("Message id") }, ["id"]) },
+    schema: { name: "gmail_read", description: "Read one email in full by message id.", parameters: obj({ id: s("Message id") }, ["id"]) },
     run: async (args, ctx) => gmailRead(ctx.userId, str(args.id)),
   },
+  gmail_thread: {
+    schema: { name: "gmail_thread", description: "Read a whole email thread (oldest first, quoted history removed) by thread id. Use before drafting a reply.", parameters: obj({ thread_id: s("Thread id (threadId from search/triage)") }, ["thread_id"]) },
+    run: async (args, ctx) => gmailThread(ctx.userId, str(args.thread_id)),
+  },
+  gmail_draft_reply: {
+    schema: { name: "gmail_draft_reply", description: "Draft a reply in an existing thread: recipients, Re: subject and threading headers are filled in from the thread. Saves a Gmail draft, never sends. To send, call gmail_send with the returned draft_id and fields (needs approval).", parameters: obj({ thread_id: s("Thread to reply in"), message_id: s("Optional: the specific message to reply to"), body: s("Plain-text reply body, signed with the user's name"), reply_all: { type: "boolean", description: "Also copy the other people on the thread" } }, ["body"]) },
+    run: async (args, ctx) => gmailDraftReply(ctx.userId, { threadId: str(args.thread_id) || undefined, messageId: str(args.message_id) || undefined, body: str(args.body), replyAll: args.reply_all === true }),
+  },
   gmail_draft: {
-    schema: { name: "gmail_draft", description: "Save an email draft in Gmail (does not send).", parameters: obj({ to: s("Recipients, comma separated"), subject: s("Subject"), body: s("Plain-text body"), cc: s("Cc"), threadId: s("Thread to reply in"), inReplyTo: s("Message-ID header being replied to") }, ["to", "subject", "body"]) },
-    run: async (args, ctx) => gmailDraft(ctx.userId, args as never),
+    schema: { name: "gmail_draft", description: "Save a new email draft in Gmail (does not send).", parameters: obj({ to: s("Recipients, comma separated"), subject: s("Subject"), body: s("Plain-text body"), cc: s("Cc"), threadId: s("Thread to reply in"), inReplyTo: s("Message-ID header being replied to") }, ["to", "subject", "body"]) },
+    run: async (args, ctx) => gmailDraft(ctx.userId, { to: str(args.to), subject: str(args.subject), body: str(args.body), cc: str(args.cc) || undefined, threadId: str(args.threadId) || undefined, inReplyTo: str(args.inReplyTo) || undefined }),
   },
   gmail_send: {
-    schema: { name: "gmail_send", description: "Send an email from the user's Gmail. Always needs the user's approval; the user sees the full draft on an approval card.", parameters: obj({ to: s("Recipients, comma separated"), subject: s("Subject"), body: s("Plain-text body"), cc: s("Cc"), threadId: s("Thread to reply in"), inReplyTo: s("Message-ID header being replied to") }, ["to", "subject", "body"]) },
+    schema: { name: "gmail_send", description: "Send an email from the user's Gmail. Always needs the user's approval; the user sees the full email on an approval card. For a reply drafted with gmail_draft_reply pass its draft_id, threadId, inReplyTo and references.", parameters: obj({ to: s("Recipients, comma separated"), subject: s("Subject"), body: s("Plain-text body"), cc: s("Cc"), threadId: s("Thread to reply in"), inReplyTo: s("Message-ID header being replied to"), references: s("References header from the draft"), draft_id: s("Gmail draft to send (from gmail_draft_reply)") }, ["to", "subject", "body"]) },
     needsApproval: (args) => `Send email to ${str(args.to)}${args.cc ? ` (cc ${str(args.cc)})` : ""}\nSubject: ${str(args.subject)}\n\n${str(args.body)}`,
-    run: async (args, ctx) => gmailSend(ctx.userId, args as never),
+    run: async (args, ctx) => gmailSend(ctx.userId, { to: str(args.to), subject: str(args.subject), body: str(args.body), cc: str(args.cc) || undefined, threadId: str(args.threadId) || undefined, inReplyTo: str(args.inReplyTo) || undefined, references: str(args.references) || undefined, draftId: str(args.draft_id) || undefined }),
+  },
+  calendar_agenda: {
+    schema: { name: "calendar_agenda", description: "The user's agenda, day by day, in their timezone. Use for 'what's on today/tomorrow/this week', 'am I free Friday'.", parameters: obj({ date: s("today | tomorrow | a weekday | YYYY-MM-DD (default today)"), days: { type: "number", description: "How many days, 1-14 (default 1)" } }) },
+    run: async (args, ctx) => calendarAgenda(ctx.userId, { date: str(args.date) || undefined, days: Number(args.days) || 1, timezone: ctx.timezone }),
+  },
+  calendar_free_time: {
+    schema: { name: "calendar_free_time", description: "Find free slots on the user's calendar within working hours (default 09:00-18:00 their time). Use before proposing or creating a meeting time.", parameters: obj({ date: s("First day: today | tomorrow | a weekday | YYYY-MM-DD"), days: { type: "number", description: "How many days, 1-14 (default 1)" }, min_minutes: { type: "number", description: "Shortest useful slot (default 30)" }, day_start: s("HH:MM (default 09:00)"), day_end: s("HH:MM (default 18:00)") }) },
+    run: async (args, ctx) => calendarFreeTime(ctx.userId, { date: str(args.date) || undefined, days: Number(args.days) || 1, minMinutes: Number(args.min_minutes) || 30, dayStart: str(args.day_start) || undefined, dayEnd: str(args.day_end) || undefined, timezone: ctx.timezone }),
   },
   calendar_list: {
-    schema: { name: "calendar_list", description: "List events on the user's primary Google Calendar between two ISO times.", parameters: obj({ time_min: s("ISO start"), time_max: s("ISO end") }, ["time_min", "time_max"]) },
+    schema: { name: "calendar_list", description: "List events on the user's primary Google Calendar between two ISO times (prefer calendar_agenda for whole days).", parameters: obj({ time_min: s("ISO start"), time_max: s("ISO end") }, ["time_min", "time_max"]) },
     run: async (args, ctx) => calendarList(ctx.userId, str(args.time_min), str(args.time_max)),
   },
   calendar_create: {
-    schema: { name: "calendar_create", description: "Create an event on the user's calendar. Inviting attendees needs approval.", parameters: obj({ summary: s("Title"), start: s("ISO start with offset"), end: s("ISO end with offset"), timezone: s("IANA timezone"), location: s("Location"), description: s("Notes"), attendees: { type: "array", items: { type: "string" } } }, ["summary", "start", "end"]) },
-    needsApproval: (args) => Array.isArray(args.attendees) && args.attendees.length ? `Create "${str(args.summary)}" ${str(args.start)} to ${str(args.end)} and invite ${(args.attendees as string[]).join(", ")}` : null,
-    run: async (args, ctx) => calendarCreate(ctx.userId, { ...(args as Record<string, never>), summary: str(args.summary), start: str(args.start), end: str(args.end), timezone: str(args.timezone, ctx.timezone) }),
+    schema: { name: "calendar_create", description: "Create an event on the user's calendar. Always needs the user's approval (the card shows the time and any guests).", parameters: obj({ summary: s("Title"), start: s("ISO start with offset"), end: s("ISO end with offset"), timezone: s("IANA timezone"), location: s("Location"), description: s("Notes"), attendees: { type: "array", items: { type: "string" } } }, ["summary", "start", "end"]) },
+    needsApproval: (args) => `Create "${str(args.summary)}" ${str(args.start)} to ${str(args.end)}${Array.isArray(args.attendees) && args.attendees.length ? ` and invite ${(args.attendees as string[]).join(", ")}` : ""}`,
+    run: async (args, ctx) => calendarCreate(ctx.userId, { summary: str(args.summary), start: str(args.start), end: str(args.end), timezone: str(args.timezone, ctx.timezone), location: str(args.location) || undefined, description: str(args.description) || undefined, attendees: Array.isArray(args.attendees) ? args.attendees.map(String).filter(Boolean) : undefined }),
+  },
+  calendar_move: {
+    schema: { name: "calendar_move", description: "Move (reschedule) an event, optionally renaming it. Always needs approval; guests are notified. Get the event id from calendar_agenda first.", parameters: obj({ event_id: s("Event id"), start: s("New ISO start with offset"), end: s("New ISO end with offset (default: keep the length)"), title: s("Event title, for the approval card"), summary: s("New title (optional)"), location: s("New location (optional)") }, ["event_id", "start"]) },
+    needsApproval: async (args, ctx) => {
+      const current = await calendarGet(ctx.userId, str(args.event_id)).catch(() => null);
+      const guests = current?.attendees?.length ? `\nGuests notified: ${current.attendees.join(", ")}` : "";
+      return `Move "${current?.title || str(args.title, str(args.event_id))}"${current?.start ? ` from ${current.start}` : ""} to ${str(args.start)}${args.end ? ` until ${str(args.end)}` : ""}${args.summary ? `\nNew title: ${str(args.summary)}` : ""}${guests}`;
+    },
+    run: async (args, ctx) => calendarMove(ctx.userId, { eventId: str(args.event_id), start: str(args.start), end: str(args.end) || undefined, timezone: ctx.timezone, summary: str(args.summary) || undefined, location: str(args.location) || undefined }),
   },
   calendar_delete: {
     schema: { name: "calendar_delete", description: "Delete an event from the user's calendar. Needs approval.", parameters: obj({ event_id: s("Event id"), title: s("Event title for the approval card") }, ["event_id"]) },
     needsApproval: (args) => `Delete calendar event "${str(args.title, str(args.event_id))}"`,
     run: async (args, ctx) => calendarDelete(ctx.userId, str(args.event_id)),
+  },
+  drive_search: {
+    schema: { name: "drive_search", description: "Search the user's Google Drive files by name or content (read-only). Needs Drive access; if it's missing the user sees a Reconnect Google button.", parameters: obj({ query: s("Words to find"), max: { type: "number" } }, ["query"]) },
+    run: async (args, ctx) => driveSearch(ctx.userId, str(args.query), Number(args.max) || 10),
+  },
+  drive_read: {
+    schema: { name: "drive_read", description: "Read a Google Drive file as text (Docs, Sheets as CSV, Slides, text files) by file id from drive_search.", parameters: obj({ file_id: s("Drive file id") }, ["file_id"]) },
+    run: async (args, ctx) => driveRead(ctx.userId, str(args.file_id)),
   },
 
   schedule_create: {

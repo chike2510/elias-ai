@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { jsonOk } from "@/lib/http";
 import { requireUser } from "@/lib/assistant/session";
-import { googleConfigured, googleConnection } from "@/lib/assistant/google";
+import { googleConfigured, googleConnection, googleTestingMode } from "@/lib/assistant/google";
 import { browserConfigured, browserProviders } from "@/lib/assistant/browser";
 import { agentProviders } from "@/lib/assistant/llm";
 import { hasDb } from "@/lib/assistant/db";
@@ -27,7 +27,11 @@ export async function GET(request: NextRequest) {
   return jsonOk({
     database: db,
     providers: agentProviders(),
-    google: { configured: googleConfigured(), connected: Boolean(google), email: google?.email || null },
+    // connected = usable right now; status says why not (expired/revoked → the UI offers Reconnect).
+    google: {
+      configured: googleConfigured(), connected: google?.status === "ok", email: google?.email || null, status: google ? google.status : "none",
+      renewBy: google?.renewBy || null, expiresSoon: Boolean(google?.expiresSoon), drive: Boolean(google?.scopes.drive), testing: googleTestingMode(),
+    },
     browser: { configured: browserConfigured(), providers: browserProviders() },
     github: { connected: Boolean(auth.githubToken) },
     scheduler: { configured: Boolean(process.env.CRON_SECRET) },

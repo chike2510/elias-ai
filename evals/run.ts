@@ -64,6 +64,12 @@ async function main() {
   const { ready, encrypt } = await import("@/lib/assistant/db");
   const { listAudit } = await import("@/lib/assistant/audit");
   const { isSideEffect } = await import("@/lib/assistant/audit");
+  // v5: Google calls go to the in-memory mock (the eval token is valid there), never to the real APIs.
+  if (!process.env.ELIAS_EVAL_LIVE) {
+    const { setGoogleFetch } = await import("@/lib/assistant/google");
+    const { createMockGoogle } = await import("@/lib/assistant/googleMock");
+    setGoogleFetch(createMockGoogle({ email: "eval@example.com", validTokens: ["eval-fake-token"] }).fetch);
+  }
   const db = await ready();
   const run = `eval_${Date.now()}`;
   const results: Array<{ id: string; category: string; pass: boolean; failures: string[]; tool: string | null; reply: string }> = [];

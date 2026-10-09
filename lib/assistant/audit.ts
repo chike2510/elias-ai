@@ -10,6 +10,10 @@ export const SIDE_EFFECT_TOOLS = new Set([
   "code_commit", "code_open_pr", "code_merge_pr",
 ]);
 
+/* v5 Google (appended): reply drafts and event moves change the user's Gmail / Calendar. */
+SIDE_EFFECT_TOOLS.add("gmail_draft_reply");
+SIDE_EFFECT_TOOLS.add("calendar_move");
+
 export const isSideEffect = (tool: string) => SIDE_EFFECT_TOOLS.has(tool);
 
 const SECRET_KEY = /token|secret|password|passwd|api[_-]?key|authorization|cvv|cvc|otp|pin\b|card/i;
