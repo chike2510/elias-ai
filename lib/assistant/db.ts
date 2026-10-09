@@ -67,6 +67,11 @@ export async function ready() {
     await migrateBackground(db);
     // v3 (additive): memory embeddings/entities, audit log, Telegram links, RLS on every elias_ table.
     await migrateV3(db);
+    // v5 (additive): Google connection health (7-day testing expiry, revokes) and opt-in scopes (Drive).
+    await db`alter table public.elias_oauth_tokens add column if not exists connected_at timestamptz`;
+    await db`alter table public.elias_oauth_tokens add column if not exists status text not null default 'ok'`;
+    await db`alter table public.elias_oauth_tokens add column if not exists last_error text`;
+    await db`alter table public.elias_oauth_tokens add column if not exists extra_scopes text not null default ''`;
   })().catch((error) => { globalThis.__eliasAssistantSchema = undefined; throw error; });
   await globalThis.__eliasAssistantSchema;
   return db;

@@ -32,19 +32,8 @@ export function googleAuthUrl(request: Request, state: string, extraScopes: stri
   return `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
 }
 
-/* v5 columns on elias_oauth_tokens (additive): connection health + opt-in scopes. */
-declare global { var __eliasGoogleSchema: Promise<void> | undefined; }
-async function db() {
-  const sql = await ready();
-  globalThis.__eliasGoogleSchema ||= (async () => {
-    await sql`alter table public.elias_oauth_tokens add column if not exists connected_at timestamptz`;
-    await sql`alter table public.elias_oauth_tokens add column if not exists status text not null default 'ok'`;
-    await sql`alter table public.elias_oauth_tokens add column if not exists last_error text`;
-    await sql`alter table public.elias_oauth_tokens add column if not exists extra_scopes text not null default ''`;
-  })().catch((error) => { globalThis.__eliasGoogleSchema = undefined; throw error; });
-  await globalThis.__eliasGoogleSchema;
-  return sql;
-}
+/* v5 columns on elias_oauth_tokens (connected_at, status, last_error, extra_scopes) are created in ready() (lib/assistant/db.ts). */
+const db = ready;
 
 type TokenResponse = { access_token?: string; refresh_token?: string; expires_in?: number; scope?: string; id_token?: string; error?: string; error_description?: string };
 

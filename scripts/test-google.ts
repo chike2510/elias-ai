@@ -28,7 +28,7 @@ function startModel(): Promise<number> {
     const last = data.messages[data.messages.length - 1];
     const message = !data.tools ? { role: "assistant", content: '{"facts":[]}' } : last.role !== "tool"
       ? { role: "assistant", content: null, tool_calls: [{ id: "g1", type: "function", function: { name: "gmail_triage", arguments: "{}" } }] }
-      : { role: "assistant", content: `Tool said: ${String(last.content).slice(0, 80)}` };
+      : { role: "assistant", content: `Tool said: ${String(last.content).slice(0, 400)}` };
     if (!data.stream) { res.setHeader("content-type", "application/json"); res.end(JSON.stringify({ choices: [{ message }] })); return; }
     res.writeHead(200, { "content-type": "text/event-stream" });
     const send = (delta: unknown) => res.write(`data: ${JSON.stringify({ choices: [{ delta }] })}\n\n`);
