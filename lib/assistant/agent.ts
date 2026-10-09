@@ -5,7 +5,7 @@ import { newId, ready } from "@/lib/assistant/db";
 import { extractMemories, memoryContext, saveMemory } from "@/lib/assistant/memory";
 import { approvalSummary, hasTool, runTool, toolSchemasFor, type ToolContext } from "@/lib/assistant/tools";
 import { browserConfigured, closeAll, type BrowserHandle } from "@/lib/assistant/browser";
-import { googleConfigured, googleConnection, isReconnectError, reconnectText, type GoogleConnection } from "@/lib/assistant/google";
+import { DRIVE_SCOPE, dbTokenStore, googleConfigured, googleConnection, isReconnectError, reconnectText, type GoogleConnection } from "@/lib/assistant/google";
 import { googleApprovalDetails, googleCardFor, EDITABLE_ARGS, statusLabel, type ApprovalDetails, type Card, type ConnectCard, type MemoryChip } from "@/lib/assistant/cards";
 import { briefCards, briefConnect, type BriefData } from "@/lib/assistant/brief";
 import { recordAudit } from "@/lib/assistant/audit";
@@ -314,6 +314,8 @@ export async function runTurn(options: RunOptions): Promise<TurnResult> {
             if (isReconnectError(error)) {
               // Expired/revoked mid-turn, or a missing permission (e.g. Drive): show Reconnect Google instead of an error.
               addConnect({ provider: "google", configured: googleConfigured(), reconnect: error.reason !== "not_connected", reason: error.reason, scope: error.scope, email: google?.email || null });
+              // Drive is opt-in: remember it so the next Connect/Reconnect asks Google for drive.readonly too.
+              if (error.scope === "drive") await dbTokenStore.wantScope?.(options.userId, DRIVE_SCOPE).catch(() => undefined);
               output = reconnectText(error.reason);
             } else output = `Error: ${error instanceof Error ? error.message : String(error)}`;
             actions.push({ tool: name, ok: false });
