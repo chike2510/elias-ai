@@ -102,6 +102,8 @@ export function MessageMenu({ opened, onClose, onAction, onFeedback }: { opened:
   const menuRef = useRef<HTMLDivElement>(null);
   const cloneHost = useRef<HTMLDivElement>(null);
   const [rect] = useState(() => element.getBoundingClientRect());
+  // The click that ends the opening long-press lands on the backdrop: only a fresh press outside closes.
+  const armed = useRef(false);
   const [position, setPosition] = useState<{ top: number; left: number; side: string } | null>(null);
   const hasText = Boolean(target.content.trim());
   const actions = menuActions({ role: target.role, hasText, hasImage: Boolean(target.image), canEdit: target.canEdit });
@@ -162,12 +164,12 @@ export function MessageMenu({ opened, onClose, onAction, onFeedback }: { opened:
   }, [close]);
 
   const cloneStyle: CSSProperties = { top: rect.top, left: rect.left, width: rect.width, height: rect.height };
-  const menuStyle: CSSProperties = position ? { top: position.top, left: position.left } : { top: -9999, left: -9999, visibility: "hidden" };
+  const menuStyle: CSSProperties = position ? { top: position.top, left: position.left } : { top: 0, left: 0, opacity: 0, pointerEvents: "none" };
   const pick = (action: MenuActionId) => { close(); onAction(action, target); };
   const rate = (rating: Feedback) => { onFeedback(target.feedback === rating ? null : rating, target); close(); };
 
   return createPortal(<div className="el-menu-layer">
-    <div className="el-menu-backdrop" aria-hidden="true" onPointerDown={(event) => { event.preventDefault(); close(); }} onContextMenu={(event) => { event.preventDefault(); close(); }} />
+    <div className="el-menu-backdrop" aria-hidden="true" onPointerDown={() => { armed.current = true; }} onClick={() => { if (armed.current) close(); }} onContextMenu={(event) => event.preventDefault()} />
     <div className={`el-menu-clone ${rowClass}`} style={cloneStyle} ref={cloneHost} aria-hidden="true" />
     <div ref={menuRef} className={`el-msg-menu ${position?.side || ""}`} style={menuStyle} role="menu" aria-label={target.role === "assistant" ? "Message from Elias" : "Your message"} aria-orientation="vertical">
       {feedback ? <>

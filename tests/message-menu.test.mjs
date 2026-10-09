@@ -123,6 +123,7 @@ test("menu wiring: a11y roles, haptic, right-click, callout off, feedback API", 
   assert.match(ui, /role="menu"/); assert.match(ui, /role="menuitem"/); assert.match(ui, /role="menuitemradio"/);
   assert.match(ui, /haptic\(10\)/); assert.match(ui, /onContextMenu/); assert.match(ui, /event\.key === "Escape"/); assert.match(ui, /event\.key === "Tab"/);
   assert.match(ui, /popstate/, "back gesture closes");
+  assert.match(ui, /armed\.current/, "the click ending the opening long-press does not close the menu");
   const css = read("app/v5-msgmenu.css");
   assert.match(css, /-webkit-touch-callout: none/); assert.match(css, /backdrop-filter: blur/); assert.match(css, /prefers-color-scheme: light/);
   assert.match(read("app/layout.tsx"), /v5-msgmenu\.css/);
