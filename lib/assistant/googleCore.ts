@@ -86,7 +86,8 @@ export function createGoogleClient(input: { userId: string; store: TokenStore; f
     if (!response.ok || !data.access_token) {
       // invalid_grant = refresh token expired (7-day testing limit), revoked, or password changed: only a reconnect fixes it.
       if (data.error === "invalid_grant" || data.error === "unauthorized_client") {
-        const revoked = /revoked/i.test(data.error_description || "");
+        // Google says "Token has been expired or revoked." for the 7-day testing expiry too, so only a bare "revoked" counts as a revoke.
+        const revoked = /revoked/i.test(data.error_description || "") && !/expired/i.test(data.error_description || "");
         await input.store.markBroken(input.userId, revoked ? "revoked" : "expired", `${data.error}: ${data.error_description || ""}`.slice(0, 200));
         throw new GoogleReconnectError(revoked ? "revoked" : "expired", `${REASON_TEXT[revoked ? "revoked" : "expired"]} Ask the user to reconnect Google.`);
       }

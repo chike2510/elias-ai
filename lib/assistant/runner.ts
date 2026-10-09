@@ -1,5 +1,5 @@
 import { addMessage, ensureConversation, runTurn } from "@/lib/assistant/agent";
-import { briefCards, fallbackBrief, gatherBrief, getSettings } from "@/lib/assistant/brief";
+import { briefCards, briefConnect, fallbackBrief, gatherBrief, getSettings } from "@/lib/assistant/brief";
 import { claimDueSchedules, finishScheduleRun, type Schedule } from "@/lib/assistant/schedules";
 import { getGitHubConnection } from "@/lib/githubConnectionStore";
 import { captureError } from "@/lib/observability";
@@ -13,16 +13,17 @@ async function runDailyBrief(schedule: Due) {
   const settings = await getSettings(schedule.userId).catch(() => null);
   const data = await gatherBrief(schedule.userId, schedule.timezone, settings?.city);
   const cards = briefCards(data);
+  const reconnect = briefConnect(data);
   try {
     return await runTurn({
-      userId: schedule.userId, conversationId: schedule.conversationId || undefined, title: "Daily brief", text: schedule.prompt, timezone: schedule.timezone, origin: "schedule", presetCards: cards,
+      userId: schedule.userId, conversationId: schedule.conversationId || undefined, title: "Daily brief", text: schedule.prompt, timezone: schedule.timezone, origin: "schedule", presetCards: cards, presetConnect: reconnect ? [reconnect] : undefined,
       extraContext: `MORNING BRIEF DATA (already gathered, do not call daily_brief again):\n${JSON.stringify(data).slice(0, 8000)}\n\nWrite the brief as a text message: a one-line greeting with the weather, then what matters today (first meeting time, anything urgent in email, reminders). Under 70 words. The cards below your message already list events and emails, so don't list them all.`,
     });
   } catch (error) {
     void captureError(error, { area: "daily_brief", scheduleId: schedule.id });
     const conversationId = await ensureConversation(schedule.userId, schedule.conversationId || undefined, "Daily brief", "schedule");
     const reply = fallbackBrief(data);
-    await addMessage(schedule.userId, conversationId, "assistant", reply, { cards, kind: "daily_brief", fallback: true });
+    await addMessage(schedule.userId, conversationId, "assistant", reply, { cards, connect: reconnect ? [reconnect] : [], kind: "daily_brief", fallback: true });
     return { conversationId, reply };
   }
 }

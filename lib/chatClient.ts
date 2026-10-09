@@ -9,7 +9,9 @@ import type { ChatAttachment, StoredAttachment } from "@/lib/assistant/modelRout
 export type { Approval, Card, ChatAttachment, ConnectCard, MemoryChip, StoredAttachment, StoredMessage, TurnEvent, TurnResult };
 export type ChatInput = { text: string; conversationId?: string; attachments?: ChatAttachment[]; model?: string };
 export type ConversationSummary = { id: string; title: string; kind: string; source: string; updatedAt: string; pendingApprovals: number; preview: string };
-export type Status = { database: boolean; providers: string[]; google: { configured: boolean; connected: boolean; email: string | null }; browser: { configured: boolean }; github: { connected: boolean }; scheduler: { configured: boolean }; errorTracking: boolean; settings: { timezone: string | null; city: string | null } | null; connectors?: ConnectorsStatus };
+/** v5: status/renewBy/expiresSoon/drive/testing describe the Google connection's health (optional for older servers). */
+export type GoogleStatus = { configured: boolean; connected: boolean; email: string | null; status?: "ok" | "expired" | "revoked" | "none"; renewBy?: string | null; expiresSoon?: boolean; drive?: boolean; testing?: boolean };
+export type Status = { database: boolean; providers: string[]; google: GoogleStatus; browser: { configured: boolean }; github: { connected: boolean }; scheduler: { configured: boolean }; errorTracking: boolean; settings: { timezone: string | null; city: string | null } | null; connectors?: ConnectorsStatus };
 
 export type ConnectorsStatus = {
   github: { configured: boolean; source: "oauth" | "env" | null };

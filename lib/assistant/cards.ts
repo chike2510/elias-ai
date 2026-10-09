@@ -20,7 +20,11 @@ export type Card =
   | DiffCard
   | ResearchReportCard;
 
-export type ConnectCard = { provider: "google" | "browser"; configured: boolean };
+export type ConnectCard = {
+  provider: "google" | "browser"; configured: boolean;
+  /** v5: Google was connected but needs the user again (token expired/revoked, or a permission like Drive is missing). */
+  reconnect?: boolean; reason?: "not_connected" | "expired" | "revoked" | "missing_scope"; scope?: "gmail" | "calendar" | "drive"; email?: string | null;
+};
 export type MemoryChip = { id: string; content: string };
 
 export type ApprovalDetails =
@@ -153,3 +157,41 @@ Object.assign(STATUS_LABELS, {
   code_diff: "Reviewing the diff", code_commit: "Committing", code_verify: "Running checks", code_open_pr: "Opening a PR", code_merge_pr: "Merging",
   code_start_job: "Starting a coding job",
 });
+
+/* v5 Google (appended): cards for triage, agenda, free time, Drive and event changes; approval details for calendar_move. */
+Object.assign(STATUS_LABELS, {
+  gmail_triage: "Sorting your inbox…", gmail_thread: "Reading the thread…", gmail_draft_reply: "Drafting a reply…",
+  calendar_agenda: "Checking your calendar…", calendar_free_time: "Finding free time…", calendar_move: "Preparing the change…",
+  drive_search: "Searching Drive…", drive_read: "Reading the file…",
+});
+EDITABLE_ARGS.calendar_move = ["start", "end", "summary"];
+
+export function googleCardFor(tool: string, output: unknown): Card | null {
+  try {
+    const data = rec(output);
+    if (tool === "gmail_triage") {
+      const pick = (key: string, why?: string) => list(data[key]).map((item) => ({ id: str(item.id), from: str(item.from), subject: str(item.subject) || "(no subject)", date: str(item.date), snippet: [why || str(item.why), str(item.snippet)].filter(Boolean).join(" · ").slice(0, 140), unread: true }));
+      const items = [...pick("needsReply"), ...pick("important"), ...pick("money", "money")].slice(0, 6);
+      return items.length ? { kind: "emails", title: "Needs you", items } : null;
+    }
+    if (tool === "calendar_agenda") {
+      const items = list(data.days).flatMap((day) => list(day.events).map((event) => ({ id: str(event.id), title: str(event.title) || "(untitled)", start: str(event.start), end: str(event.end), location: str(event.location) || undefined, link: str(event.link) || undefined, attendees: Array.isArray(event.attendees) ? (event.attendees as string[]) : undefined }))).slice(0, 10);
+      return items.length ? { kind: "events", title: list(data.days).length > 1 ? "Agenda" : "Calendar", items } : null;
+    }
+    if (tool === "calendar_free_time") {
+      const items = list(data.slots).slice(0, 8).map((slot) => ({ title: `Free · ${slot.minutes} min`, start: str(slot.start), end: str(slot.end) }));
+      return items.length ? { kind: "events", title: `Free time · ${str(data.workingHours)}`, items } : null;
+    }
+    if ((tool === "calendar_create" || tool === "calendar_move") && data.id) return { kind: "events", title: tool === "calendar_move" ? "Moved" : "Added to your calendar", items: [{ id: str(data.id), title: str(data.title), start: str(data.start), end: str(data.end), link: str(data.link) || undefined, attendees: Array.isArray(data.invited) && data.invited.length ? (data.invited as string[]) : undefined }] };
+    if (tool === "drive_search" && Array.isArray(output)) {
+      const items = list(output).slice(0, 6).map((file) => ({ title: str(file.name), url: str(file.link), snippet: [str(file.type).replace(/^google-/, "Google "), str(file.owner), str(file.modified).slice(0, 10)].filter(Boolean).join(" · ") })).filter((item) => item.url);
+      return items.length ? { kind: "links", title: "Drive", items } : null;
+    }
+  } catch { /* best effort */ }
+  return cardFor(tool, output);
+}
+
+export function googleApprovalDetails(tool: string, args: Record<string, unknown>, summary: string): ApprovalDetails {
+  if (tool === "calendar_move") return { kind: "event", title: str(args.summary) || str(args.title) || summary.match(/Move "([^"]*)"/)?.[1] || "Event", start: str(args.start), end: str(args.end), guests: (summary.match(/Guests notified: (.*)/)?.[1] || "").split(/,\s*/).filter(Boolean) };
+  return approvalDetails(tool, args, summary);
+}

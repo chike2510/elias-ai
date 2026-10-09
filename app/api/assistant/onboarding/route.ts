@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
   if ("error" in auth) return auth.error;
   try {
     const [state, google] = await Promise.all([onboardingState(auth.userId), googleConnection(auth.userId).catch(() => null)]);
-    return jsonOk({ onboarding: state, google: { configured: googleConfigured(), connected: Boolean(google), email: google?.email || null }, push: { configured: pushConfigured() }, suggestedName: auth.userName || null });
+    return jsonOk({ onboarding: state, google: { configured: googleConfigured(), connected: google?.status === "ok", email: google?.email || null }, push: { configured: pushConfigured() }, suggestedName: auth.userName || null });
   } catch (error) { return jsonError(reportError(error, "assistant/onboarding", auth.userId)); }
 }
 

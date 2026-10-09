@@ -5,6 +5,7 @@ import { ArrowLeft, Brain, ChevronRight, CircleDot, Code2, CreditCard, Database,
 import { useEffect, useMemo, useState } from "react";
 import "@/components/brain.css";
 import AppShell from "@/components/AppShell";
+import GoogleStatusRow, { GoogleReturnNotice } from "@/components/google/GoogleStatusRow";
 import { api, type Status } from "@/lib/chatClient";
 import { CONNECTOR_REGISTRY, categoryLabel, type ConnectorCategory, type ConnectorDefinition } from "@/lib/connectors";
 
@@ -26,11 +27,10 @@ function AssistantConnections() {
   const [status, setStatus] = useState<Status | null>(null);
   const [busy, setBusy] = useState(false);
   useEffect(() => { void api<Status>("/api/assistant/status").then(setStatus).catch(() => undefined); }, []);
-  async function disconnect() { setBusy(true); await api("/api/connect/google/disconnect", { method: "POST", body: "{}" }).catch(() => undefined); setStatus((current) => current ? { ...current, google: { ...current.google, connected: false, email: null } } : current); setBusy(false); }
+  async function disconnect() { setBusy(true); await api("/api/connect/google/disconnect", { method: "POST", body: "{}" }).catch(() => undefined); setStatus((current) => current ? { ...current, google: { ...current.google, connected: false, email: null, status: "none", renewBy: null, expiresSoon: false, drive: false } } : current); setBusy(false); }
   if (!status) return null;
-  return <section className="el-section el-connections"><h2>Personal assistant</h2><ul className="el-list">
-    <li><div className="el-list-row static"><span className="el-list-icon"><Globe2 size={17} /></span><span className="el-list-text"><strong>Google</strong><small>{status.google.connected ? `Gmail & Calendar · ${status.google.email || "connected"}` : status.google.configured ? "Gmail & Calendar. Sending and invites always ask first." : "Not configured yet: the server needs GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET."}</small></span>
-      {status.google.connected ? <button type="button" className="el-btn el-btn-sm" disabled={busy} onClick={() => void disconnect()}>Disconnect</button> : status.google.configured ? <a className="el-btn el-btn-primary el-btn-sm" href="/api/connect/google?return=/connectors">Connect</a> : <span className="el-state na">Not configured yet</span>}</div></li>
+  return <section className="el-section el-connections"><h2>Personal assistant</h2><GoogleReturnNotice /><ul className="el-list">
+    <li><GoogleStatusRow google={status.google} returnTo="/connectors" icon={<Globe2 size={17} />} busy={busy} onDisconnect={() => void disconnect()} /></li>
     <li><div className="el-list-row static"><span className="el-list-icon"><Server size={17} /></span><span className="el-list-text"><strong>Browser</strong><small>{status.browser.configured ? "Remote browser for forms, carts and bookings" : "Browser not configured: the server needs CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_BROWSER_TOKEN (or BROWSERBASE_API_KEY + BROWSERBASE_PROJECT_ID)."}</small></span><span className={`el-state ${status.browser.configured ? "on" : "na"}`}>{status.browser.configured ? "Ready" : "Not configured"}</span></div></li>
     {status.connectors ? <AgentConnectorRows connectors={status.connectors} /> : null}
   </ul>
