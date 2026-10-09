@@ -18,17 +18,22 @@ export type LlmResult = { content: string; toolCalls: ToolCall[]; provider: Agen
 const env = (name: string) => (process.env[name] || "").split(",").map((item) => item.trim()).filter(Boolean);
 
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai";
-const GEMINI_MODELS = ["gemini-3.8-flash", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"];
-const GEMINI_LITE_FIRST = ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-2.5-flash-lite", "gemini-3.8-flash", "gemini-2.5-flash", "gemini-2.0-flash"];
+/**
+ * Used only when Gemini's model list can't be read. Google closed gemini-2.x to new keys ("no longer
+ * available to new users, use models/gemini-3.8-flash"), so the newest flash models lead and 2.x is gone.
+ */
+const GEMINI_MODELS = ["gemini-3.8-flash", "gemini-flash-latest", "gemini-3.7-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-flash-lite-latest"];
+const GEMINI_LITE_FIRST = ["gemini-3.5-flash-lite", "gemini-flash-lite-latest", "gemini-3.1-flash-lite", "gemini-3.8-flash", "gemini-flash-latest"];
 
 type CandidateTable = Partial<Record<Exclude<AgentProvider, "custom">, () => string[]>>;
 
 /** Models tried in order per provider (the "strong" tier). The first one the account can use wins and is remembered. */
 const MODEL_CANDIDATES: CandidateTable = {
   gemini: () => [...env("GEMINI_AGENT_MODEL"), ...GEMINI_MODELS],
-  groq: () => [...env("GROQ_AGENT_MODEL"), "openai/gpt-oss-120b", "moonshotai/kimi-k2-instruct-0905", "meta-llama/llama-4-maverick-17b-128e-instruct", "qwen/qwen3-32b", "llama-3.3-70b-versatile", "openai/gpt-oss-20b", "llama-3.1-8b-instant"],
-  cerebras: () => [...env("CEREBRAS_AGENT_MODEL"), "gpt-oss-120b", "qwen-3-235b-a22b-instruct-2507", "llama-3.3-70b", "qwen-3-32b", "llama3.1-8b"],
-  github: () => [...env("GITHUB_AGENT_MODEL"), "openai/gpt-4.1", "openai/gpt-4.1-mini", "openai/gpt-4o-mini"],
+  // Each Groq model has its own free-tier rate limit, so the smaller ones are real fallbacks for a rate-limited 120b.
+  groq: () => [...env("GROQ_AGENT_MODEL"), "openai/gpt-oss-120b", "moonshotai/kimi-k2-instruct-0905", "moonshotai/kimi-k2-instruct", "openai/gpt-oss-20b", "qwen/qwen3.8-27b", "qwen/qwen3-32b", "llama-3.3-70b-versatile", "llama-3.1-8b-instant"],
+  cerebras: () => [...env("CEREBRAS_AGENT_MODEL"), "gpt-oss-120b", "qwen-3.8-27b", "qwen-3-235b-a22b-instruct-2507", "llama-3.3-70b", "qwen-3-32b", "llama3.1-8b"],
+  github: () => [...env("GITHUB_AGENT_MODEL"), "openai/gpt-4.1-mini", "openai/gpt-4o-mini"],
   openrouter: () => [...env("OPENROUTER_AGENT_MODEL"), "openai/gpt-oss-120b:free", "deepseek/deepseek-chat-v3.1:free", "meta-llama/llama-3.3-70b-instruct:free", "qwen/qwen3-235b-a22b:free", "mistralai/mistral-small-3.2-24b-instruct:free"],
   mistral: () => [...env("MISTRAL_AGENT_MODEL"), "mistral-medium-latest", "mistral-small-latest", "open-mistral-nemo", "mistral-large-latest"],
   huggingface: () => [...env("HF_AGENT_MODEL"), ...env("HF_CHAT_MODEL"), DEFAULT_HF_CHAT_MODEL],
@@ -37,56 +42,172 @@ const MODEL_CANDIDATES: CandidateTable = {
 
 /** Small, quick models for plain chat. Providers missing here use their normal list. */
 const FAST_CANDIDATES: CandidateTable = {
-  groq: () => [...env("GROQ_FAST_MODEL"), "llama-3.1-8b-instant", "openai/gpt-oss-20b", "llama-3.3-70b-versatile", "openai/gpt-oss-120b"],
-  cerebras: () => [...env("CEREBRAS_FAST_MODEL"), "llama3.1-8b", "gpt-oss-120b", "qwen-3-32b", "llama-3.3-70b"],
+  groq: () => [...env("GROQ_FAST_MODEL"), "openai/gpt-oss-20b", "llama-3.1-8b-instant", "qwen/qwen3.8-27b", "openai/gpt-oss-120b"],
+  cerebras: () => [...env("CEREBRAS_FAST_MODEL"), "llama3.1-8b", "gpt-oss-120b", "qwen-3.8-27b", "llama-3.3-70b"],
   gemini: () => [...env("GEMINI_FAST_MODEL"), ...GEMINI_LITE_FIRST],
-  github: () => [...env("GITHUB_FAST_MODEL"), "openai/gpt-4.1-mini", "openai/gpt-4o-mini", "openai/gpt-4.1"],
+  github: () => [...env("GITHUB_FAST_MODEL"), "openai/gpt-4.1-mini", "openai/gpt-4o-mini"],
   mistral: () => [...env("MISTRAL_FAST_MODEL"), "mistral-small-latest", "open-mistral-nemo", "mistral-medium-latest"],
 };
 
 /** Models that accept OpenAI image_url content parts. Only these providers are used for image turns. */
 const VISION_CANDIDATES: CandidateTable = {
   groq: () => [...env("GROQ_VISION_MODEL"), "meta-llama/llama-4-maverick-17b-128e-instruct", "meta-llama/llama-4-scout-17b-16e-instruct"],
-  github: () => [...env("GITHUB_VISION_MODEL"), "openai/gpt-4.1-mini", "openai/gpt-4.1", "openai/gpt-4o-mini"],
+  github: () => [...env("GITHUB_VISION_MODEL"), "openai/gpt-4.1-mini", "openai/gpt-4o-mini"],
   openrouter: () => [...env("OPENROUTER_VISION_MODEL"), "meta-llama/llama-4-maverick:free", "google/gemma-3-27b-it:free", "qwen/qwen2.5-vl-72b-instruct:free", "mistralai/mistral-small-3.2-24b-instruct:free"],
   gemini: () => [...env("GEMINI_VISION_MODEL"), ...GEMINI_MODELS],
 };
 
 const TIER_TABLE: Record<ModelTier, CandidateTable> = { strong: MODEL_CANDIDATES, fast: FAST_CANDIDATES, vision: VISION_CANDIDATES };
 const FAST_FIRST: AgentProvider[] = ["groq", "cerebras", "gemini"];
-const VISION_ORDER: AgentProvider[] = ["custom", "groq", "github", "openrouter", "gemini"];
+const VISION_ORDER: AgentProvider[] = ["custom", "groq", "openrouter", "gemini", "github"];
 
 const VISION_GUESS = /vision|-vl\b|\bvl-|llama-4|maverick|scout|gemma-3|pixtral|gpt-4o|gpt-4\.1|gpt-5|gemini|llava|qwen2\.5-vl|qwen3-vl|phi-4-multimodal/i;
+/** Discovered ids that are not chat models (speech, guards, embeddings, images, realtime...). */
+const NOT_CHAT = /whisper|tts|embed|guard|safeguard|orpheus|allam|audio|image|banana|imagen|veo|lyria|ocr|moderation|rerank|live|realtime|livetranslate|asr|omni|deep-research|codestral|voxtral|leanstral|vibe-cli|fim|:batch|preview/i;
 
-const DEFAULT_ORDER = "custom,groq,gemini,cerebras,github,openrouter,mistral,huggingface,qwen";
-const workingModel = new Map<string, string>();
-const deadModels = new Set<string>();
-const providerCooldown = new Map<string, number>();
-const discovered = new Map<string, Promise<Set<string> | null>>();
+/**
+ * GitHub Models was retired on 2026-07-30: models.github.ai now answers every request with a
+ * 200 text/plain "OK". It stays out of the default order; ELIAS_GITHUB_MODELS=1 opts back in.
+ */
+const RETIRED: AgentProvider[] = ["github"];
+const DEFAULT_ORDER = "custom,groq,gemini,cerebras,openrouter,mistral,huggingface,qwen";
 
-class ProviderError extends Error {
-  /** model: this model can't be used (skip it for good). busy: overloaded or rate-limited right now (try the next model). */
-  constructor(message: string, readonly kind: "model" | "account" | "busy" | "other") { super(message); }
+/** Output cap for one reply. Free tiers count prompt + max_tokens against small per-minute budgets. */
+const MAX_TOKENS = () => Math.max(256, Number(process.env.ELIAS_MAX_TOKENS) || 2048);
+const MIN_OUTPUT_TOKENS = 512;
+/** A rate-limit wait this short is worth sitting through once instead of skipping the model. */
+const MAX_RETRY_WAIT_MS = 10_000;
+const ACCOUNT_COOLDOWN_MS = 60 * 60_000;
+const BUSY_COOLDOWN_MS = 5 * 60_000;
+
+/**
+ * Free-tier tokens-per-minute for one request (prompt + max_tokens), per Groq model.
+ * Override all of them with GROQ_TPM_BUDGET. Providers not listed have room to spare.
+ */
+const GROQ_TPM: Record<string, number> = {
+  "openai/gpt-oss-120b": 8_000,
+  "openai/gpt-oss-20b": 8_000,
+  "moonshotai/kimi-k2-instruct": 10_000,
+  "moonshotai/kimi-k2-instruct-0905": 10_000,
+  "qwen/qwen3-32b": 6_000,
+  "qwen/qwen3.8-27b": 6_000,
+  "llama-3.1-8b-instant": 6_000,
+  "llama-3.3-70b-versatile": 12_000,
+  "meta-llama/llama-4-maverick-17b-128e-instruct": 6_000,
+  "meta-llama/llama-4-scout-17b-16e-instruct": 30_000,
+};
+
+export function tokenBudget(provider: AgentProvider, model: string): number | null {
+  if (provider === "groq") return Number(process.env.GROQ_TPM_BUDGET) || GROQ_TPM[model] || 6_000;
+  if (provider === "cerebras") return Number(process.env.CEREBRAS_TPM_BUDGET) || 60_000;
+  if (provider === "openrouter" || provider === "mistral" || provider === "huggingface") return 32_000;
+  return null;
 }
 
-function classify(status: number, body: string): "model" | "account" | "busy" | "other" {
+const workingModel = new Map<string, string>();
+const deadModels = new Set<string>();
+const providerCooldown = new Map<string, { until: number; reason: string }>();
+const modelCooldown = new Map<string, number>();
+const discovered = new Map<string, Promise<Set<string> | null>>();
+
+type ErrorKind = "model" | "account" | "busy" | "other";
+
+export class ProviderError extends Error {
+  /**
+   * model: this model can't be used (skip it for good). account: the key is out of quota/credits/invalid (cool the provider down).
+   * busy: overloaded, rate-limited or too large right now (try the next model). reason: a few words for the user-facing summary.
+   */
+  constructor(message: string, readonly kind: ErrorKind, readonly reason = "error", readonly retryAfterMs?: number, readonly suggested?: string) { super(message); }
+}
+
+/** Every provider failed. message is the friendly sentence plus a short per-provider summary; raw keeps the full dump for logs. */
+export class AllProvidersFailedError extends Error {
+  constructor(readonly summary: Array<{ provider: string; reason: string }>, readonly raw: string) {
+    super(friendlyFailure(summary));
+  }
+}
+
+export const FRIENDLY_FAILURE = "All my AI providers are busy or out of free quota, try again in a minute.";
+
+export function friendlyFailure(summary: Array<{ provider: string; reason: string }>) {
+  const details = summary.map((item) => `${item.provider}: ${item.reason}`).join("; ");
+  return details ? `${FRIENDLY_FAILURE} Details: ${details}` : FRIENDLY_FAILURE;
+}
+
+export function classify(status: number, body: string): ErrorKind {
   const text = body.toLowerCase();
-  if (status === 429 || status === 503 || status === 529 || /high demand|overloaded|temporarily unavailable|"unavailable"|rate limit/.test(text)) return "busy";
+  // OpenRouter's "requires more credits, or fewer max_tokens": this request is too big for the free balance; skip, don't kill.
+  if (status === 402 && /fewer max_tokens|can only afford/.test(text)) return "busy";
   // OpenRouter answers 402 for one paid/image-output model while its free models still work: skip just that model.
   if (status === 402 && /requires at least|image or video output|paid model/.test(text)) return "model";
-  if (status === 401 || status === 402 || /no remaining credits|insufficient|quota|billing|invalid api key|unauthorized/.test(text)) return "account";
-  if (status === 404 || /model_not_found|does not exist|not available in your subscription|tier_not_allowed|decommissioned|unknown model|invalid model|not a valid model|no endpoints found/.test(text)) return "model";
+  if (status === 401 || status === 402 || /no remaining credits|insufficient|quota|billing|invalid api key|unauthorized|payment required|freetieronly/.test(text)) return "account";
+  if (status === 429 || status === 503 || status === 529 || /high demand|overloaded|temporarily unavailable|"unavailable"|rate limit/.test(text)) return "busy";
+  if (status === 404 || status === 410 || /model_not_found|does not exist|no longer available|not available in your subscription|tier_not_allowed|decommissioned|unknown model|invalid model|not a valid model|no endpoints found/.test(text)) return "model";
   if ((status === 400 || status === 403) && /model/.test(text)) return "model";
   return "other";
+}
+
+function reasonFor(status: number, body: string, kind: ErrorKind) {
+  const text = body.toLowerCase();
+  if (kind === "account") return status === 401 || /invalid api key|unauthorized/.test(text) ? "key rejected" : "out of free quota";
+  if (kind === "busy") return status === 402 ? "request too large for free credits" : /tokens per minute|tpm|request too large/.test(text) ? "rate limited (tokens per minute)" : status === 429 ? "rate limited" : "busy";
+  if (kind === "model") return "model unavailable";
+  return `HTTP ${status}`;
+}
+
+/** Seconds to wait from a retry-after header or a body like "Please try again in 7.5s" / "in 1m2s". */
+export function retryAfterMs(headers: Headers | undefined, body: string): number | undefined {
+  const header = headers?.get("retry-after");
+  if (header && /^\d+(\.\d+)?$/.test(header.trim())) return Math.round(Number(header) * 1000);
+  const match = body.match(/try again in\s+(?:(\d+)m(?!s))?\s*(\d+(?:\.\d+)?)?\s*(ms|s)?/i);
+  if (match && (match[1] || match[2])) {
+    const minutes = Number(match[1] || 0);
+    const value = Number(match[2] || 0);
+    return Math.round(minutes * 60_000 + (match[3] === "ms" ? value : value * 1000));
+  }
+  return undefined;
+}
+
+/** "use models/gemini-3.8-flash" in a 404 body: the model the provider wants us on instead. */
+function suggestedModel(body: string) {
+  return body.match(/use (?:models\/)?([a-z0-9][\w.\-:/]*[a-z0-9])/i)?.[1];
+}
+
+function httpError(provider: AgentProvider, model: string, status: number, body: string, headers?: Headers) {
+  const kind = classify(status, body);
+  return new ProviderError(`${provider}/${model} HTTP ${status}: ${body.slice(0, 300)}`, kind, reasonFor(status, body, kind), kind === "busy" ? retryAfterMs(headers, body) : undefined, kind === "model" ? suggestedModel(body) : undefined);
+}
+
+/** A 200 that isn't JSON (GitHub Models' retired endpoint answers "OK"): the endpoint is gone, not busy. */
+function nonJson(provider: AgentProvider, model: string, text: string) {
+  return new ProviderError(`${provider}/${model} returned non-JSON: ${text.slice(0, 80)}`, "account", "endpoint returned no JSON (retired?)");
 }
 
 async function availableModels(provider: AgentProvider, baseUrl: string, key: string) {
   if (!discovered.has(provider)) {
     discovered.set(provider, fetch(`${baseUrl}/models`, { headers: { Authorization: `Bearer ${key}` }, cache: "no-store", signal: AbortSignal.timeout(8_000) })
-      .then(async (response) => response.ok ? new Set(((await response.json()) as { data?: Array<{ id?: string }> }).data?.map((item) => (item.id || "").replace(/^models\//, "")).filter(Boolean) || []) : null)
+      .then(async (response) => {
+        if (!response.ok) return null;
+        const data = (await response.json()) as { data?: Array<{ id?: string }>; models?: Array<{ name?: string }> };
+        const ids = [...(data.data || []).map((item) => item.id || ""), ...(data.models || []).map((item) => item.name || "")].map((id) => id.replace(/^models\//, "")).filter(Boolean);
+        return new Set(ids);
+      })
       .catch(() => null));
   }
   return discovered.get(provider)!;
+}
+
+/** Gemini flash models from discovery, newest first. Strong/vision prefer full flash; fast prefers flash-lite. 2.x goes last (closed to new keys). */
+export function rankGemini(available: Iterable<string>, tier: ModelTier) {
+  const version = (id: string) => Number(id.match(/^gemini-(\d+(?:\.\d+)?)/)?.[1] || 0);
+  const ids = [...available].filter((id) => /^gemini-\d+(\.\d+)?-flash(-lite)?$/.test(id));
+  const flash = ids.filter((id) => !id.endsWith("-lite")).sort((a, b) => version(b) - version(a));
+  const lite = ids.filter((id) => id.endsWith("-lite")).sort((a, b) => version(b) - version(a));
+  const aliases = [...available].filter((id) => id === "gemini-flash-latest" || id === "gemini-flash-lite-latest");
+  const ordered = tier === "fast" ? [...lite, ...flash] : [...flash, ...lite];
+  const modern = ordered.filter((id) => version(id) >= 3);
+  const legacy = ordered.filter((id) => version(id) < 3);
+  return [...new Set([...modern, ...aliases, ...legacy])];
 }
 
 /** OpenAI-compatible base URL and key for a provider. */
@@ -113,43 +234,82 @@ function candidatesFor(provider: AgentProvider, route: ModelRoute) {
   return route.provider === provider && route.model ? [route.model, ...ordered.filter((model) => model !== route.model)] : ordered;
 }
 
-/** Runs one call against a provider, walking its model list past models the account can't use. */
+/** Narrows the candidate list to what the account's /models offers, filling in newer discovered chat models. */
+function withDiscovery(provider: AgentProvider, route: ModelRoute, candidates: string[], available: Set<string>, pinned: string | null) {
+  const free = (id: string) => provider !== "openrouter" || id.endsWith(":free");
+  if (provider === "gemini") {
+    const envFirst = candidates.filter((model) => model === pinned || (available.has(model) && env(route.tier === "fast" ? "GEMINI_FAST_MODEL" : route.tier === "vision" ? "GEMINI_VISION_MODEL" : "GEMINI_AGENT_MODEL").includes(model)));
+    const known = workingModel.get(`${route.tier}:${provider}`);
+    const ranked = rankGemini(available, route.tier);
+    return [...new Set([...envFirst, ...(known && ranked.includes(known) ? [known] : []), ...ranked])].filter((model) => model === pinned || !deadModels.has(`${provider}/${model}`));
+  }
+  const usable = candidates.filter((model) => model === pinned || (available.has(model) && free(model)));
+  if (route.tier === "vision") {
+    if (usable.length) return usable;
+    // None of the known vision ids are offered: try what discovery lists that looks multimodal.
+    const looks = [...available].filter((id) => VISION_GUESS.test(id) && !NOT_CHAT.test(id) && free(id));
+    if (!looks.length) throw new ProviderError(`${provider}: no vision model available on this account`, "model", "no vision model");
+    return looks.slice(0, 3);
+  }
+  // Discovered chat models we don't list yet (e.g. a new Groq model, OpenRouter's current :free set) as fallbacks.
+  const extras = [...available].filter((id) => !usable.includes(id) && !NOT_CHAT.test(id) && free(id) && !deadModels.has(`${provider}/${id}`)).slice(0, usable.length ? 2 : 3);
+  return [...usable, ...extras];
+}
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Runs one call against a provider, walking its model list past models the account can't use or that are rate-limited. */
 async function withModels(provider: AgentProvider, route: ModelRoute, run: (model: string) => Promise<LlmResult>): Promise<LlmResult> {
   const cooldown = providerCooldown.get(provider);
-  if (cooldown && cooldown > Date.now()) throw new ProviderError(`${provider}: skipped (account unavailable)`, "account");
+  if (cooldown && cooldown.until > Date.now()) throw new ProviderError(`${provider}: skipped (${cooldown.reason}, cooling down)`, "account", `${cooldown.reason} (cooling down)`);
   let candidates = candidatesFor(provider, route);
   const pinned = route.provider === provider && route.model ? route.model : null;
   if (provider !== "custom") {
     const config = configFor(provider);
     const available = await availableModels(provider, config.baseUrl, config.key);
-    if (available?.size) {
-      const usable = candidates.filter((model) => model === pinned || available.has(model));
-      if (usable.length) candidates = usable;
-      else if (route.tier === "vision") {
-        // None of the known vision ids are offered: try what discovery lists that looks multimodal.
-        const looks = [...available].filter((id) => VISION_GUESS.test(id) && !/guard|embed|tts|whisper|audio|image|banana|imagen|veo|live|:batch|ocr/i.test(id));
-        // On OpenRouter only free models cost nothing.
-        const guessed = (provider === "openrouter" ? looks.filter((id) => id.endsWith(":free")) : looks).slice(0, 3);
-        if (!guessed.length) throw new ProviderError(`${provider}: no vision model available on this account`, "model");
-        candidates = guessed;
-      }
-      else candidates = [...available].filter((id) => !/whisper|tts|embed|guard|vision|audio|image|ocr|moderation|rerank|veo|imagen|live/i.test(id)).slice(0, 3);
-    }
+    if (available?.size) candidates = withDiscovery(provider, route, candidates, available, pinned);
   }
+  candidates = candidates.filter((model) => model === pinned || (modelCooldown.get(`${provider}/${model}`) || 0) <= Date.now());
+  if (!candidates.length) throw new ProviderError(`${provider}: every model is rate-limited right now`, "busy", "rate limited");
+  const tried = new Set<string>();
+  const errors: ProviderError[] = [];
   let lastError: unknown = new Error(`${provider}: no usable model`);
-  for (const model of candidates.slice(0, 4)) {
-    try {
-      const result = await run(model);
-      if (model !== pinned) workingModel.set(`${route.tier}:${provider}`, model);
-      return result;
-    } catch (error) {
-      lastError = error;
-      if (error instanceof ProviderError && error.kind === "model") { deadModels.add(`${provider}/${model}`); continue; }
-      if (error instanceof ProviderError && error.kind === "busy") continue;
-      if (error instanceof ProviderError && error.kind === "account") providerCooldown.set(provider, Date.now() + 10 * 60_000);
-      throw error;
+  let attempts = 0;
+  while (candidates.length && attempts < 5) {
+    const model = candidates.shift()!;
+    if (tried.has(model)) continue;
+    tried.add(model);
+    attempts += 1;
+    for (let retry = 0; ; retry += 1) {
+      try {
+        const result = await run(model);
+        if (model !== pinned) workingModel.set(`${route.tier}:${provider}`, model);
+        return result;
+      } catch (error) {
+        lastError = error;
+        if (!(error instanceof ProviderError)) throw error;
+        if (error.kind === "busy" && retry === 0 && error.retryAfterMs !== undefined && error.retryAfterMs <= MAX_RETRY_WAIT_MS) { await sleep(error.retryAfterMs); continue; }
+        errors.push(error);
+        if (error.kind === "model") {
+          deadModels.add(`${provider}/${model}`);
+          if (error.suggested && !tried.has(error.suggested)) candidates.unshift(error.suggested);
+        } else if (error.kind === "busy") {
+          if (error.retryAfterMs) modelCooldown.set(`${provider}/${model}`, Date.now() + Math.min(error.retryAfterMs, ACCOUNT_COOLDOWN_MS));
+        } else if (error.kind === "account") {
+          providerCooldown.set(provider, { until: Date.now() + ACCOUNT_COOLDOWN_MS, reason: error.reason });
+          throw error;
+        } else throw error;
+        break;
+      }
     }
   }
+  const reasons = [...new Set(errors.map((error) => error.reason))];
+  if (errors.length && errors.every((error) => error.kind === "busy" && error.reason.startsWith("rate limited"))) {
+    // Every model is rate-limited: rest the provider for the longest wait it named (or a few minutes) instead of retrying each turn.
+    const wait = Math.max(...errors.map((error) => error.retryAfterMs || 0));
+    providerCooldown.set(provider, { until: Date.now() + Math.min(wait || BUSY_COOLDOWN_MS, ACCOUNT_COOLDOWN_MS), reason: "rate limited" });
+  }
+  if (errors.length) throw new ProviderError(errors.map((error) => error.message).join(" | "), errors.every((error) => error.kind === "model") ? "model" : "busy", reasons.join(", "));
   throw lastError;
 }
 
@@ -158,7 +318,10 @@ export function agentProviders(): AgentProvider[] {
   const order = (process.env.ELIAS_AGENT_PROVIDERS || DEFAULT_ORDER).split(",").map((item) => item.trim());
   // Gemini sits right after Groq whenever its key is set, even with an older custom order.
   if (process.env.GEMINI_API_KEY && !order.includes("gemini")) order.splice(order.includes("groq") ? order.indexOf("groq") + 1 : 0, 0, "gemini");
-  return [...new Set(order)].filter((name): name is AgentProvider => name === "custom" ? Boolean(customConfig()) : Boolean(MODEL_CANDIDATES[name as Exclude<AgentProvider, "custom">] && configFor(name as AgentProvider).key));
+  const optIn = process.env.ELIAS_GITHUB_MODELS === "1";
+  if (optIn && !order.includes("github")) order.push("github");
+  const retired = optIn ? [] : RETIRED;
+  return [...new Set(order)].filter((name): name is AgentProvider => !retired.includes(name as AgentProvider) && (name === "custom" ? Boolean(customConfig()) : Boolean(MODEL_CANDIDATES[name as Exclude<AgentProvider, "custom">] && configFor(name as AgentProvider).key)));
 }
 
 /** Provider order for one call: the tier's preferred providers first, a pinned provider before everything. */
@@ -192,11 +355,90 @@ export async function configuredModels() {
     if (provider !== "custom") {
       const config = configFor(provider);
       const available = await availableModels(provider, config.baseUrl, config.key).catch(() => null);
-      if (available?.size) { const usable = ids.filter((id) => available.has(id)); if (usable.length) models = usable; }
+      if (available?.size) {
+        const usable = provider === "gemini" ? rankGemini(available, "strong") : ids.filter((id) => available.has(id) && (provider !== "openrouter" || id.endsWith(":free")));
+        if (usable.length) models = usable;
+      }
     }
     models = models.filter((id) => !deadModels.has(`${provider}/${id}`));
-    return { provider, models: models.map((id) => ({ id, vision: provider !== "custom" && visionIds.has(id) })) };
+    return { provider, models: models.map((id) => ({ id, vision: provider !== "custom" && (visionIds.has(id) || (provider === "gemini" && /^gemini-/.test(id))) })) };
   }));
+}
+
+/** Rough token count: ~3.5 characters per token for English and JSON, plus per-message overhead; images count flat. */
+export function estimateTokens(messages: LlmMessage[], tools: ToolSchema[] = []) {
+  let chars = tools.length ? JSON.stringify(tools).length : 0;
+  let images = 0;
+  for (const message of messages) {
+    chars += 16;
+    if (typeof message.content === "string") chars += message.content.length;
+    else if (Array.isArray(message.content)) for (const part of message.content) { if (part.type === "text") chars += part.text.length; else images += 1; }
+    if (message.role === "assistant" && message.tool_calls) chars += JSON.stringify(message.tool_calls).length;
+  }
+  return Math.ceil(chars / 3.5) + images * 1_100;
+}
+
+function clip(text: string, max: number) {
+  return text.length <= max ? text : `${text.slice(0, Math.max(0, max - 40))}\n…[trimmed to fit the model's limit]`;
+}
+
+/** Tool schemas with descriptions cut to one short sentence and parameter descriptions dropped. */
+export function compactTools(tools: ToolSchema[]): ToolSchema[] {
+  const strip = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(strip);
+    if (value && typeof value === "object") return Object.fromEntries(Object.entries(value as Record<string, unknown>).filter(([key]) => key !== "description" && key !== "examples").map(([key, item]) => [key, strip(item)]));
+    return value;
+  };
+  return tools.map((tool) => ({ type: "function", function: { name: tool.function.name, description: (tool.function.description.split(/(?<=\.)\s/)[0] || "").slice(0, 140), parameters: strip(tool.function.parameters) as Record<string, unknown> } }));
+}
+
+/**
+ * Shapes one request to fit a per-request token budget (prompt + max_tokens): trims long old messages,
+ * drops the oldest history, compacts tool schemas, then clips the system prompt. Returns null when even
+ * the trimmed request can't fit, so the caller moves to a model with more room.
+ */
+export function fitRequest(messages: LlmMessage[], tools: ToolSchema[], budget: number | null, maxTokens = MAX_TOKENS()): { messages: LlmMessage[]; tools: ToolSchema[]; maxTokens: number } | null {
+  if (!budget) return { messages, tools, maxTokens };
+  const target = Math.floor(budget * 0.9);
+  let list = messages.slice();
+  let schemas = tools;
+  const fits = () => estimateTokens(list, schemas) + Math.min(maxTokens, 1_024) <= target;
+  const done = () => ({ messages: list, tools: schemas, maxTokens: Math.max(MIN_OUTPUT_TOKENS, Math.min(maxTokens, target - estimateTokens(list, schemas))) });
+  if (fits()) return done();
+  // The current turn starts at the last real user message; everything after it is this turn's tool loop.
+  const lastUser = list.map((message, index) => message.role === "user" && !(typeof message.content === "string" && message.content.startsWith("[system]")) ? index : -1).filter((index) => index >= 0).pop() ?? list.length - 1;
+  const firstHistory = list[0]?.role === "system" ? 1 : 0;
+  // 1. Long old history and tool outputs get clipped.
+  list = list.map((message, index) => {
+    if (message.role === "tool") return { ...message, content: clip(message.content, 3_000) };
+    if (index >= firstHistory && index < lastUser && typeof message.content === "string" && (message.role === "user" || message.role === "assistant")) return { ...message, content: clip(message.content, 1_200) } as LlmMessage;
+    return message;
+  });
+  if (fits()) return done();
+  // 2. Oldest history goes first, one message at a time.
+  let cut = lastUser;
+  while (!fits() && cut > firstHistory) { list.splice(firstHistory, 1); cut -= 1; }
+  if (fits()) return done();
+  // 3. Shorter tool schemas.
+  if (schemas.length) { schemas = compactTools(schemas); if (fits()) return done(); }
+  // 4. This turn's tool outputs, harder.
+  list = list.map((message) => message.role === "tool" ? { ...message, content: clip(message.content, 800) } : message);
+  if (fits()) return done();
+  // 5. The system prompt (memories and context sit at its end), keeping at least its opening.
+  if (list[0]?.role === "system") {
+    const system = list[0].content;
+    const spare = (target - Math.min(maxTokens, 1_024) - estimateTokens(list.slice(1), schemas)) * 3.5;
+    const keep = Math.max(1_500, Math.floor(spare) - 64);
+    if (keep < system.length) list[0] = { role: "system", content: clip(system, keep) };
+  }
+  if (estimateTokens(list, schemas) + MIN_OUTPUT_TOKENS <= target) return done();
+  return null;
+}
+
+function prepare(provider: AgentProvider, model: string, messages: LlmMessage[], tools: ToolSchema[]) {
+  const fitted = fitRequest(messages, tools, tokenBudget(provider, model));
+  if (!fitted) throw new ProviderError(`${provider}/${model}: request too large for its free-tier limit (~${estimateTokens(messages, tools)} tokens)`, "busy", "request too large");
+  return fitted;
 }
 
 function stripThinking(text: string) {
@@ -225,19 +467,20 @@ function customConfig() {
 
 async function callProvider(provider: AgentProvider, messages: LlmMessage[], tools: ToolSchema[], temperature: number, model: string): Promise<LlmResult> {
   const config = configFor(provider);
+  const fitted = prepare(provider, model, messages, tools);
   const response = await fetch(`${config.baseUrl}/chat/completions`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${config.key}` },
-    body: JSON.stringify({ model, messages, temperature, ...(tools.length ? { tools, tool_choice: "auto" } : {}) }),
+    headers: { "Content-Type": "application/json", Accept: "application/json", Authorization: `Bearer ${config.key}` },
+    body: JSON.stringify({ model, messages: fitted.messages, temperature, max_tokens: fitted.maxTokens, ...(fitted.tools.length ? { tools: fitted.tools, tool_choice: "auto" } : {}) }),
     cache: "no-store",
     signal: AbortSignal.timeout(45_000),
   });
   const raw = await response.text();
-  if (!response.ok) throw new ProviderError(`${provider}/${model} HTTP ${response.status}: ${raw.slice(0, 300)}`, classify(response.status, raw));
+  if (!response.ok) throw httpError(provider, model, response.status, raw, response.headers);
   let data: { choices?: Array<{ message?: { content?: string | null; tool_calls?: ToolCall[] } }> };
-  try { data = JSON.parse(raw); } catch { throw new ProviderError(`${provider}/${model} returned non-JSON: ${raw.slice(0, 80)}`, "busy"); }
+  try { data = JSON.parse(raw); } catch { throw nonJson(provider, model, raw); }
   const message = data.choices?.[0]?.message;
-  if (!message) throw new Error(`${provider}/${model} returned no message.`);
+  if (!message) throw new ProviderError(`${provider}/${model} returned no message.`, "busy", "empty reply");
   const content = stripThinking(message.content || "");
   let toolCalls = (message.tool_calls || []).map((call, index) => ({ ...call, id: call.id || `call_${index}_${Date.now()}`, type: "function" as const }));
   if (!toolCalls.length && content.includes("<tool_call>")) toolCalls = recoverTextToolCalls(content, tools);
@@ -259,22 +502,23 @@ export function visibleStreamText(full: string) {
 
 async function streamProvider(provider: AgentProvider, messages: LlmMessage[], tools: ToolSchema[], temperature: number, onDelta: (text: string) => void, model: string): Promise<LlmResult> {
   const config = configFor(provider);
+  const fitted = prepare(provider, model, messages, tools);
   const response = await fetch(`${config.baseUrl}/chat/completions`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "text/event-stream", Authorization: `Bearer ${config.key}` },
-    body: JSON.stringify({ model, messages, temperature, stream: true, ...(tools.length ? { tools, tool_choice: "auto" } : {}) }),
+    body: JSON.stringify({ model, messages: fitted.messages, temperature, stream: true, max_tokens: fitted.maxTokens, ...(fitted.tools.length ? { tools: fitted.tools, tool_choice: "auto" } : {}) }),
     cache: "no-store",
     signal: AbortSignal.timeout(60_000),
   });
-  if (!response.ok) { const body = await response.text(); throw new ProviderError(`${provider}/${model} HTTP ${response.status}: ${body.slice(0, 300)}`, classify(response.status, body)); }
+  if (!response.ok) { const body = await response.text(); throw httpError(provider, model, response.status, body, response.headers); }
   const contentType = response.headers.get("content-type") || "";
   if (!contentType.includes("event-stream") || !response.body) {
     // Provider ignored stream:true; treat it as a normal completion.
     const text = await response.text();
     let data: { choices?: Array<{ message?: { content?: string | null; tool_calls?: ToolCall[] } }> };
-    try { data = JSON.parse(text); } catch { throw new ProviderError(`${provider}/${model} returned non-JSON: ${text.slice(0, 80)}`, "busy"); }
+    try { data = JSON.parse(text); } catch { throw nonJson(provider, model, text); }
     const message = data.choices?.[0]?.message;
-    if (!message) throw new Error(`${provider}/${model} returned no message.`);
+    if (!message) throw new ProviderError(`${provider}/${model} returned no message.`, "busy", "empty reply");
     return finish(provider, model, message.content || "", message.tool_calls || [], tools, onDelta, "");
   }
   const reader = response.body.getReader();
@@ -325,6 +569,23 @@ function finish(provider: AgentProvider, model: string, raw: string, rawCalls: T
   return { content: text, toolCalls, provider, model };
 }
 
+function summarize(failures: Array<{ provider: AgentProvider; error: unknown }>) {
+  const byProvider = new Map<string, string[]>();
+  for (const { provider, error } of failures) {
+    const reason = error instanceof ProviderError ? error.reason : "error";
+    const list = byProvider.get(provider) || [];
+    for (const part of reason.split(", ")) if (!list.includes(part)) list.push(part);
+    byProvider.set(provider, list);
+  }
+  return [...byProvider].map(([provider, reasons]) => ({ provider, reason: reasons.join(", ") }));
+}
+
+function allFailed(failures: Array<{ provider: AgentProvider; error: unknown }>) {
+  const raw = failures.map(({ error }) => error instanceof Error ? error.message : String(error)).join(" | ").slice(0, 4000);
+  console.warn(`[llm] all providers failed: ${raw}`);
+  return new AllProvidersFailedError(summarize(failures), raw);
+}
+
 /**
  * Same as complete() but streams visible reply text through onDelta. Falls back to the next
  * provider only when nothing has been streamed yet, so the user never sees two half-answers.
@@ -332,25 +593,25 @@ function finish(provider: AgentProvider, model: string, raw: string, rawCalls: T
 export async function completeStream(messages: LlmMessage[], tools: ToolSchema[], onDelta: (text: string) => void, options: { temperature?: number; route?: ModelRoute } = {}): Promise<LlmResult> {
   const route = options.route || { tier: "strong" };
   const providers = providersFor(route);
-  if (!providers.length && route.tier === "vision") throw new Error("No vision-capable model is configured. Set GROQ_API_KEY, GITHUB_TOKEN, OPENROUTER_API_KEY or GEMINI_API_KEY.");
-  if (!providers.length) throw new Error("No tool-capable model provider is configured. Set GROQ_API_KEY, CEREBRAS_API_KEY, OPENROUTER_API_KEY, MISTRAL_API_KEY or HF_TOKEN.");
-  const errors: string[] = [];
+  if (!providers.length && route.tier === "vision") throw new Error("No vision-capable model is configured. Set GROQ_API_KEY, OPENROUTER_API_KEY or GEMINI_API_KEY.");
+  if (!providers.length) throw new Error("No tool-capable model provider is configured. Set GROQ_API_KEY, GEMINI_API_KEY, CEREBRAS_API_KEY, OPENROUTER_API_KEY, MISTRAL_API_KEY or HF_TOKEN.");
+  const failures: Array<{ provider: AgentProvider; error: unknown }> = [];
   for (const provider of providers) {
     let streamed = false;
     try { return await withModels(provider, route, (model) => streamProvider(provider, messages, tools, options.temperature ?? 0.3, (text) => { streamed = true; onDelta(text); }, model)); }
     catch (error) {
       if (streamed) throw error;
-      errors.push(error instanceof Error ? error.message : String(error));
-      if (error instanceof ProviderError && error.kind !== "other") continue;
+      if (error instanceof ProviderError && error.kind !== "other") { failures.push({ provider, error }); continue; }
+      if (!(error instanceof ProviderError)) failures.push({ provider, error });
     }
     // Some providers reject stream+tools; the same provider without streaming is the next best thing.
     try {
       const result = await withModels(provider, route, (model) => callProvider(provider, messages, tools, options.temperature ?? 0.3, model));
       if (!result.toolCalls.length && result.content) onDelta(result.content);
       return result;
-    } catch (error) { errors.push(error instanceof Error ? error.message : String(error)); }
+    } catch (error) { failures.push({ provider, error }); }
   }
-  throw new Error(`All agent providers failed. ${errors.join(" | ")}`.slice(0, 2000));
+  throw allFailed(failures);
 }
 
 export async function complete(messages: LlmMessage[], tools: ToolSchema[] = [], options: { temperature?: number; preferred?: AgentProvider; route?: ModelRoute; only?: boolean } = {}): Promise<LlmResult> {
@@ -358,11 +619,11 @@ export async function complete(messages: LlmMessage[], tools: ToolSchema[] = [],
   // only: try just the pinned provider (the owner health check uses this to test one provider directly).
   const providers = options.only && route.provider ? providersFor(route).filter((name) => name === route.provider) : providersFor(route);
   if (options.preferred && providers.includes(options.preferred)) providers.unshift(...providers.splice(providers.indexOf(options.preferred), 1));
-  if (!providers.length) throw new Error("No tool-capable model provider is configured. Set GROQ_API_KEY, CEREBRAS_API_KEY, OPENROUTER_API_KEY, MISTRAL_API_KEY or HF_TOKEN.");
-  const errors: string[] = [];
+  if (!providers.length) throw new Error("No tool-capable model provider is configured. Set GROQ_API_KEY, GEMINI_API_KEY, CEREBRAS_API_KEY, OPENROUTER_API_KEY, MISTRAL_API_KEY or HF_TOKEN.");
+  const failures: Array<{ provider: AgentProvider; error: unknown }> = [];
   for (const provider of providers) {
     try { return await withModels(provider, route, (model) => callProvider(provider, messages, tools, options.temperature ?? 0.3, model)); }
-    catch (error) { errors.push(error instanceof Error ? error.message : String(error)); }
+    catch (error) { failures.push({ provider, error }); }
   }
-  throw new Error(`All agent providers failed. ${errors.join(" | ")}`.slice(0, 2000));
+  throw allFailed(failures);
 }

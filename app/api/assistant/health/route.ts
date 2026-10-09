@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { browserProviders, probeBrowser } from "@/lib/assistant/browser";
-import { agentProviders, complete, discoveredModels, type ContentPart, type LlmMessage, type ModelTier } from "@/lib/assistant/llm";
+import { AllProvidersFailedError, agentProviders, complete, discoveredModels, type ContentPart, type LlmMessage, type ModelTier } from "@/lib/assistant/llm";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -42,6 +42,7 @@ export async function GET(request: Request) {
     const result = await complete(messages, [], { route: { tier, provider, model }, only: Boolean(provider) });
     return NextResponse.json({ ok: true, providers, tier, provider: result.provider, model: result.model, reply: result.content.slice(0, 40) });
   } catch (error) {
-    return NextResponse.json({ ok: false, providers, tier, error: error instanceof Error ? error.message.slice(0, 1500) : String(error) }, { status: 502 });
+    // Owner-only: the raw per-model dump rides along for diagnosis; users only ever see the friendly summary.
+    return NextResponse.json({ ok: false, providers, tier, error: error instanceof Error ? error.message.slice(0, 1500) : String(error), ...(error instanceof AllProvidersFailedError ? { summary: error.summary, raw: error.raw.slice(0, 2500) } : {}) }, { status: 502 });
   }
 }
