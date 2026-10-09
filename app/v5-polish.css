@@ -1,7 +1,7 @@
 /* v5 polish track: mobile fixes, workbench restyle, report card, states. Theme tokens only. */
 /* v5: research report card in chat */
 .v5-report-card { min-width: 0; max-width: 100%; }
-.v5-report-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.v5-report-head { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
 .v5-report-head > span:last-child { display: grid; min-width: 0; gap: 2px; }
 .v5-report-head small { color: var(--faint); font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
 .v5-report-head strong { overflow-wrap: anywhere; font-size: 15px; line-height: 1.3; }
@@ -69,3 +69,39 @@
 .el-list-row:disabled { opacity: .55; cursor: default; }
 @media (max-width: 520px) { .v5-wb-title { flex-direction: column-reverse; align-items: flex-start; gap: 8px; } }
 .v5-wb-title h2 { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.v5-report-head strong { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+
+/* v5: 390px pass. Dark mode for the legacy "paper" screens: their cards were hard-coded white,
+   so headings (var(--text), light in dark) sat white-on-white on Connectors, Skills, Browser, Approvals. */
+@media (prefers-color-scheme: dark) {
+  .auth-card { background-color: var(--surface); }
+  .panel, .quiet-card, .project-card, .skill-card, .browser-card, .browser-control-card, .browser-page, .connector-hero-card, .connector-auth-card, .connector-connected-card, .profile-card, .account-card, .task-start-guide, .task-status-row, .task-focus-card, .task-evidence-card, .task-delivery, .approval-inbox-row, .automation-builder, .research-reader, .task-output-card { background-color: var(--surface) !important; }
+  .screen :is([class$="-card"], [class*="-card "], [class$="-panel"], [class*="-panel "], [class$="-row"], [class*="-row "]) { background-color: var(--surface) !important; }
+  .screen :is([class$="-card"], [class*="-card "], [class$="-panel"], [class*="-panel "], [class$="-row"], [class*="-row "]):hover { background-color: var(--surface-2) !important; }
+  .step-tracker-collapsed, .step-tracker-expanded-card { background: var(--surface); }
+}
+/* Selected legacy tabs: accent text on an accent fill was unreadable (1.3:1). */
+.connector-tabs button.active, .skill-filter-row button.active, .connector-card-icon { color: var(--accent-ink) !important; }
+.screen .skill-filter-row button.active { background: var(--accent) !important; }
+/* Small text in the report card / v4 report: --faint on surface-2 was under 3:1 in light. */
+.v5-report-head small, .v4r-report h3 { color: var(--muted); }
+/* 44px tap targets and readable sizes on phones for the older screens. */
+.el-inline-error button { min-height: var(--tap); }
+@media (max-width: 640px) {
+  .icon-btn { width: var(--tap); height: var(--tap); }
+  .connector-tabs button, .skill-filter-row button { min-height: var(--tap); font-size: 13px; }
+  .searchbox { min-height: var(--tap); }
+  .searchbox input, .skills-search input, .browser-address input { font-size: 16px; }
+  .browser-open, .browser-action-select, .connector-cta, .connector-disconnect, .connector-reconnect, .skill-approval { min-height: var(--tap); }
+  .el-list-row .el-btn-sm { min-height: var(--tap); }
+  .browser-workspace button.primary, .browser-address,
+  .screen button.primary, .screen button.secondary, .screen a.primary, .screen a.secondary, .v4c-tabs button { min-height: var(--tap); }
+  .el-notice .el-icon-btn { width: var(--tap); height: var(--tap); margin: -10px -2px -10px 0; }
+  .skill-toggle { position: relative; }
+  .skill-toggle::after { content: ""; position: absolute; inset: -12px -5px; }
+  /* Long unbroken env-var names in connector rows wrapped under the status pill. */
+  .el-list-text small { overflow-wrap: anywhere; }
+  .el-connections .el-list-row.static { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; }
+  .el-connections .el-list-row.static > .el-state, .el-connections .el-list-row.static > .el-btn { grid-column: 2; justify-self: start; }
+}
+.v4-new-task + .el-error-card, .v4-new-task + .el-section .el-error-card { margin-top: 12px; }
