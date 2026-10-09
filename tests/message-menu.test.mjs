@@ -133,3 +133,19 @@ test("menu wiring: a11y roles, haptic, right-click, callout off, feedback API", 
   assert.match(route, /requireUser\(request\)/, "owner-auth");
   assert.match(read("lib/chatClient.ts"), /replyTo: input\.replyTo/);
 });
+
+test("Google connect card: reconnect, missing scope, revoked, drive scope in the link", () => {
+  const { googleConnectCopy } = load("lib/connectCopy.ts");
+  const first = googleConnectCopy({ provider: "google", configured: true }, "/chat?id=c1");
+  assert.equal(first.title, "Connect Google"); assert.equal(first.button, "Connect");
+  assert.equal(first.href, "/api/connect/google?return=%2Fchat%3Fid%3Dc1");
+  const expired = googleConnectCopy({ provider: "google", configured: true, reconnect: true, reason: "expired" }, "/");
+  assert.equal(expired.title, "Reconnect Google"); assert.equal(expired.button, "Reconnect"); assert.match(expired.line, /expired/);
+  assert.match(googleConnectCopy({ provider: "google", configured: true, reconnect: true, reason: "revoked" }, "/").line, /removed/);
+  const drive = googleConnectCopy({ provider: "google", configured: true, reconnect: true, reason: "missing_scope", scope: "drive" }, "/");
+  assert.match(drive.line, /Drive/); assert.ok(drive.href.endsWith("&scopes=drive"));
+  const cal = googleConnectCopy({ provider: "google", configured: true, reconnect: true, reason: "missing_scope", scope: "calendar" }, "/");
+  assert.match(cal.line, /Google Calendar/); assert.ok(!cal.href.includes("scopes="));
+  assert.match(googleConnectCopy({ provider: "google", configured: true, reconnect: true, reason: "missing_scope", scope: "gmail" }, "/").line, /Gmail/);
+  assert.equal(googleConnectCopy({ provider: "google", configured: false }, "/").button, null);
+});

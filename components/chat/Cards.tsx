@@ -6,6 +6,7 @@ import { ConnectorListCard, MemoryReview } from "@/components/chat/ExtraCards";
 import { DiffCard } from "@/components/code/DiffCard";
 import { SiteIcon, SourcesCard } from "@/components/chat/SourcesCard";
 import { ResearchReportCardView } from "@/components/research/ReportView";
+import { googleConnectCopy } from "@/lib/connectCopy";
 
 function host(url: string) {
   try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return url; }
@@ -61,11 +62,14 @@ export function MessageCard({ card }: { card: Card }) {
 }
 
 export function ConnectCard({ connect, returnTo }: { connect: ConnectInfo; returnTo: string }) {
-  if (connect.provider === "google") return <section className="el-card el-connect">
-    <span className="el-connect-mark google" aria-hidden="true">G</span>
-    <div className="el-connect-copy"><strong>{connect.configured ? "Connect Google" : "Google isn't set up yet"}</strong><small>{connect.configured ? "Lets Elias read your Gmail and Calendar. Sending and inviting always ask you first." : "Gmail and Calendar are not configured yet on this server. The owner needs to add Google OAuth keys."}</small></div>
-    {connect.configured ? <a className="el-btn el-btn-primary" href={`/api/connect/google?return=${encodeURIComponent(returnTo)}`}>Connect</a> : <span className="el-pill">Not configured yet</span>}
-  </section>;
+  if (connect.provider === "google") {
+    const copy = googleConnectCopy(connect, returnTo);
+    return <section className="el-card el-connect">
+      <span className="el-connect-mark google" aria-hidden="true">G</span>
+      <div className="el-connect-copy"><strong>{copy.title}</strong><small>{copy.line}{connect.reconnect && connect.email ? ` (${connect.email})` : ""}</small></div>
+      {copy.button ? <a className="el-btn el-btn-primary" href={copy.href}>{copy.button}</a> : <span className="el-pill">Not configured yet</span>}
+    </section>;
+  }
   return <section className="el-card el-connect">
     <span className="el-connect-mark" aria-hidden="true"><Plug size={16} /></span>
     <div className="el-connect-copy"><strong>Browser not configured</strong><small>Interactive browsing (forms, carts, bookings) needs a Cloudflare Browser Run or Browserbase key on the server. Reading web pages still works.</small></div>
