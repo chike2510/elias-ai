@@ -12,6 +12,8 @@ import { recordAudit } from "@/lib/assistant/audit";
 import { getCodeSet, isCodeTool } from "@/lib/assistant/code/github";
 import { CODE_PROMPT, codeSetSummary } from "@/lib/assistant/code/prompt";
 import { codeCardFor } from "@/lib/assistant/code/cards";
+import { suggestFollowUps } from "@/lib/assistant/followups";
+import { extractChoices } from "@/lib/richReply";
 
 const MAX_STEPS = 10;
 /** Code turns read, edit, commit and verify, so they get a bigger tool budget. */
@@ -20,7 +22,7 @@ const HISTORY_MESSAGES = 30;
 
 export type Approval = { id: string; tool: string; summary: string; status: string; createdAt: string; conversationId: string | null; result?: string | null; details: ApprovalDetails; editable: string[] };
 export type StoredMessage = { id: number; role: "user" | "assistant" | "event"; content: string; meta: Record<string, unknown>; createdAt: string };
-export type TurnResult = { conversationId: string; messageId?: number; reply: string; approvals: Approval[]; actions: Array<{ tool: string; ok: boolean }>; model?: string; tier?: ModelTier; memoriesSaved?: number; memories: MemoryChip[]; cards: Card[]; connect: ConnectCard[]; steps: string[] };
+export type TurnResult = { conversationId: string; messageId?: number; reply: string; approvals: Approval[]; actions: Array<{ tool: string; ok: boolean }>; model?: string; tier?: ModelTier; memoriesSaved?: number; memories: MemoryChip[]; cards: Card[]; connect: ConnectCard[]; steps: string[]; choices?: string[]; followUps?: string[] };
 
 /** Events streamed to the client while a turn runs. */
 export type TurnEvent =
@@ -90,7 +92,9 @@ VOICE: You are texting. Reply like a sharp, warm friend would by text message.
 - No headings, no bold labels, no bullet walls. A short list (max 5 items, one line each) only when the user asked for several things.
 - The chat shows cards for search results, emails, calendar events, weather and approvals. Do not repeat what a card shows: give the one-line takeaway ("3 unread, the one from your bank needs a reply today").
 - Links: at most one inline link, only when it's the thing they need.
-- Use tables only when the user asks to compare things.
+- Use tables only when the user asks to compare things. Keep them phone-sized: at most 4 short columns, the name in the first column.
+- Asking the user to pick (a time, an option, yes or no before acting)? End the reply with one line: [[choices: Option A | Option B | Option C]] (2 to 4 options, each under 30 characters, written as the user's reply). The chat turns it into tap-to-reply buttons and hides the line.
+- Only when the user asks for depth (a guide, report, plan or breakdown): open with the answer in 1 to 2 sentences, then one "## " heading per section. The chat folds long answers into sections.
 - No filler ("Great question", "I'd be happy to", "Let me know if").
 
 NOW: ${now.toLocaleString("en-GB", { timeZone: input.timezone, dateStyle: "full", timeStyle: "short" })} (${input.timezone}). ISO ${now.toISOString()}.
@@ -316,11 +320,21 @@ export async function runTurn(options: RunOptions): Promise<TurnResult> {
     await closeAll(browsers);
   }
 
-  reply = reply.trim() || (approvals.length ? "That's ready for your go-ahead." : connect.length ? "Connect it below and I'll take it from there." : "Done.");
-  const meta = { model, tier, actions, approvals: approvals.map((item) => item.id), cards, connect, memories: memoriesSaved, steps };
+  const extractedChoices = extractChoices(reply.trim());
+  const choices = extractedChoices.choices;
+  reply = extractedChoices.text.trim() || (approvals.length ? "That's ready for your go-ahead." : connect.length ? "Connect it below and I'll take it from there." : choices.length ? "Pick one:" : "Done.");
+  const meta: Record<string, unknown> = { model, tier, actions, approvals: approvals.map((item) => item.id), cards, connect, memories: memoriesSaved, steps, ...(choices.length ? { choices } : {}) };
   const messageId = await addMessage(options.userId, conversationId, "assistant", reply, meta);
+  let followUps: string[] = [];
   if (origin === "chat") {
-    const extracted = await extractMemories(options.userId, options.text, reply, memories).catch(() => []);
+    // Follow-up chips are skipped when the reply already offers quick replies, waits on an approval or a connect, or is a code turn.
+    const wantFollowUps = !choices.length && !approvals.length && !connect.length && code.mode !== "code" && !options.channel;
+    const [extracted, suggested] = await Promise.all([
+      extractMemories(options.userId, options.text, reply, memories).catch(() => []),
+      wantFollowUps ? suggestFollowUps(options.text, reply).catch(() => []) : Promise.resolve([] as string[]),
+    ]);
+    followUps = suggested;
+    if (followUps.length) await mergeMessageMeta(messageId, { followUps });
     for (const item of extracted) {
       if (memoriesSaved.some((chip) => chip.id === item.id)) continue;
       const chip = { id: item.id, content: item.content };
@@ -329,7 +343,7 @@ export async function runTurn(options: RunOptions): Promise<TurnResult> {
     }
     if (extracted.length) await mergeMessageMeta(messageId, { memories: memoriesSaved });
   }
-  const result: TurnResult = { conversationId, messageId, reply, approvals, actions, model, tier, memoriesSaved: memoriesSaved.length, memories: memoriesSaved, cards, connect, steps };
+  const result: TurnResult = { conversationId, messageId, reply, approvals, actions, model, tier, memoriesSaved: memoriesSaved.length, memories: memoriesSaved, cards, connect, steps, choices, followUps };
   emit({ type: "done", result });
   return result;
 }

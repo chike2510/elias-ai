@@ -8,6 +8,7 @@ import MarkdownMessage from "@/components/MarkdownMessage";
 import ApprovalCard from "@/components/chat/ApprovalCard";
 import { ConnectCard, MessageCard } from "@/components/chat/Cards";
 import MemorySheet from "@/components/chat/MemorySheet";
+import ReplyChips from "@/components/chat/ReplyChips";
 import { AttachMenu, AttachmentStrip, choiceName, MessageAttachments, MicButton, ModelSheet, RecordingBar, ReplyMeta, useVoice, type DraftAttachment } from "@/components/chat/ComposerTools";
 import { announceConversationsChanged, api, haptic, sendChat, userTimezone, type Approval, type Card, type ChatAttachment, type ConnectCard as ConnectInfo, type MemoryChip, type StoredAttachment, type StoredMessage, type TurnEvent } from "@/lib/chatClient";
 import { isImageFile, MAX_ATTACHMENT_BYTES, prepareImage, uploadDocument } from "@/lib/chatMedia";
@@ -31,6 +32,9 @@ type UiMessage = {
   attachments?: StoredAttachment[];
   model?: string;
   createdAt?: string;
+  /** Quick replies for a choice question Elias asked, and suggested follow-up messages. */
+  choices?: string[];
+  followUps?: string[];
   /** Set when this turn scheduled something or started a background job: a good moment to offer notifications. */
   nudgePush?: boolean;
 };
@@ -62,7 +66,13 @@ function fromStored(message: StoredMessage): UiMessage | null {
     approvalIds: Array.isArray(meta.approvals) ? meta.approvals as string[] : [],
     attachments: Array.isArray(meta.attachments) ? meta.attachments as StoredAttachment[] : undefined,
     model: typeof meta.model === "string" ? meta.model : undefined,
+    choices: stringList(meta.choices),
+    followUps: stringList(meta.followUps),
   };
+}
+
+function stringList(value: unknown) {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0).slice(0, 4) : undefined;
 }
 
 function blank(role: UiMessage["role"], content = ""): UiMessage {
@@ -224,7 +234,7 @@ export default function ChatView() {
     else if (event.type === "connect") patchLast((message) => ({ ...message, connect: [...message.connect, event.connect] }));
     else if (event.type === "memory") patchLast((message) => ({ ...message, memories: [...message.memories.filter((item) => item.id !== event.memory.id), event.memory] }));
     else if (event.type === "approval") { setApprovals((current) => [event.approval, ...current]); patchLast((message) => ({ ...message, approvalIds: [...message.approvalIds, event.approval.id] })); }
-    else if (event.type === "done") patchLast((message) => ({ ...message, model: event.result.model, content: event.result.reply, cards: event.result.cards, connect: event.result.connect, memories: event.result.memories, approvalIds: event.result.approvals.map((item) => item.id), status: "done", statusLine: undefined }));
+    else if (event.type === "done") patchLast((message) => ({ ...message, model: event.result.model, content: event.result.reply, cards: event.result.cards, connect: event.result.connect, memories: event.result.memories, approvalIds: event.result.approvals.map((item) => item.id), choices: event.result.choices, followUps: event.result.followUps, status: "done", statusLine: undefined }));
   }
 
   /** ?file=<id> from the Library: attach that file's text to the composer, or send it with ?prompt= straight away. */
@@ -328,6 +338,7 @@ export default function ChatView() {
   const orphanPending = approvals.filter((item) => item.status === "pending" && !referenced.has(item.id));
   const empty = !loading && !loadError && messages.length === 0;
   const returnTo = conversationId ? `/chat?id=${conversationId}` : "/";
+  const lastAssistantKey = messages.length && messages[messages.length - 1].role === "assistant" ? messages[messages.length - 1].key : null;
 
   return <AppShell chat title={conversationId ? undefined : "Elias"}>
     <main className="el-chat">
@@ -346,7 +357,7 @@ export default function ChatView() {
             : message.role === "user" ? <div key={message.key} className="el-row user">{message.attachments?.length ? <MessageAttachments items={message.attachments} /> : null}{message.content ? <div className="el-bubble user">{message.content}</div> : null}<MessageTimestamp createdAt={message.createdAt} /></div>
             : <div key={message.key} className="el-row assistant">
               {message.status === "error" ? <ErrorCard text={message.error || "Elias couldn't answer."} onRetry={() => retry(message)} />
-                : message.content ? <div className="el-bubble assistant"><MarkdownMessage content={message.content} /></div>
+                : message.content ? <div className="el-bubble assistant"><MarkdownMessage content={message.content} collapsible streaming={message.status === "streaming"} /></div>
                 : message.status === "streaming" ? <div className="el-typing" role="status"><span className="el-dots" aria-hidden="true"><i /><i /><i /></span>{message.statusLine || "Thinking…"}</div> : null}
               {message.status === "streaming" && message.content && message.statusLine ? <div className="el-typing" role="status"><span className="el-dots" aria-hidden="true"><i /><i /><i /></span>{message.statusLine}</div> : null}
               {message.cards.map((card, index) => <MessageCard key={`${card.kind}-${index}`} card={card} />)}
@@ -354,6 +365,8 @@ export default function ChatView() {
               {message.approvalIds.map((id) => approvalsById.get(id)).filter((item): item is Approval => Boolean(item)).map((approval) => <ApprovalCard key={approval.id} approval={approval} onDecide={(decision, edits) => decide(approval, decision, edits)} />)}
               {message.status !== "streaming" && message.status !== "error" ? <MessageTimestamp createdAt={message.createdAt} /> : null}
               {message.status !== "streaming" && message.status !== "error" && message.content ? <ReplyMeta content={message.content} model={message.model} /> : null}
+              {message.key === lastAssistantKey && message.status === "done" && !busy && message.choices?.length ? <ReplyChips kind="choices" items={message.choices} onPick={(text) => void send(text)} /> : null}
+              {message.key === lastAssistantKey && message.status === "done" && !busy && !message.choices?.length && message.followUps?.length ? <ReplyChips kind="followups" items={message.followUps.slice(0, 3)} onPick={(text) => void send(text)} /> : null}
               {message.nudgePush && message.status === "done" ? <NotificationPrompt /> : null}
               {message.memories.length ? <div className="el-memory-chips">{message.memories.map((chip) => <button type="button" key={chip.id} className="el-memory-chip" title={chip.content} onClick={() => setMemory({ chip, messageKey: message.key })}><Brain size={13} /> {message.memories.length > 1 ? chip.content.slice(0, 28) + (chip.content.length > 28 ? "…" : "") : "Saved to memory"}</button>)}</div> : null}
             </div>)}

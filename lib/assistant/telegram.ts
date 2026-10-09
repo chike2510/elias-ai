@@ -116,7 +116,8 @@ export async function handleTelegramUpdate(update: TelegramUpdate, appUrl: strin
   if (turn.conversationId !== link.conversation_id) await db`update public.elias_telegram_links set conversation_id = ${turn.conversationId} where chat_id = ${chatId}`;
   const approvals = turn.approvals.length ? `\n\nWaiting for your OK in the app: ${appUrl}/` : "";
   const connect = turn.connect.length ? `\n\nConnect it in the app: ${appUrl}/connectors` : "";
-  await send(chatId, `${turn.reply}${approvals}${connect}`);
+  const choices = turn.choices?.length ? `\n\nReply with: ${turn.choices.join(" / ")}` : "";
+  await send(chatId, `${turn.reply}${choices}${approvals}${connect}`);
   return { action: "replied", userId, conversationId: turn.conversationId, reply: turn.reply } as const;
 }
 
