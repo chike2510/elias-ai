@@ -7,7 +7,7 @@ import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { ready } from "@/lib/assistant/db";
 import { decryptSecret } from "@/lib/assistant/crypto";
-import { disconnectGoogle, exchangeGoogleCode, gmailTriage, googleConnection, setGoogleFetch } from "@/lib/assistant/google";
+import { disconnectGoogle, exchangeGoogleCode, googleExtraScopes, gmailTriage, googleConnection, setGoogleFetch } from "@/lib/assistant/google";
 import { createMockGoogle } from "@/lib/assistant/googleMock";
 import { gatherBrief, briefConnect } from "@/lib/assistant/brief";
 import { runTurn } from "@/lib/assistant/agent";
@@ -27,7 +27,7 @@ function startModel(): Promise<number> {
     if (data.tools) systems.push(data.messages[0].content);
     const last = data.messages[data.messages.length - 1];
     const message = !data.tools ? { role: "assistant", content: '{"facts":[]}' } : last.role !== "tool"
-      ? { role: "assistant", content: null, tool_calls: [{ id: "g1", type: "function", function: { name: "gmail_triage", arguments: "{}" } }] }
+      ? { role: "assistant", content: null, tool_calls: [{ id: "g1", type: "function", function: { name: process.env.ELIAS_TEST_TOOL || "gmail_triage", arguments: process.env.ELIAS_TEST_TOOL ? JSON.stringify({ query: "budget" }) : "{}" } }] }
       : { role: "assistant", content: `Tool said: ${String(last.content).slice(0, 400)}` };
     if (!data.stream) { res.setHeader("content-type", "application/json"); res.end(JSON.stringify({ choices: [{ message }] })); return; }
     res.writeHead(200, { "content-type": "text/event-stream" });
@@ -112,6 +112,15 @@ async function main() {
   mock.state.refresh = "ok";
   await exchangeGoogleCode(request, "abc2", user);
   assert.equal((await googleConnection(user))?.status, "ok");
+
+  // 6b. Asking for Drive without the scope: Reconnect card with scope drive, and the next connect asks for drive.readonly.
+  const driveModel = systems.length;
+  process.env.ELIAS_TEST_TOOL = "drive_search";
+  const drive = await runTurn({ userId: user, text: "find my budget doc" });
+  assert.ok(systems.length > driveModel);
+  assert.deepEqual(drive.connect.map((item) => [item.reason, item.scope]), [["missing_scope", "drive"]]);
+  assert.deepEqual(await googleExtraScopes(user), ["https://www.googleapis.com/auth/drive.readonly"]);
+  delete process.env.ELIAS_TEST_TOOL;
 
   // 7. Disconnect revokes at Google and deletes our copy.
   await disconnectGoogle(user);
