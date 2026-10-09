@@ -26,7 +26,7 @@
 
 /* ---------- code blocks: 44px copy button ---------- */
 .el-bubble .markdown-code-head { min-height: var(--tap, 44px); padding: 0 2px 0 12px; }
-.markdown-message .markdown-copy { min-height: var(--tap, 44px); min-width: var(--tap, 44px); justify-content: center; padding: 0 10px; font-size: 12.5px; text-transform: none; cursor: pointer; }
+.markdown-message .markdown-copy, .el-bubble .markdown-code-head .markdown-copy { min-height: var(--tap, 44px); min-width: var(--tap, 44px); justify-content: center; padding: 0 10px; font-size: 12.5px; text-transform: none; cursor: pointer; }
 .markdown-message .markdown-copy:hover { color: var(--text); }
 .markdown-message .markdown-copy:focus-visible { outline: 2px solid var(--accent); outline-offset: -4px; }
 
