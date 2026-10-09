@@ -17,9 +17,10 @@ export default function YouScreen() {
   const [user, setUser] = useState<User | null>(null);
   const [status, setStatus] = useState<Status | null>(null);
   const [statusError, setStatusError] = useState(false);
+  const loadStatus = () => { setStatusError(false); void api<Status>(`/api/assistant/status?timezone=${encodeURIComponent(userTimezone())}`).then(setStatus).catch(() => setStatusError(true)); };
   useEffect(() => {
     void fetch("/api/auth/me", { cache: "no-store" }).then((response) => response.json()).then((data) => setUser(data.user || {})).catch(() => setUser({}));
-    void api<Status>(`/api/assistant/status?timezone=${encodeURIComponent(userTimezone())}`).then(setStatus).catch(() => setStatusError(true));
+    loadStatus();
   }, []);
   async function logout() { await fetch("/api/auth/logout", { method: "POST" }); window.localStorage.removeItem("elias.user"); window.location.href = "/login"; }
   const initial = (user?.name || user?.login || "?").slice(0, 1).toUpperCase();
@@ -34,7 +35,7 @@ export default function YouScreen() {
       <section className="el-section">
         <h2>Connections</h2>
         {!status && !statusError ? <ListSkeleton rows={3} /> : null}
-        {statusError ? <p className="el-empty-line">Couldn't check connections right now.</p> : null}
+        {statusError ? <div className="el-inline-error" role="alert"><span>Couldn't check connections right now.</span><button type="button" onClick={loadStatus}>Retry</button></div> : null}
         {status ? <ul className="el-list">
           <li><GoogleStatusRow google={status.google} returnTo="/you" /></li>
           <li><ConnectionRow icon={<Github size={17} />} name="GitHub" detail={status.github.connected ? "Repository access" : "Repository access not connected"} state={status.github.connected ? "on" : "off"} href="/connectors/github" /></li>

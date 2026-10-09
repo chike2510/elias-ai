@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Download, ImageIcon, LoaderCircle, MessageCircle, RefreshCw, Trash2, WandSparkles, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { ErrorCard } from "@/components/chat/ChatView";
 import AppShell, { ListSkeleton } from "@/components/AppShell";
 import { api } from "@/lib/chatClient";
 
@@ -21,12 +22,14 @@ export default function StudioScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [images, setImages] = useState<GalleryImage[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [latest, setLatest] = useState<GalleryImage | null>(null);
   const [viewing, setViewing] = useState<GalleryImage | null>(null);
 
   const load = useCallback(async () => {
+    setLoadError(null);
     try { setImages((await api<{ images: GalleryImage[] }>("/api/assistant/studio")).images); }
-    catch (err) { setError((err as Error).message); setImages((current) => current || []); }
+    catch (err) { setLoadError((err as Error).message); }
   }, []);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
@@ -86,7 +89,7 @@ export default function StudioScreen() {
 
       <section className="el-section">
         <div className="el-section-head"><h2>Gallery</h2></div>
-        {!images ? <ListSkeleton rows={2} /> : !images.length ? <p className="el-empty-line"><ImageIcon size={16} /> Nothing here yet. Your images will collect here.</p> : <ul className="v4s-grid">{images.map((image) => <li key={image.id}>
+        {!images && loadError ? <ErrorCard text={loadError} onRetry={() => { setLoadError(null); void load(); }} /> : !images ? <ListSkeleton rows={2} /> : !images.length ? <p className="el-empty-line"><ImageIcon size={16} /> Nothing here yet. Your images will collect here.</p> : <ul className="v4s-grid">{images.map((image) => <li key={image.id}>
           <button type="button" className="v4s-thumb" onClick={() => setViewing(image)} aria-label={`Open: ${image.text || image.name}`}><img src={src(image)} alt="" loading="lazy" /></button>
         </li>)}</ul>}
       </section>
