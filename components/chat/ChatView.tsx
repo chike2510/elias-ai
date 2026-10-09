@@ -464,6 +464,8 @@ export function ErrorCard({ text, onRetry }: { text: string; onRetry?: () => voi
 
 /** Turns raw provider dumps into one plain sentence, keeping the raw text behind Details. */
 function friendly(text: string): { short: string; details?: string } {
+  const busy = text.match(/All my AI providers are busy[^.]*\.(?:\s*Details:\s*([\s\S]*))?/i);
+  if (busy) return { short: "All my AI providers are busy or out of free quota, try again in a minute.", details: busy[1] || undefined };
   if (/All agent providers failed|No tool-capable model provider/i.test(text)) {
     return { short: "Elias couldn't reach any AI model just now. Try again in a minute.", details: text };
   }
