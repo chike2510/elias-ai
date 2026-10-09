@@ -42,7 +42,7 @@ export async function GET(request: Request) {
       const pinned = params.get("provider") || undefined;
       if (pinned && !providers.includes(pinned as never)) return NextResponse.json({ ok: false, providers, agent: true, error: `${pinned} is not configured on this deployment.` }, { status: 400 });
       const result = await completeStream(messages, tools, () => undefined, { route: { tier: "strong", provider: pinned }, only: Boolean(pinned) });
-      return NextResponse.json({ ok: true, providers, agent: true, estimatedTokens: estimateTokens(messages, tools), tools: tools.length, ms: Date.now() - started, provider: result.provider, model: result.model, toolCalls: result.toolCalls.map((call) => call.function.name), reply: result.content.slice(0, 200) });
+      return NextResponse.json({ ok: true, providers, agent: true, estimatedTokens: estimateTokens(messages, tools), tools: tools.length, ms: Date.now() - started, provider: result.provider, model: result.model, toolCalls: result.toolCalls.map((call) => call.function.name), reply: result.content.slice(0, 200), cooldowns: providerCooldowns() });
     } catch (error) {
       return NextResponse.json({ ok: false, providers, agent: true, estimatedTokens: estimateTokens(messages, tools), error: error instanceof Error ? error.message.slice(0, 1500) : String(error), ...(error instanceof AllProvidersFailedError ? { summary: error.summary, hints: error.summary.flatMap((item) => item.hint ? [item.hint] : []), raw: error.raw.slice(0, 2500) } : {}), cooldowns: providerCooldowns() }, { status: 502 });
     }
