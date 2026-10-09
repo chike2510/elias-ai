@@ -1,0 +1,8 @@
+/* v5 polish track: mobile fixes, workbench restyle, report card, states. Theme tokens only. */
+/* v5: research report card in chat */
+.v5-report-card { min-width: 0; max-width: 100%; }
+.v5-report-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.v5-report-head > span:last-child { display: grid; min-width: 0; gap: 2px; }
+.v5-report-head small { color: var(--faint); font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.v5-report-head strong { overflow-wrap: anywhere; font-size: 15px; line-height: 1.3; }
+.v5-report-icon { display: grid; flex: 0 0 auto; place-items: center; width: 32px; height: 32px; border-radius: 10px; background: var(--accent-soft); color: var(--accent-text); }
