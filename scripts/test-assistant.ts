@@ -27,6 +27,7 @@ import { createLinkCode, handleTelegramUpdate, telegramLinkFor } from "@/lib/ass
 import { connectorCard } from "@/lib/assistant/cards";
 import { summarizeTransactions } from "@/lib/assistant/connectors";
 import { gmailSearch } from "@/lib/assistant/google";
+import { setMessageFeedback } from "@/lib/assistant/feedback";
 
 for (const key of ["VERCEL_API_TOKEN", "PAYSTACK_SECRET_KEY", "FLUTTERWAVE_SECRET_KEY", "TELEGRAM_BOT_TOKEN", "TELEGRAM_WEBHOOK_SECRET", "ELIAS_ENCRYPTION_KEY"]) delete process.env[key];
 
@@ -323,6 +324,7 @@ async function main() {
   await v3Checks(user);
   await libraryChecks(user);
   await richChatChecks(user);
+  await messageMenuChecks(user);
 
   // rate limiting
   const bucket = `test:${user}`;
@@ -517,3 +519,31 @@ async function richChatChecks(user: string) {
 }
 
 main().catch((error) => { console.error(error); process.exit(1); });
+
+/* ---------- v5: long-press menu (reply with a quote, thumbs feedback) ---------- */
+async function messageMenuChecks(user: string) {
+  const first = await runTurn({ userId: user, text: "tell me a long answer about lunch" });
+  const quoted = await runTurn({ userId: user, conversationId: first.conversationId, text: "why so early?", replyTo: "Leave by 7:40 for lunch.\nSecond line." });
+  assert.equal(quoted.reply, "Quoted: Leave by 7:40 for lunch. | why so early?", "the quoted message reaches the model as context");
+  const messages = await getMessages(user, first.conversationId);
+  const asked = messages.filter((item) => item.role === "user").at(-1)!;
+  assert.equal(asked.content, "why so early?", "the stored user text stays clean");
+  assert.equal(asked.meta.replyTo, "Leave by 7:40 for lunch.\nSecond line.", "the quote is kept on meta.replyTo");
+  const plain = await runTurn({ userId: user, conversationId: first.conversationId, text: "no quote here", replyTo: "   " });
+  assert.ok(!plain.reply.startsWith("Quoted:"), "a blank quote is ignored");
+
+  const id = quoted.messageId!;
+  const up = await setMessageFeedback(user, id, "up");
+  assert.equal(up?.rating, "up");
+  const down = await setMessageFeedback(user, id, "down", "  too vague  ");
+  assert.equal(down?.reason, "too vague");
+  let stored = (await getMessages(user, first.conversationId)).find((item) => item.id === id)!;
+  assert.equal((stored.meta.feedback as { rating: string }).rating, "down", "feedback is stored on the message meta");
+  assert.ok(Array.isArray(stored.meta.cards), "the rest of the meta is kept");
+  assert.equal(await setMessageFeedback(`${user}_other`, id, "up"), undefined, "someone else's message can't be rated");
+  assert.equal(await setMessageFeedback(user, asked.id, "up"), undefined, "only assistant messages take feedback");
+  assert.equal(await setMessageFeedback(user, id, null), null, "null clears it");
+  stored = (await getMessages(user, first.conversationId)).find((item) => item.id === id)!;
+  assert.equal(stored.meta.feedback, undefined);
+  console.log("message menu checks passed");
+}

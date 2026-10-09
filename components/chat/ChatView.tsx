@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertCircle, ArrowUp, Brain, CalendarDays, Check, Clock3, Mail, RefreshCw, Square, Sun } from "lucide-react";
+import { AlertCircle, ArrowUp, Brain, CalendarDays, Check, Clock3, CornerUpLeft, Mail, RefreshCw, Square, Sun, X } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import AppShell from "@/components/AppShell";
@@ -9,6 +9,8 @@ import ApprovalCard from "@/components/chat/ApprovalCard";
 import { ConnectCard, MessageCard } from "@/components/chat/Cards";
 import MemorySheet from "@/components/chat/MemorySheet";
 import ReplyChips from "@/components/chat/ReplyChips";
+import { copyText, MenuToast, MessageMenu, SelectTextSheet, useMessageMenu, type MenuTarget } from "@/components/chat/MessageMenu";
+import { firstLine, parseFeedback, type Feedback, type MenuActionId } from "@/lib/messageMenu";
 import { AttachMenu, AttachmentStrip, choiceName, MessageAttachments, MicButton, ModelSheet, RecordingBar, ReplyMeta, useVoice, type DraftAttachment } from "@/components/chat/ComposerTools";
 import { announceConversationsChanged, api, haptic, sendChat, userTimezone, type Approval, type Card, type ChatAttachment, type ConnectCard as ConnectInfo, type MemoryChip, type StoredAttachment, type StoredMessage, type TurnEvent } from "@/lib/chatClient";
 import { isImageFile, MAX_ATTACHMENT_BYTES, prepareImage, uploadDocument } from "@/lib/chatMedia";
@@ -37,6 +39,11 @@ type UiMessage = {
   followUps?: string[];
   /** Set when this turn scheduled something or started a background job: a good moment to offer notifications. */
   nudgePush?: boolean;
+  /** Server message id (feedback needs it), thumbs given, and the earlier message a user message replies to. */
+  id?: number;
+  feedback?: Feedback | null;
+  replyTo?: string;
+  retryReplyTo?: string;
 };
 
 const MODEL_KEY = "elias:model";
@@ -68,6 +75,9 @@ function fromStored(message: StoredMessage): UiMessage | null {
     model: typeof meta.model === "string" ? meta.model : undefined,
     choices: stringList(meta.choices),
     followUps: stringList(meta.followUps),
+    id: message.id,
+    feedback: parseFeedback(meta.feedback),
+    replyTo: typeof meta.replyTo === "string" ? meta.replyTo : undefined,
   };
 }
 
@@ -113,6 +123,11 @@ export default function ChatView() {
   const [drafts, setDrafts] = useState<DraftAttachment[]>([]);
   const [modelChoice, setModelChoice] = useState("auto");
   const [modelsOpen, setModelsOpen] = useState(false);
+  const [replyQuote, setReplyQuote] = useState<string | null>(null);
+  const [selectText, setSelectText] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const menu = useMessageMenu();
   const conversationRef = useRef<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const threadRef = useRef<HTMLDivElement>(null);
@@ -234,7 +249,7 @@ export default function ChatView() {
     else if (event.type === "connect") patchLast((message) => ({ ...message, connect: [...message.connect, event.connect] }));
     else if (event.type === "memory") patchLast((message) => ({ ...message, memories: [...message.memories.filter((item) => item.id !== event.memory.id), event.memory] }));
     else if (event.type === "approval") { setApprovals((current) => [event.approval, ...current]); patchLast((message) => ({ ...message, approvalIds: [...message.approvalIds, event.approval.id] })); }
-    else if (event.type === "done") patchLast((message) => ({ ...message, model: event.result.model, content: event.result.reply, cards: event.result.cards, connect: event.result.connect, memories: event.result.memories, approvalIds: event.result.approvals.map((item) => item.id), choices: event.result.choices, followUps: event.result.followUps, status: "done", statusLine: undefined }));
+    else if (event.type === "done") patchLast((message) => ({ ...message, model: event.result.model, content: event.result.reply, cards: event.result.cards, connect: event.result.connect, memories: event.result.memories, approvalIds: event.result.approvals.map((item) => item.id), choices: event.result.choices, followUps: event.result.followUps, id: event.result.messageId, status: "done", statusLine: undefined }));
   }
 
   /** ?file=<id> from the Library: attach that file's text to the composer, or send it with ?prompt= straight away. */
@@ -253,7 +268,7 @@ export default function ChatView() {
   }
 
   /** Sends the composer (or `raw`). Drafted attachments go along when sending the composer or a voice note. */
-  async function send(raw?: string, options: { attachments?: ChatAttachment[]; useDrafts?: boolean } = {}) {
+  async function send(raw?: string, options: { attachments?: ChatAttachment[]; useDrafts?: boolean; replyTo?: string } = {}) {
     const text = (raw ?? input).trim();
     const useDrafts = !options.attachments && (options.useDrafts ?? raw === undefined);
     if (useDrafts && drafts.some((item) => item.status === "working")) { setNotice({ tone: "warn", text: "Still reading your attachment. One moment." }); return; }
@@ -261,21 +276,24 @@ export default function ChatView() {
       ? { kind: "image", name: item.name, mime: item.mime, size: item.size, dataUrl: item.dataUrl!, thumb: item.thumb, width: item.width, height: item.height }
       : { kind: "file", name: item.name, mime: item.mime, size: item.size, text: item.text || "", chars: item.chars || 0, truncated: item.truncated }) : []);
     if ((!text && !attachments.length) || busy) return;
+    // A quoted reply (long-press > Reply) rides along with the composer or a voice note.
+    const replyTo = options.replyTo ?? (raw === undefined || options.useDrafts ? replyQuote || undefined : undefined);
     haptic(10);
     setInput("");
+    if (replyTo) setReplyQuote(null);
     if (useDrafts) setDrafts([]);
     setNotice(null);
     setBusy(true);
     stickToBottom.current = true;
     const assistant = { ...blank("assistant"), status: "streaming" as const, statusLine: "Thinking…" };
-    setMessages((current) => [...current.filter((item) => item.status !== "error"), { ...blank("user", text), attachments: attachments.length ? toStoredPreview(attachments) : undefined }, assistant]);
+    setMessages((current) => [...current.filter((item) => item.status !== "error"), { ...blank("user", text), attachments: attachments.length ? toStoredPreview(attachments) : undefined, replyTo }, assistant]);
     const controller = new AbortController();
     abortRef.current = controller;
     try {
-      await sendChat({ text, conversationId: conversationRef.current || undefined, attachments, model: modelChoice }, onEvent, controller.signal);
+      await sendChat({ text, conversationId: conversationRef.current || undefined, attachments, model: modelChoice, replyTo }, onEvent, controller.signal);
     } catch (error) {
       if ((error as Error).name === "AbortError") patchLast((message) => ({ ...message, status: "done", statusLine: undefined, content: message.content || "Stopped." }));
-      else patchLast((message) => ({ ...message, status: "error", statusLine: undefined, error: (error as Error).message, retryText: text, retryAttachments: attachments }));
+      else patchLast((message) => ({ ...message, status: "error", statusLine: undefined, error: (error as Error).message, retryText: text, retryAttachments: attachments, retryReplyTo: replyTo }));
     } finally {
       setBusy(false);
       abortRef.current = null;
@@ -289,7 +307,7 @@ export default function ChatView() {
       const index = current.findIndex((item) => item.key === message.key);
       return index > 0 && current[index - 1].role === "user" ? current.slice(0, index - 1) : current.filter((item) => item.key !== message.key);
     });
-    void send(message.retryText, { attachments: message.retryAttachments || [] });
+    void send(message.retryText, { attachments: message.retryAttachments || [], replyTo: message.retryReplyTo });
   }
 
   async function addFiles(files: File[]) {
@@ -314,6 +332,35 @@ export default function ChatView() {
     setModelChoice(choice);
     try { localStorage.setItem(MODEL_KEY, choice); } catch { /* ignore */ }
     void api("/api/assistant/models", { method: "PUT", body: JSON.stringify({ model: choice }) }).catch((error) => setNotice({ tone: "warn", text: (error as Error).message }));
+  }
+
+  function showToast(text: string) {
+    setToast(text);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), 1600);
+  }
+
+  function menuAction(action: MenuActionId, target: MenuTarget) {
+    if (action === "copy") void copyText(target.content).then((ok) => showToast(ok ? "Copied" : "Couldn't copy"));
+    else if (action === "select") setSelectText(target.content);
+    else if (action === "reply") { setReplyQuote(target.content); inputRef.current?.focus(); }
+    else if (action === "edit") { setInput(target.content); inputRef.current?.focus(); }
+    else if (action === "download" && target.image) {
+      const link = document.createElement("a");
+      link.href = target.image.src;
+      link.download = /\.\w{2,5}$/.test(target.image.name) ? target.image.name : `${target.image.name || "image"}.jpg`;
+      document.body.appendChild(link); link.click(); link.remove();
+    }
+  }
+
+  async function rateMessage(rating: Feedback | null, target: MenuTarget) {
+    if (!target.messageId) return;
+    const before = target.feedback ?? null;
+    const set = (value: Feedback | null) => setMessages((current) => current.map((item) => item.key === target.key ? { ...item, feedback: value } : item));
+    set(rating);
+    if (rating) showToast(rating === "up" ? "Thanks for the feedback" : "Thanks. I'll do better");
+    try { await api("/api/assistant/feedback", { method: "POST", body: JSON.stringify({ messageId: target.messageId, rating }) }); }
+    catch (error) { set(before); setNotice({ tone: "warn", text: (error as Error).message }); }
   }
 
   const voice = useVoice(useCallback((text: string, autoSend: boolean) => {
@@ -354,10 +401,14 @@ export default function ChatView() {
             <div className="el-chips">{SUGGESTIONS.map((item) => <button type="button" key={item.label} className="el-chip" onClick={() => { if (item.send) void send(item.text); else { setInput(item.text); inputRef.current?.focus(); } }}><item.icon size={16} /> {item.label}</button>)}</div>
           </section> : null}
           {messages.map((message) => message.role === "note" ? <p key={message.key} className="el-note"><Clock3 size={13} /> Scheduled · {message.content.slice(0, 80)}</p>
-            : message.role === "user" ? <div key={message.key} className="el-row user">{message.attachments?.length ? <MessageAttachments items={message.attachments} /> : null}{message.content ? <div className="el-bubble user">{message.content}</div> : null}<MessageTimestamp createdAt={message.createdAt} /></div>
+            : message.role === "user" ? <div key={message.key} className="el-row user">
+              {message.replyTo ? <div className="el-reply-quote"><CornerUpLeft size={12} aria-hidden="true" /><span><span className="el-sr">Replying to: </span>{firstLine(message.replyTo, 70)}</span></div> : null}
+              {message.attachments?.length ? <div className="el-msg-attach-wrap" {...menu.bind(userTarget(message, !busy))}><MessageAttachments items={message.attachments} /></div> : null}
+              {message.content ? <div className="el-bubble user" {...menu.bind(userTarget(message, !busy))}>{message.content}</div> : null}
+              <MessageTimestamp createdAt={message.createdAt} /></div>
             : <div key={message.key} className="el-row assistant">
               {message.status === "error" ? <ErrorCard text={message.error || "Elias couldn't answer."} onRetry={() => retry(message)} />
-                : message.content ? <div className="el-bubble assistant"><MarkdownMessage content={message.content} collapsible streaming={message.status === "streaming"} /></div>
+                : message.content ? <div className="el-bubble assistant" {...(message.status === "streaming" ? {} : menu.bind({ key: message.key, role: "assistant", content: message.content, messageId: message.id, feedback: message.feedback }))}><MarkdownMessage content={message.content} collapsible streaming={message.status === "streaming"} /></div>
                 : message.status === "streaming" ? <div className="el-typing" role="status"><span className="el-dots" aria-hidden="true"><i /><i /><i /></span>{message.statusLine || "Thinking…"}</div> : null}
               {message.status === "streaming" && message.content && message.statusLine ? <div className="el-typing" role="status"><span className="el-dots" aria-hidden="true"><i /><i /><i /></span>{message.statusLine}</div> : null}
               {message.cards.map((card, index) => <MessageCard key={`${card.kind}-${index}`} card={card} />)}
@@ -376,6 +427,7 @@ export default function ChatView() {
       <form className="el-composer" onSubmit={(event) => { event.preventDefault(); void send(); }}
         onDragOver={(event) => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); }}
         onDrop={(event) => { if (event.dataTransfer.files.length) { event.preventDefault(); void addFiles([...event.dataTransfer.files]); } }}>
+        {replyQuote ? <div className="el-quote-chip"><CornerUpLeft size={15} aria-hidden="true" /><span><span className="el-sr">Replying to: </span>{firstLine(replyQuote, 90)}</span><button type="button" className="el-icon-btn" aria-label="Remove quote" onClick={() => setReplyQuote(null)}><X size={16} /></button></div> : null}
         <AttachmentStrip items={drafts} onRemove={(id) => setDrafts((current) => current.filter((item) => item.id !== id))} />
         <div className="el-composer-box">
           <AttachMenu disabled={voice.mode !== "idle"} onFiles={(files) => void addFiles(files)} onOpenModels={() => setModelsOpen(true)} modelName={choiceName(modelChoice)} />
@@ -389,9 +441,17 @@ export default function ChatView() {
         </div>
       </form>
     </main>
+    {menu.opened ? <MessageMenu opened={menu.opened} onClose={menu.close} onAction={menuAction} onFeedback={(rating, target) => void rateMessage(rating, target)} /> : null}
+    {selectText !== null ? <SelectTextSheet text={selectText} onClose={() => setSelectText(null)} /> : null}
+    <MenuToast text={toast} />
     {modelsOpen ? <ModelSheet choice={modelChoice} onChoose={chooseModel} onClose={() => setModelsOpen(false)} /> : null}
     {memory ? <MemorySheet memory={memory.chip} onClose={() => setMemory(null)} onChanged={(next) => setMessages((current) => current.map((message) => message.key !== memory.messageKey ? message : { ...message, memories: next ? message.memories.map((item) => item.id === next.id ? next : item) : message.memories.filter((item) => item.id !== memory.chip.id) }))} /> : null}
   </AppShell>;
+}
+
+function userTarget(message: UiMessage, canEdit: boolean): MenuTarget {
+  const image = message.attachments?.find((item) => item.kind === "image" && item.thumb);
+  return { key: message.key, role: "user", content: message.content, canEdit: canEdit && Boolean(message.content), image: image && image.kind === "image" && image.thumb ? { src: image.thumb, name: image.name } : undefined };
 }
 
 export function ErrorCard({ text, onRetry }: { text: string; onRetry?: () => void }) {

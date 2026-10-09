@@ -14,6 +14,7 @@ import { CODE_PROMPT, codeSetSummary } from "@/lib/assistant/code/prompt";
 import { codeCardFor } from "@/lib/assistant/code/cards";
 import { suggestFollowUps } from "@/lib/assistant/followups";
 import { extractChoices } from "@/lib/richReply";
+import { cleanReplyQuote, withReplyContext } from "@/lib/messageMenu";
 
 const MAX_STEPS = 10;
 /** Code turns read, edit, commit and verify, so they get a bigger tool budget. */
@@ -61,6 +62,8 @@ type RunOptions = {
   mode?: "chat" | "code";
   /** Code jobs: the chat whose working set the repo tools use. */
   codeConversationId?: string;
+  /** Text of an earlier message the user is replying to (long-press > Reply). Saved on meta.replyTo and given to the model as context. */
+  replyTo?: string;
 };
 
 /** Code mode for a conversation: kind 'code', or the work conversation of a code job (which uses its parent chat's working set). */
@@ -78,11 +81,12 @@ export async function conversationMode(userId: string, conversationId: string): 
 /** History entry for a stored user message: its text plus what was attached (recent document text is kept). */
 function historyUserContent(item: StoredMessage, recent: boolean) {
   const attachments = Array.isArray(item.meta.attachments) ? item.meta.attachments as StoredAttachment[] : [];
-  if (!attachments.length) return item.content;
+  const content = withReplyContext(item.content, typeof item.meta.replyTo === "string" ? item.meta.replyTo : undefined, recent ? 1200 : 300);
+  if (!attachments.length) return content;
   const images = attachments.filter((entry) => entry.kind === "image").map((entry) => `[Image attached earlier: ${entry.name}]`);
   const files = attachments.filter((entry) => entry.kind === "file");
   const docs = recent ? fileContext(files, 8_000, 16_000) : files.map((entry) => `[File attached earlier: ${entry.name}]`).join("\n");
-  return [item.content, ...images, docs].filter(Boolean).join("\n\n");
+  return [content, ...images, docs].filter(Boolean).join("\n\n");
 }
 
 function systemPrompt(input: { name?: string; timezone: string; memories: string; googleEmail: string | null; googleStatus?: GoogleConnection | null; googleConfigured: boolean; browser: boolean; origin: string; extra?: string }) {
@@ -214,8 +218,9 @@ export async function runTurn(options: RunOptions): Promise<TurnResult> {
   const images = attachments.filter((item) => item.kind === "image");
   const files = attachments.filter((item) => item.kind === "file");
   const background = origin === "schedule" || origin === "job";
-  if (origin !== "approval") await addMessage(options.userId, conversationId, background ? "event" : "user", options.text, background ? { kind: origin } : attachments.length ? { attachments: toStored(attachments) } : {});
-  const userText = [origin === "schedule" ? `[Scheduled task] ${options.text}` : origin === "job" ? `[Background job] ${options.text}` : options.text, fileContext(files)].filter(Boolean).join("\n\n");
+  const replyTo = origin === "chat" ? cleanReplyQuote(options.replyTo) : undefined;
+  if (origin !== "approval") await addMessage(options.userId, conversationId, background ? "event" : "user", options.text, background ? { kind: origin } : { ...(attachments.length ? { attachments: toStored(attachments) } : {}), ...(replyTo ? { replyTo } : {}) });
+  const userText = [origin === "schedule" ? `[Scheduled task] ${options.text}` : origin === "job" ? `[Background job] ${options.text}` : withReplyContext(options.text, replyTo), fileContext(files)].filter(Boolean).join("\n\n");
   const userContent: string | ContentPart[] = images.length
     ? [{ type: "text", text: userText || "What's in this image?" }, ...images.map((image): ContentPart => ({ type: "image_url", image_url: { url: image.dataUrl } }))]
     : userText;
