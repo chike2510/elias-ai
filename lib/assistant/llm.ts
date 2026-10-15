@@ -560,8 +560,8 @@ type StreamDelta = { index?: number; id?: string; type?: string; function?: { na
 
 /** Text the user may see while a reply streams: thinking blocks, tool-call markup and partial tags are held back. */
 export function visibleStreamText(full: string) {
-  let text = full.replace(/<think>[\s\S]*?<\/think>/gi, "");
-  const openThink = text.search(/<think>/i);
+  let text = full.replace(/<(think|thought|thinking)>[\s\S]*?<\/\1>/gi, "");
+  const openThink = text.search(/<(think|thought|thinking)>/i);
   if (openThink >= 0) text = text.slice(0, openThink);
   const toolTag = text.indexOf("<tool_call");
   if (toolTag >= 0) text = text.slice(0, toolTag);

@@ -64,6 +64,8 @@ export async function ready() {
       id bigserial primary key, bucket text not null, at timestamptz not null default now())`;
     await db`create index if not exists elias_rate_events_bucket_idx on public.elias_rate_events(bucket, at)`;
     await db`alter table public.elias_conversations add column if not exists source text not null default 'server'`;
+    // Chat titles: 'auto' until Elias names the chat after its first reply; 'ai' once named; 'user' once renamed (never overwritten).
+    await db`alter table public.elias_conversations add column if not exists title_source text not null default 'auto'`;
     await migrateBackground(db);
     // v3 (additive): memory embeddings/entities, audit log, Telegram links, RLS on every elias_ table.
     await migrateV3(db);

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { completeStream, type ContentPart, type LlmMessage } from "@/lib/assistant/llm";
+import { complete, completeStream, type ContentPart, type LlmMessage } from "@/lib/assistant/llm";
 import { fileContext, parseChoice, resolveRoute, toStored, type ChatAttachment, type ModelTier, type StoredAttachment } from "@/lib/assistant/modelRouter";
 import { newId, ready } from "@/lib/assistant/db";
 import { extractMemories, memoryContext, saveMemory } from "@/lib/assistant/memory";
@@ -35,6 +35,7 @@ export type TurnEvent =
   | { type: "approval"; approval: Approval }
   | { type: "memory"; memory: MemoryChip }
   | { type: "delta"; text: string }
+  | { type: "title"; title: string }
   | { type: "reset" }
   | { type: "done"; result: TurnResult }
   | { type: "error"; message: string };
@@ -158,12 +159,44 @@ export async function listConversations(userId: string) {
     (select count(*) from public.elias_approvals a where a.conversation_id = c.id and a.status = 'pending')::int as pending,
     (select left(m.content, 140) from public.elias_messages m where m.conversation_id = c.id and m.role = 'assistant' order by m.id desc limit 1) as preview
     from public.elias_conversations c where c.user_id = ${userId} and c.kind <> 'job' order by c.updated_at desc limit 60`;
-  return rows.map((item) => ({ id: String(item.id), title: String(item.title), kind: String(item.kind), source: String(item.source || "server"), updatedAt: new Date(item.updated_at as string).toISOString(), pendingApprovals: Number(item.pending), preview: (item.preview as string) || "" }));
+  return rows.map((item) => ({ id: String(item.id), title: String(item.title), kind: String(item.kind), source: String(item.source || "server"), updatedAt: new Date(item.updated_at as string).toISOString(), pendingApprovals: Number(item.pending), preview: stripThinking(String(item.preview || "")).replace(/<\/?(think|thought|thinking)>/gi, "") }));
 }
 
 export async function renameConversation(userId: string, conversationId: string, title: string) {
   const db = await ready();
-  await db`update public.elias_conversations set title = ${title.trim().slice(0, 80) || "Conversation"} where id = ${conversationId} and user_id = ${userId}`;
+  await db`update public.elias_conversations set title = ${title.trim().slice(0, 80) || "Conversation"}, title_source = 'user' where id = ${conversationId} and user_id = ${userId}`;
+}
+
+/** Drops thinking blocks some models leak into the final text. */
+export function stripThinking(text: string) {
+  return text.replace(/<(think|thought|thinking)>[\s\S]*?<\/\1>/gi, "").replace(/^\s*<(think|thought|thinking)>[\s\S]*$/i, "").trim();
+}
+
+/** Cleans a model-written title: one line, no quotes or trailing punctuation, 2-6 words. */
+export function cleanTitle(raw: string) {
+  const line = stripThinking(raw).split("\n").map((item) => item.trim()).find(Boolean) || "";
+  const text = line.replace(/^(title|chat title)\s*:\s*/i, "").replace(/^["'“‘*#\s]+|["'”’*.!?\s]+$/g, "").replace(/\s+/g, " ");
+  const words = text.split(" ").slice(0, 6).join(" ");
+  return words.length > 48 ? `${words.slice(0, 47).trim()}…` : words;
+}
+
+/** Names a chat after its first reply, unless the user already renamed it. Best effort; never blocks the reply. */
+export async function autoTitle(userId: string, conversationId: string, userText: string, reply: string) {
+  const db = await ready();
+  const row = (await db`select c.title, c.title_source, c.kind, (select count(*) from public.elias_messages m where m.conversation_id = c.id and m.role = 'assistant')::int as replies
+    from public.elias_conversations c where c.id = ${conversationId} and c.user_id = ${userId}`)[0];
+  if (!row || row.title_source !== "auto" || row.kind !== "chat" || Number(row.replies) > 1) return null;
+  // Only replace the placeholder title taken from the first message; fixed titles ("Telegram", "Code: owner/repo") stay.
+  const placeholder = userText.replace(/\s+/g, " ").trim().slice(0, 80);
+  if (String(row.title) !== placeholder && String(row.title) !== "New conversation") return null;
+  const result = await complete([
+    { role: "system", content: "Name this chat in 2 to 5 words, like a short document title (e.g. 'BetKing bet builder', 'Email to Vercel support', 'FPL gameweek 8 team'). Use the user's language. No quotes, no emoji, no trailing period. Reply with the title only." },
+    { role: "user", content: `User: ${userText.slice(0, 800)}\n\nAssistant: ${reply.slice(0, 600)}` },
+  ], [], { temperature: 0.2, route: { tier: "fast" } });
+  const title = cleanTitle(result.content);
+  if (title.length < 2) return null;
+  const updated = await db`update public.elias_conversations set title = ${title}, title_source = 'ai' where id = ${conversationId} and user_id = ${userId} and title_source = 'auto' returning id`;
+  return updated.length ? title : null;
 }
 
 export async function getMessages(userId: string, conversationId: string, limit = 200): Promise<StoredMessage[]> {
@@ -263,13 +296,26 @@ export async function runTurn(options: RunOptions): Promise<TurnResult> {
 
   try {
     const maxSteps = Math.max(1, options.maxSteps ?? (code.mode === "code" ? CODE_MAX_STEPS : MAX_STEPS));
+    let emptyRetried = false;
+    let forceStrong = false;
     for (let step = 0; step < maxSteps; step += 1) {
       let streamed = false;
-      const route = resolveRoute(choice, { text: options.text, images: images.length, files: files.length, step, usedTool: actions.length > 0 });
+      const base = resolveRoute(choice, { text: options.text, images: images.length, files: files.length, step, usedTool: actions.length > 0 });
+      const route = forceStrong && base.tier === "fast" ? { ...base, tier: "strong" as const } : base;
       tier = route.tier;
       const result = await completeStream(messages, tools, (text) => { streamed = true; emit({ type: "delta", text }); }, { route });
       model = `${result.provider}/${result.model}`;
-      if (!result.toolCalls.length) { reply = result.content; break; }
+      if (!result.toolCalls.length) {
+        // An empty reply (thinking only, or a tool call the parser couldn't read) must never pass as "Done.": retry once on the strong tier.
+        if (!stripThinking(result.content) && !emptyRetried && step < maxSteps - 1) {
+          emptyRetried = true;
+          if (streamed) emit({ type: "reset" });
+          messages.push({ role: "user", content: "[system] Your last reply was empty. Continue the task now: call the tool you need (e.g. browser_login, vault_request_login), or reply to the user in plain words saying what you did or what you need. Never claim something is done unless a tool result shows it." });
+          if (choice.mode !== "specific") forceStrong = true;
+          continue;
+        }
+        reply = result.content; break;
+      }
       if (streamed) emit({ type: "reset" });
       messages.push({ role: "assistant", content: result.content || null, tool_calls: result.toolCalls });
       for (const call of result.toolCalls) {
@@ -345,9 +391,9 @@ export async function runTurn(options: RunOptions): Promise<TurnResult> {
     await closeAll(browsers);
   }
 
-  const extractedChoices = extractChoices(reply.trim());
+  const extractedChoices = extractChoices(stripThinking(reply));
   const choices = extractedChoices.choices;
-  reply = extractedChoices.text.trim() || (approvals.length ? "That's ready for your go-ahead." : connect.length ? "Connect it below and I'll take it from there." : choices.length ? "Pick one:" : "Done.");
+  reply = extractedChoices.text.trim() || (approvals.length ? "That's ready for your go-ahead." : connect.length ? "Connect it below and I'll take it from there." : choices.length ? "Pick one:" : cards.length ? "Over to you on the card." : actions.length ? "I ran into a problem finishing that. Want me to try again?" : "Sorry, I didn't get a proper answer back that time. Want me to try again?");
   const meta: Record<string, unknown> = { model, tier, actions, approvals: approvals.map((item) => item.id), cards, connect, memories: memoriesSaved, steps, ...(choices.length ? { choices } : {}) };
   const messageId = await addMessage(options.userId, conversationId, "assistant", reply, meta);
   let followUps: string[] = [];
@@ -357,6 +403,7 @@ export async function runTurn(options: RunOptions): Promise<TurnResult> {
     const [extracted, suggested] = await Promise.all([
       extractMemories(options.userId, options.text, reply, memories).catch(() => []),
       wantFollowUps ? suggestFollowUps(options.text, reply).catch(() => []) : Promise.resolve([] as string[]),
+      autoTitle(options.userId, conversationId, options.text, reply).then((title) => { if (title) emit({ type: "title", title }); }).catch(() => null),
     ]);
     followUps = suggested;
     if (followUps.length) await mergeMessageMeta(messageId, { followUps });

@@ -145,7 +145,7 @@ test("agent: output format in the prompt, choices parsed server-side, cheap foll
   const followups = read("lib/assistant/followups.ts");
   assert.match(agent, /\[\[choices: Option A \| Option B \| Option C\]\]/);
   assert.match(agent, /one "## " heading per section/);
-  assert.match(agent, /extractChoices\(reply\.trim\(\)\)/);
+  assert.match(agent, /extractChoices\((stripThinking\(reply\)|reply\.trim\(\))\)/);
   assert.match(agent, /wantFollowUps = !choices\.length && !approvals\.length && !connect\.length && code\.mode !== "code" && !options\.channel/);
   assert.match(followups, /route: \{ tier: "fast" \}/, "follow-ups use the fast tier");
   assert.match(followups, /TIMEOUT_MS = 6_000/, "and never hold the reply for long");
