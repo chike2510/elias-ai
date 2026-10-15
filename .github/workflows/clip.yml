@@ -1,0 +1,47 @@
+name: clip
+run-name: "clip ${{ inputs.request_id }}"
+
+# Free clipper worker: runs on GitHub Actions (free on public repos). ELIAS starts it with the clip_create tool.
+on:
+  workflow_dispatch:
+    inputs:
+      url: { description: "VOD / video URL (Twitch, Kick, YouTube...)", required: true }
+      start: { description: "Start (seconds or HH:MM:SS). Empty = auto-pick the loudest moments", required: false, default: "" }
+      end: { description: "End (seconds or HH:MM:SS)", required: false, default: "" }
+      hook: { description: "Hook text for the white box (empty = no box)", required: false, default: "" }
+      count: { description: "How many clips to cut when auto-picking (1-3)", required: false, default: "1" }
+      request_id: { description: "ELIAS request id", required: false, default: "" }
+
+permissions:
+  contents: read
+
+jobs:
+  clip:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/clipper
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install ffmpeg, fonts and yt-dlp
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fonts-dejavu-core fonts-noto-color-emoji > /dev/null
+          pip install -q -U yt-dlp pillow
+      - name: Find the moment and cut
+        env:
+          CLIP_URL: ${{ inputs.url }}
+          CLIP_START: ${{ inputs.start }}
+          CLIP_END: ${{ inputs.end }}
+          CLIP_HOOK: ${{ inputs.hook }}
+          CLIP_COUNT: ${{ inputs.count }}
+          YTDLP_COOKIES: ${{ secrets.YTDLP_COOKIES }}
+        run: python scripts/clipper/clip.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: clips-${{ inputs.request_id || github.run_id }}
+          path: out/
+          retention-days: 7
