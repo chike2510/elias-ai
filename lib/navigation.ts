@@ -1,4 +1,4 @@
-import { Brain, Code2, Folder, Globe2, LibraryBig, Link2, ListChecks, MessageCircle, Search, Settings2, ShieldCheck, Sparkles, SquareKanban, UserRound, Wand2, Workflow } from "lucide-react";
+import { Brain, KeyRound, Code2, Folder, Globe2, LibraryBig, Link2, ListChecks, MessageCircle, Search, Settings2, ShieldCheck, Sparkles, SquareKanban, UserRound, Wand2, Workflow } from "lucide-react";
 
 export type Destination = { href: string; label: string; detail: string; icon: React.ComponentType<{ size?: number; strokeWidth?: number }>; group: "primary" | "work" | "you" };
 
@@ -21,6 +21,7 @@ export const MORE: Destination[] = [
   { href: "/automations", label: "Automations", detail: "Event-driven workflows", icon: Workflow, group: "work" },
   { href: "/skills", label: "Skills", detail: "What Elias knows how to do", icon: Sparkles, group: "you" },
   { href: "/memory", label: "Memory", detail: "What Elias remembers", icon: Brain, group: "you" },
+  { href: "/vault", label: "Vault", detail: "Logins Elias can use, encrypted", icon: KeyRound, group: "you" },
   { href: "/connectors", label: "Connectors", detail: "Google, GitHub, Vercel and more", icon: Link2, group: "you" },
   { href: "/approvals", label: "Workbench approvals", detail: "Go-aheads for workbench tasks", icon: ShieldCheck, group: "you" },
   { href: "/profile", label: "Profile & settings", detail: "Account and preferences", icon: Settings2, group: "you" },
