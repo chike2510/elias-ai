@@ -11,6 +11,7 @@ import { CODE_TOOLS, isCodeTool } from "@/lib/assistant/code/github";
 import { VERIFY_TOOLS } from "@/lib/assistant/code/verify";
 import { PR_TOOLS } from "@/lib/assistant/code/pr";
 import { VAULT_TOOLS } from "@/lib/assistant/vaultTools";
+import { MCP_TOOLS } from "@/lib/assistant/mcpTools";
 import { applySavedSession, consumeGrant, restoreLocalStorage } from "@/lib/assistant/vault";
 import type { Card } from "@/lib/assistant/cards";
 
@@ -248,6 +249,7 @@ const TOOLS: Record<string, Tool> = {
   },
 
   ...VAULT_TOOLS,
+  ...MCP_TOOLS,
   ...CONNECTOR_TOOLS,
   ...CODE_TOOLS,
   ...VERIFY_TOOLS,
