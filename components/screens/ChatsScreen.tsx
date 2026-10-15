@@ -22,6 +22,14 @@ export default function ChatsScreen() {
     announceConversationsChanged();
   }
 
+  async function rename(id: string, current: string) {
+    const title = window.prompt("Rename chat", current)?.trim();
+    if (!title || title === current) return;
+    conversations.setItems((items) => items?.map((item) => item.id === id ? { ...item, title } : item) || null);
+    await api(`/api/assistant/conversations/${id}`, { method: "PATCH", body: JSON.stringify({ title }) }).catch(() => undefined);
+    announceConversationsChanged();
+  }
+
   return <AppShell title="Chats" back="/">
     <main className="el-page v4-chats">
       <header className="el-page-head"><h1>Chats</h1></header>
@@ -29,7 +37,7 @@ export default function ChatsScreen() {
         <label className="v4-search"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search chats" aria-label="Search chats" /></label>
         <Link href="/" className="el-btn el-btn-primary" onClick={() => router.prefetch("/")}><SquarePen size={16} /> New</Link>
       </div>
-      <ConversationList items={items} error={conversations.error} reload={conversations.reload} activeId={null} onDelete={(id) => void remove(id)} />
+      <ConversationList items={items} error={conversations.error} reload={conversations.reload} activeId={null} onDelete={(id) => void remove(id)} onRename={(id, current) => void rename(id, current)} />
       {term && items && !items.length && conversations.items?.length ? <p className="el-muted el-pad">No chats match “{query}”.</p> : null}
     </main>
   </AppShell>;

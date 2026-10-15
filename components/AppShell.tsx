@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ChevronLeft, Command, History, LogOut, Search, SquarePen, Trash2 } from "lucide-react";
+import { ChevronLeft, Command, History, LogOut, Pencil, Search, SquarePen, Trash2 } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { MORE, PRIMARY } from "@/lib/navigation";
@@ -36,7 +36,7 @@ export function ListSkeleton({ rows = 5 }: { rows?: number }) {
   return <div className="el-skeleton-list" aria-hidden="true">{Array.from({ length: rows }, (_, index) => <div key={index} className="el-skeleton-row"><span className="el-skeleton" style={{ width: `${70 - (index % 3) * 14}%` }} /><span className="el-skeleton el-skeleton-sm" style={{ width: `${40 + (index % 2) * 18}%` }} /></div>)}</div>;
 }
 
-export function ConversationList({ items, error, reload, activeId, onPick, onDelete, compact }: { items: ConversationSummary[] | null; error: boolean; reload: () => void; activeId: string | null; onPick?: () => void; onDelete?: (id: string) => void; compact?: boolean }) {
+export function ConversationList({ items, error, reload, activeId, onPick, onDelete, onRename, compact }: { items: ConversationSummary[] | null; error: boolean; reload: () => void; activeId: string | null; onPick?: () => void; onDelete?: (id: string) => void; onRename?: (id: string, current: string) => void; compact?: boolean }) {
   if (error && !items) return <div className="el-inline-error"><span>Couldn't load your chats.</span><button type="button" onClick={reload}>Retry</button></div>;
   if (!items) return <ListSkeleton rows={compact ? 4 : 7} />;
   if (!items.length) return <p className="el-muted el-pad">Your chats will show up here.</p>;
@@ -46,6 +46,7 @@ export function ConversationList({ items, error, reload, activeId, onPick, onDel
       {!compact && item.preview ? <span className="el-convo-preview">{item.preview}</span> : null}
       <span className="el-convo-meta">{relative(item.updatedAt)}{item.pendingApprovals ? <em>{item.pendingApprovals} waiting</em> : null}</span>
     </Link>
+    {onRename ? <button type="button" className="el-icon-btn el-convo-delete" aria-label={`Rename ${item.title}`} onClick={() => onRename(item.id, item.title)}><Pencil size={15} /></button> : null}
     {onDelete ? <button type="button" className="el-icon-btn el-convo-delete" aria-label={`Delete ${item.title}`} onClick={() => onDelete(item.id)}><Trash2 size={15} /></button> : null}
   </li>)}</ul>;
 }
