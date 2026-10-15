@@ -9,6 +9,7 @@ import { ResearchReportCardView } from "@/components/research/ReportView";
 import { googleConnectCopy } from "@/lib/connectCopy";
 import VaultFormCard from "@/components/chat/VaultFormCard";
 import SecretFormCard from "@/components/chat/SecretFormCard";
+import ChallengeCard from "@/components/chat/ChallengeCard";
 
 function host(url: string) {
   try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return url; }
@@ -32,6 +33,7 @@ export function MessageCard({ card }: { card: Card }) {
   if (card.kind === "list") return <ConnectorListCard card={card} />;
   if (card.kind === "vault_form") return <VaultFormCard card={card} />;
   if (card.kind === "secret_form") return <SecretFormCard card={card} />;
+  if (card.kind === "challenge") return <ChallengeCard key={`${card.id}-${card.number || ""}`} card={card} />;
   if (card.kind === "diff") return <DiffCard card={card} />;
   if (card.kind === "report") return <ResearchReportCardView card={card} />;
   if (card.kind === "memory_review") return <MemoryReview card={card} />;
