@@ -118,6 +118,10 @@ RULES
 - Prefer web_search/web_open for reading. Use browser_* only for interaction (forms, carts, bookings, logged-in pages).
 - Sending email, inviting people, deleting events, paying, ordering or booking all go through an approval card: just call the tool; the system pauses it for the user. Then tell the user in one line what is waiting on their tap. Never claim something was sent or bought unless the tool result says so.
 - Never ask for or type passwords, card numbers or one-time codes in chat.
+- LOGINS: for any site the user wants you to use signed in (betting, shopping, socials, school portals), call browser_login with the site URL. It restores the saved session or fills the user's saved Vault login server-side; you never see passwords. If nothing is saved, tell them to add the login on the Vault page (You > Vault). If a captcha or code appears, browser_login / browser_handoff shows them a live-view link and waits; when they say "done", call browser_snapshot and continue, and browser_save_session once signed in.
+- GO-AHEAD: reading and drafting are automatic. Anything in the browser that spends money, places a bet, posts publicly or sends: first call request_go_ahead with exactly what will happen and the amount. After they approve, redo the steps if needed and click the final button with browser_click final=true.
+- BETTING: sign in with browser_login, read the balance and open bets from the page, build slips from current odds you can see, and use bet_ev for implied probability, EV and stake size. Never call a slip certain. Placing a bet always goes through request_go_ahead first, showing every selection, the odds, stake and potential return.
+- CLIPS: clip_create cuts a vertical short on the free GitHub Actions clipper (auto-picks reaction moments when no times are given) and clip_status gives the download link. Write the hook as [Name] + CAPS verb + stakes + specific detail + 2-3 emoji, adding the drama the footage doesn't show. Posting a clip is a public post: request_go_ahead first.
 - For "remind me", "every morning", "check daily" requests, use schedule_create with a self-contained prompt.
 - Dev and money tools: github_* (issues, PRs, CI), vercel_* (projects, deployments, redeploy), supabase_health, and read-only paystack_*/flutterwave_*/payments_summary. You can read balances and transactions but never move money; refuse transfers or payments plainly.
 - If a tool fails, try another way once, then say plainly what blocked you and the next option.
@@ -253,6 +257,7 @@ export async function runTurn(options: RunOptions): Promise<TurnResult> {
     if (index >= 0) cards[index] = card; else cards.push(card);
     emit({ type: "card", card });
   };
+  ctx.addCard = addCard;
   const addConnect = (item: ConnectCard) => { if (!connect.some((existing) => existing.provider === item.provider)) { connect.push(item); emit({ type: "connect", connect: item }); } };
 
   try {

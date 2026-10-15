@@ -1,4 +1,4 @@
-import type { Browser, Page } from "playwright-core";
+import type { Browser, BrowserContext, Page } from "playwright-core";
 import { ready } from "@/lib/assistant/db";
 
 /**
@@ -191,4 +191,37 @@ export async function endBrowser(userId: string, conversationId: string, cache: 
   const handle = cache.get(conversationId);
   if (handle) { await handle.browser.close().catch(() => undefined); cache.delete(conversationId); }
   if (saved) await bb(`/sessions/${saved.session_id}`, { method: "POST", body: JSON.stringify({ projectId: process.env.BROWSERBASE_PROJECT_ID, status: "REQUEST_RELEASE" }) }).catch(() => undefined);
+}
+
+/* ---------- live view (human handoff for captchas and codes) ---------- */
+
+type DebugInfo = { debuggerFullscreenUrl?: string; pages?: Array<{ url?: string; debuggerFullscreenUrl?: string }> };
+
+/** Browserbase's shareable live view of a session: the user can see and click the remote page from their phone. */
+export async function liveViewUrl(sessionId: string) {
+  const debug = await bb(`/sessions/${encodeURIComponent(sessionId)}/debug`) as DebugInfo;
+  return debug.pages?.find((page) => page.url && page.url !== "about:blank")?.debuggerFullscreenUrl || debug.pages?.[0]?.debuggerFullscreenUrl || debug.debuggerFullscreenUrl || null;
+}
+
+/**
+ * The conversation's browser on a provider with a live view (Browserbase). When the current page is on Cloudflare,
+ * its cookies and URL move across, so the user picks up exactly where Elias stopped.
+ */
+export async function openLiveBrowser(userId: string, conversationId: string, cache: Map<string, BrowserHandle>): Promise<BrowserHandle> {
+  const current = cache.get(conversationId);
+  if (current?.provider === "browserbase" && current.browser.isConnected()) return current;
+  if (!browserbaseConfigured()) throw new Error("Live view needs Browserbase (BROWSERBASE_API_KEY + BROWSERBASE_PROJECT_ID). Without it, tell the user this step needs them and the site can't be handed over yet.");
+  let url = "";
+  let cookies: Awaited<ReturnType<BrowserContext["cookies"]>> = [];
+  if (current) {
+    url = current.page.url();
+    cookies = await current.page.context().cookies().catch(() => []);
+    await current.browser.close().catch(() => undefined);
+    cache.delete(conversationId);
+  }
+  const handle = await openBrowserbase(userId, conversationId);
+  if (cookies.length) await handle.page.context().addCookies(cookies).catch(() => undefined);
+  if (url && url !== "about:blank") await handle.page.goto(url, { waitUntil: "domcontentloaded" }).catch(() => undefined);
+  cache.set(conversationId, handle);
+  return handle;
 }

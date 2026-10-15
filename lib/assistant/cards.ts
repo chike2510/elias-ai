@@ -45,6 +45,7 @@ export function approvalDetails(tool: string, args: Record<string, unknown>, sum
   if (tool === "gmail_send") return { kind: "email", to: str(args.to), cc: str(args.cc) || undefined, subject: str(args.subject), body: str(args.body) };
   if (tool === "calendar_create") return { kind: "event", title: str(args.summary), start: str(args.start), end: str(args.end), guests: Array.isArray(args.attendees) ? args.attendees.map(String) : [], location: str(args.location) || undefined };
   if (tool === "calendar_delete") return { kind: "delete_event", title: str(args.title) || str(args.event_id) };
+  if (tool === "request_go_ahead") return { kind: "browser", url: str(args.site), action: str(args.what), amount: str(args.amount) || amountIn(str(args.what)) };
   if (tool.startsWith("browser_")) {
     const context = (args._context || {}) as Record<string, unknown>;
     const button = summary.match(/Button: "([^"]*)"/)?.[1];
@@ -95,6 +96,7 @@ export const STATUS_LABELS: Record<string, string> = {
   github_api: "Checking GitHub…", github_issues: "Checking GitHub issues…", github_issue_create: "Preparing the issue…", github_prs: "Checking pull requests…", github_pr_status: "Checking the PR…", github_ci_status: "Checking CI…",
   vercel_projects: "Checking Vercel…", vercel_deployments: "Checking deployments…", vercel_redeploy: "Preparing the redeploy…", supabase_health: "Checking Supabase…",
   paystack_transactions: "Reading Paystack…", paystack_balance: "Checking your Paystack balance…", flutterwave_transactions: "Reading Flutterwave…", flutterwave_balance: "Checking your Flutterwave balance…", payments_summary: "Summing up payments…", weather: "Checking the weather…", daily_brief: "Pulling your day together…",
+  vault_list: "Checking your Vault…", browser_login: "Signing in…", browser_handoff: "Handing the page to you…", browser_save_session: "Saving the session…", request_go_ahead: "Preparing the go-ahead…", bet_ev: "Doing the maths…", clip_create: "Starting the clipper…", clip_status: "Checking the clipper…",
   start_background_job: "Handing it off to the background…", background_jobs: "Checking background jobs…",
 };
 

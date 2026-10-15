@@ -10,6 +10,9 @@ import { isSideEffect, recordAudit, unsafeCall } from "@/lib/assistant/audit";
 import { CODE_TOOLS, isCodeTool } from "@/lib/assistant/code/github";
 import { VERIFY_TOOLS } from "@/lib/assistant/code/verify";
 import { PR_TOOLS } from "@/lib/assistant/code/pr";
+import { VAULT_TOOLS } from "@/lib/assistant/vaultTools";
+import { applySavedSession, consumeGrant, restoreLocalStorage } from "@/lib/assistant/vault";
+import type { Card } from "@/lib/assistant/cards";
 
 export type ToolContext = {
   userId: string;
@@ -25,6 +28,8 @@ export type ToolContext = {
   origin?: string;
   /** v4 code mode: the conversation whose working set repo_/code_ tools use (a code job uses its parent chat's). */
   codeConversationId?: string;
+  /** Shows a card in the chat right away (e.g. a live-view link while a tool waits for the user). */
+  addCard?: (card: Card) => void;
 };
 
 type Args = Record<string, unknown>;
@@ -190,7 +195,14 @@ const TOOLS: Record<string, Tool> = {
 
   browser_open: {
     schema: { name: "browser_open", description: "Open a URL in a real remote browser (for sites needing interaction: forms, carts, bookings, logged-in pages). Returns a snapshot with numbered elements.", parameters: obj({ url: s("URL") }, ["url"]) },
-    run: async (args, ctx) => { const { page } = await openBrowser(ctx.userId, ctx.conversationId, ctx.browsers); await page.goto(str(args.url), { waitUntil: "domcontentloaded" }); await page.waitForTimeout(1200); return snapshot(page); },
+    run: async (args, ctx) => {
+      const { page } = await openBrowser(ctx.userId, ctx.conversationId, ctx.browsers);
+      const restored = await applySavedSession(ctx.userId, page, str(args.url)).catch(() => ({ restored: false as const, origins: undefined }));
+      await page.goto(str(args.url), { waitUntil: "domcontentloaded" });
+      if (restored.restored && await restoreLocalStorage(page, restored.origins)) await page.reload({ waitUntil: "domcontentloaded" }).catch(() => undefined);
+      await page.waitForTimeout(1200);
+      return snapshot(page);
+    },
   },
   browser_snapshot: {
     schema: { name: "browser_snapshot", description: "Re-read the current browser page.", parameters: obj({}) },
@@ -202,7 +214,10 @@ const TOOLS: Record<string, Tool> = {
       if (ctx.approved) return null;
       const { page } = await openBrowser(ctx.userId, ctx.conversationId, ctx.browsers);
       const label = await elementLabel(page, Number(args.element));
-      return args.final === true || looksConsequential(label) ? `${str(args.summary, "Final step on " + page.url())}\nButton: "${label}"` : null;
+      if (!(args.final === true || looksConsequential(label) || /place bet|bet now|confirm bet|post|publish|submit/i.test(label))) return null;
+      // A go-ahead the user already gave on a request_go_ahead card unlocks exactly one final click.
+      if (await consumeGrant(ctx.userId, ctx.conversationId)) return null;
+      return `${str(args.summary, "Final step on " + page.url())}\nButton: "${label}"`;
     },
     run: async (args, ctx) => { const { page } = await openBrowser(ctx.userId, ctx.conversationId, ctx.browsers); await page.locator(`[data-elias-id="${Number(args.element)}"]`).first().click(); await page.waitForLoadState("domcontentloaded").catch(() => undefined); await page.waitForTimeout(1500); return snapshot(page); },
   },
@@ -232,6 +247,7 @@ const TOOLS: Record<string, Tool> = {
     },
   },
 
+  ...VAULT_TOOLS,
   ...CONNECTOR_TOOLS,
   ...CODE_TOOLS,
   ...VERIFY_TOOLS,
