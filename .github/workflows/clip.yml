@@ -39,8 +39,12 @@ jobs:
           CLIP_HOOK: ${{ inputs.hook }}
           CLIP_COUNT: ${{ inputs.count }}
           YTDLP_COOKIES: ${{ secrets.YTDLP_COOKIES }}
-        run: python scripts/clipper/clip.py
+        run: |
+          mkdir -p out
+          set -o pipefail
+          python scripts/clipper/clip.py 2>&1 | tee out/log.txt
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: clips-${{ inputs.request_id || github.run_id }}
           path: out/
