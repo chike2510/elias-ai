@@ -15,7 +15,7 @@ SIDE_EFFECT_TOOLS.add("gmail_draft_reply");
 SIDE_EFFECT_TOOLS.add("calendar_move");
 
 /* Vault, live-view handoff, go-ahead grants and the clipper. */
-for (const tool of ["browser_login", "browser_handoff", "browser_save_session", "request_go_ahead", "clip_create"]) SIDE_EFFECT_TOOLS.add(tool);
+for (const tool of ["mcp_connect", "mcp_call", "browser_login", "browser_handoff", "browser_save_session", "request_go_ahead", "clip_create"]) SIDE_EFFECT_TOOLS.add(tool);
 
 export const isSideEffect = (tool: string) => SIDE_EFFECT_TOOLS.has(tool);
 

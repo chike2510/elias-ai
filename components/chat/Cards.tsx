@@ -8,6 +8,7 @@ import { SiteIcon, SourcesCard } from "@/components/chat/SourcesCard";
 import { ResearchReportCardView } from "@/components/research/ReportView";
 import { googleConnectCopy } from "@/lib/connectCopy";
 import VaultFormCard from "@/components/chat/VaultFormCard";
+import SecretFormCard from "@/components/chat/SecretFormCard";
 
 function host(url: string) {
   try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return url; }
@@ -30,6 +31,7 @@ function shortDate(value?: string) {
 export function MessageCard({ card }: { card: Card }) {
   if (card.kind === "list") return <ConnectorListCard card={card} />;
   if (card.kind === "vault_form") return <VaultFormCard card={card} />;
+  if (card.kind === "secret_form") return <SecretFormCard card={card} />;
   if (card.kind === "diff") return <DiffCard card={card} />;
   if (card.kind === "report") return <ResearchReportCardView card={card} />;
   if (card.kind === "memory_review") return <MemoryReview card={card} />;
