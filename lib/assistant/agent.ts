@@ -183,9 +183,12 @@ export function cleanTitle(raw: string) {
 /** Names a chat after its first reply, unless the user already renamed it. Best effort; never blocks the reply. */
 export async function autoTitle(userId: string, conversationId: string, userText: string, reply: string) {
   const db = await ready();
-  const row = (await db`select c.title_source, c.kind, (select count(*) from public.elias_messages m where m.conversation_id = c.id and m.role = 'assistant')::int as replies
+  const row = (await db`select c.title, c.title_source, c.kind, (select count(*) from public.elias_messages m where m.conversation_id = c.id and m.role = 'assistant')::int as replies
     from public.elias_conversations c where c.id = ${conversationId} and c.user_id = ${userId}`)[0];
   if (!row || row.title_source !== "auto" || row.kind !== "chat" || Number(row.replies) > 1) return null;
+  // Only replace the placeholder title taken from the first message; fixed titles ("Telegram", "Code: owner/repo") stay.
+  const placeholder = userText.replace(/\s+/g, " ").trim().slice(0, 80);
+  if (String(row.title) !== placeholder && String(row.title) !== "New conversation") return null;
   const result = await complete([
     { role: "system", content: "Name this chat in 2 to 5 words, like a short document title (e.g. 'BetKing bet builder', 'Email to Vercel support', 'FPL gameweek 8 team'). Use the user's language. No quotes, no emoji, no trailing period. Reply with the title only." },
     { role: "user", content: `User: ${userText.slice(0, 800)}\n\nAssistant: ${reply.slice(0, 600)}` },
