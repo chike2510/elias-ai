@@ -268,6 +268,12 @@ export default function ChatView() {
   }
 
   /** Sends the composer (or `raw`). Drafted attachments go along when sending the composer or a voice note. */
+  // Cards (e.g. the in-chat Vault login form) can send a message as the user so Elias carries on.
+  useEffect(() => {
+    const onSend = (event: Event) => { const text = (event as CustomEvent<{ text?: string }>).detail?.text; if (text) void sendRef.current(text); };
+    window.addEventListener("elias:send", onSend);
+    return () => window.removeEventListener("elias:send", onSend);
+  }, []);
   async function send(raw?: string, options: { attachments?: ChatAttachment[]; useDrafts?: boolean; replyTo?: string } = {}) {
     const text = (raw ?? input).trim();
     const useDrafts = !options.attachments && (options.useDrafts ?? raw === undefined);

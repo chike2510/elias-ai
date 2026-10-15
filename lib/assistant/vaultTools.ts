@@ -42,12 +42,26 @@ async function handoff(ctx: ToolContext, reason: string, waitSeconds: number) {
   return { status: "waiting", liveViewUrl: url, tell_user: `Open the live view link and ${reason}. When you've done it, say "done" and I'll carry on.` };
 }
 
+function loginForm(ctx: ToolContext, site: string, loginUrl?: string, reason?: string) {
+  const clean = siteOf(site || loginUrl || "");
+  ctx.addCard?.({ kind: "vault_form", title: `Save your ${clean} login`, site: clean, ...(loginUrl ? { loginUrl } : {}), ...(reason ? { reason } : {}) });
+  return clean;
+}
+
 export const VAULT_TOOLS: Record<string, Tool> = {
+  vault_request_login: {
+    schema: { name: "vault_request_login", description: "Show the user a secure login form in the chat for a site (username, password, optional authenticator key). It saves straight to the encrypted Vault; you never see the password. Use whenever the user wants to give you a login, or a site needs one that isn't saved. After they save it, the chat tells you and you call browser_login.", parameters: obj({ site: s("Site, e.g. sportybet.com"), login_url: s("Login page URL if known"), reason: s("Short reason shown on the form, e.g. 'to check your balance and open bets'") }, ["site"]) },
+    run: async (args, ctx) => {
+      const site = loginForm(ctx, str(args.site), str(args.login_url) || undefined, str(args.reason) || undefined);
+      return { shown: true, site, tell_user: "A secure form is showing in the chat. Tell them in one line to fill it in there (never type the password in chat). When they save it you'll get a message and should carry on with browser_login." };
+    },
+  },
+
   vault_list: {
     schema: { name: "vault_list", description: "List the logins the user saved in the Vault (id, site, masked username) and the sites with a saved browser session. Passwords are never shown to you; pass a secret_id to browser_login.", parameters: obj({}) },
     run: async (_args, ctx) => {
       const [secrets, sessions] = await Promise.all([listSecrets(ctx.userId), listSessions(ctx.userId)]);
-      return { logins: secrets.map(({ id, site, label, username, hasTotp }) => ({ secret_id: id, site, label, username, authenticator: hasTotp })), saved_sessions: sessions, note: secrets.length ? undefined : "No saved logins. Ask the user to add one on the Vault page (You > Vault); never ask for a password in chat." };
+      return { logins: secrets.map(({ id, site, label, username, hasTotp }) => ({ secret_id: id, site, label, username, authenticator: hasTotp })), saved_sessions: sessions, note: secrets.length ? undefined : "No saved logins yet. Call vault_request_login to show the user a secure form in the chat; never ask for a password in chat." };
     },
   },
 
@@ -68,7 +82,7 @@ export const VAULT_TOOLS: Record<string, Tool> = {
       const secretId = str(args.secret_id);
       if (!secretId) {
         const match = (await listSecrets(ctx.userId)).find((item) => item.site === siteOf(url));
-        if (!match) return { status: "no_login", tell_user: "There's no saved login for this site. Add it on the Vault page (You > Vault), then ask again.", page: await snapshot(page) };
+        if (!match) { loginForm(ctx, url, url); return { status: "no_login", tell_user: "No saved login for this site yet, so a secure login form is now showing in the chat. Tell them in one line to fill it in there; when they save it you'll get a message and should call browser_login again." }; }
         args.secret_id = match.id;
       }
       // Some sites hide the form behind a "Login" button.
@@ -160,4 +174,4 @@ export const VAULT_TOOLS: Record<string, Tool> = {
   },
 };
 
-export const VAULT_SIDE_EFFECT_TOOLS = ["browser_login", "browser_handoff", "browser_save_session", "request_go_ahead", "clip_create"];
+export const VAULT_SIDE_EFFECT_TOOLS = ["vault_request_login", "browser_login", "browser_handoff", "browser_save_session", "request_go_ahead", "clip_create"];
