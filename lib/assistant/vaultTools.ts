@@ -1,6 +1,7 @@
 import type { ToolSchema } from "@/lib/assistant/llm";
 import type { ToolContext } from "@/lib/assistant/tools";
 import { liveViewUrl, openBrowser, openLiveBrowser, snapshot } from "@/lib/assistant/browser";
+import { detectChallenge, runChallenge } from "@/lib/assistant/challenge";
 import { applySavedSession, createGrant, detectBlocker, fillLogin, listSecrets, listSessions, looksLoggedOut, restoreLocalStorage, saveSession, siteOf } from "@/lib/assistant/vault";
 
 type Args = Record<string, unknown>;
@@ -40,6 +41,25 @@ async function handoff(ctx: ToolContext, reason: string, waitSeconds: number) {
     return { status: "done", liveViewUrl: url, sessionSaved: saved.saved, page: await snapshot(handle.page) };
   }
   return { status: "waiting", liveViewUrl: url, tell_user: `Open the live view link and ${reason}. When you've done it, say "done" and I'll carry on.` };
+}
+
+/** A second sign-in step: answer it through the in-chat challenge card; captchas still go to the live view. */
+async function secondStep(ctx: ToolContext, page: import("playwright-core").Page, waitSeconds: number) {
+  const found = await detectChallenge(page).catch(() => null);
+  if (!found) return null;
+  if (found.mode === "captcha") return handoff(ctx, "solve the captcha", waitSeconds);
+  const result = await runChallenge(ctx, page, found, Math.min(Math.max(waitSeconds, 60), 200));
+  if (result.status === "cleared") {
+    const saved = await saveSession(ctx.userId, page);
+    return { status: "signed_in", via: "challenge_card", site: result.site, sessionSaved: saved.saved, page: await snapshot(page) };
+  }
+  if (result.status === "captcha") return handoff(ctx, "solve the captcha", waitSeconds);
+  const tell: Record<string, string> = {
+    cancelled: "The user cancelled the sign-in check. Stop and say so in one line.",
+    wrong_code: "The site rejected the code twice. Tell the user and offer to try again (call browser_challenge).",
+    timed_out: "Nobody answered the sign-in check in time. Tell the user in one line; when they're ready, call browser_challenge to show it again.",
+  };
+  return { status: result.status, site: result.site, tell_user: tell[result.status] };
 }
 
 function loginForm(ctx: ToolContext, site: string, loginUrl?: string, reason?: string) {
@@ -91,6 +111,8 @@ export const VAULT_TOOLS: Record<string, Tool> = {
         if (await opener.isVisible().catch(() => false)) { await opener.click().catch(() => undefined); await page.waitForTimeout(1500); }
       }
       const filled = await fillLogin(ctx.userId, str(args.secret_id), page);
+      const wait = Math.min(num(args.wait_seconds, 150), 200);
+      if (filled.status === "ok" || filled.status === "needs_user" || filled.status === "no_form") { const step = await secondStep(ctx, page, wait); if (step) return step; }
       if (filled.status === "ok") { const saved = await saveSession(ctx.userId, page); return { status: "signed_in", via: "vault", site: filled.site, sessionSaved: saved.saved, page: await snapshot(page) }; }
       if (filled.status === "needs_user") return handoff(ctx, filled.blocker === "captcha" ? "solve the captcha" : "enter the verification code", Math.min(num(args.wait_seconds, 150), 200));
       return { status: filled.status, site: filled.site, note: "note" in filled ? filled.note : "Couldn't find a login form on this page. Open the site's login page and call browser_login with that URL.", page: await snapshot(page) };
@@ -100,6 +122,15 @@ export const VAULT_TOOLS: Record<string, Tool> = {
   browser_handoff: {
     schema: { name: "browser_handoff", description: "Hand the current browser page to the user through a live-view link (for a captcha, a code sent to their phone, or a step only they can do). Waits for them, then saves the site's session so next time skips it.", parameters: obj({ reason: s("What the user needs to do, e.g. 'enter the code SportyBet texted you'"), wait_seconds: { type: "number", description: "Default 150, max 200" } }, ["reason"]) },
     run: async (args, ctx) => handoff(ctx, str(args.reason, "finish this step"), Math.min(num(args.wait_seconds, 150), 200)),
+  },
+
+  browser_challenge: {
+    schema: { name: "browser_challenge", description: "When the current page asks for a second sign-in step (Google or Microsoft 'tap the number', 'check your phone / tap Yes', or an SMS, email or authenticator code), show the user a card in the chat with the number or a code box, act on the page when they answer, then save the session. You never see the code. Captchas go to the live view instead.", parameters: obj({ wait_seconds: { type: "number", description: "Default 170, max 200" } }) },
+    run: async (args, ctx) => {
+      const { page } = await openBrowser(ctx.userId, ctx.conversationId, ctx.browsers);
+      const step = await secondStep(ctx, page, Math.min(num(args.wait_seconds, 170), 200));
+      return step || { status: "no_challenge", note: "This page isn't asking for a sign-in check.", page: await snapshot(page) };
+    },
   },
 
   browser_save_session: {
@@ -174,4 +205,4 @@ export const VAULT_TOOLS: Record<string, Tool> = {
   },
 };
 
-export const VAULT_SIDE_EFFECT_TOOLS = ["vault_request_login", "browser_login", "browser_handoff", "browser_save_session", "request_go_ahead", "clip_create"];
+export const VAULT_SIDE_EFFECT_TOOLS = ["vault_request_login", "browser_login", "browser_handoff", "browser_save_session", "browser_challenge", "request_go_ahead", "clip_create"];

@@ -1,6 +1,8 @@
 /** Structured message attachments the chat renders as cards instead of markdown walls. */
 import type { DiffCard } from "@/lib/assistant/code/cards";
 import type { ResearchReportCard } from "@/lib/research";
+import type { ChallengeCard } from "@/lib/assistant/challenge";
+export type { ChallengeCard };
 export type LinkItem = { title: string; url: string; snippet?: string };
 export type EmailItem = { id?: string; from: string; subject: string; date?: string; snippet?: string; unread?: boolean };
 export type EventItem = { id?: string; title: string; start?: string; end?: string; location?: string; link?: string; attendees?: string[] };
@@ -22,6 +24,7 @@ export type Card =
   | { kind: "schedule"; title: string; name: string; when: string }
   | VaultFormCard
   | SecretFormCard
+  | ChallengeCard
   | WeatherCard
   | DiffCard
   | ResearchReportCard;
@@ -102,7 +105,7 @@ export const STATUS_LABELS: Record<string, string> = {
   github_api: "Checking GitHub…", github_issues: "Checking GitHub issues…", github_issue_create: "Preparing the issue…", github_prs: "Checking pull requests…", github_pr_status: "Checking the PR…", github_ci_status: "Checking CI…",
   vercel_projects: "Checking Vercel…", vercel_deployments: "Checking deployments…", vercel_redeploy: "Preparing the redeploy…", supabase_health: "Checking Supabase…",
   paystack_transactions: "Reading Paystack…", paystack_balance: "Checking your Paystack balance…", flutterwave_transactions: "Reading Flutterwave…", flutterwave_balance: "Checking your Flutterwave balance…", payments_summary: "Summing up payments…", weather: "Checking the weather…", daily_brief: "Pulling your day together…",
-  vault_list: "Checking your Vault…", vault_request_login: "Opening a secure login form…", mcp_servers: "Checking your tools…", mcp_connect: "Connecting the tool…", mcp_tools: "Reading the tool list…", mcp_call: "Using a connected tool…", browser_login: "Signing in…", browser_handoff: "Handing the page to you…", browser_save_session: "Saving the session…", request_go_ahead: "Preparing the go-ahead…", bet_ev: "Doing the maths…", clip_create: "Starting the clipper…", clip_status: "Checking the clipper…",
+  vault_list: "Checking your Vault…", vault_request_login: "Opening a secure login form…", mcp_servers: "Checking your tools…", mcp_connect: "Connecting the tool…", mcp_tools: "Reading the tool list…", mcp_call: "Using a connected tool…", browser_login: "Signing in…", browser_handoff: "Handing the page to you…", browser_save_session: "Saving the session…", browser_challenge: "Waiting on your sign-in check…", request_go_ahead: "Preparing the go-ahead…", bet_ev: "Doing the maths…", clip_create: "Starting the clipper…", clip_status: "Checking the clipper…",
   start_background_job: "Handing it off to the background…", background_jobs: "Checking background jobs…",
 };
 
