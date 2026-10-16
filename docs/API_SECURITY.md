@@ -1,0 +1,9 @@
+# API security boundaries
+
+- Elias session authentication is the primary access control for `POST /api/documents/extract`, `POST /api/web/search`, and `POST /api/web/open`. The web routes are used by the signed-in Research and Agent workspaces; document processing is also session-protected. Their per-account fixed-window quotas (5 extractions/minute, 12 searches/minute, and 30 opens/minute) are best-effort defense in depth only, not robust production abuse protection.
+- `GET /api/github/repo?url=...` remains a public lookup for **public GitHub repository metadata only**. It deliberately does not use `GITHUB_TOKEN`; a private repository returns not-found, so an optional server-level credential cannot be exercised against caller-selected repositories. Its anonymous quota is 30 requests/hour per client address. The authenticated repository connector routes are the path for repositories authorized by an individual Elias account.
+- The in-memory buckets can reset on process restart and are not shared between serverless instances. The repository has optional `POSTGRES_URL`-backed domain stores, but no existing shared rate-limit store; this change does not add a database dependency or create quota tables. Production deployments should enforce per-account and per-IP quotas at a trusted edge or purpose-built shared store; forwarded client-address headers must only be trusted when set/normalized by that edge.
+- Web source opening continues to use the existing URL validation, response-size limit, timeout, and disabled redirects. These controls complement, but do not replace, the authentication and quotas above.
+
+
+Run `pnpm test:security` to exercise these route boundaries locally. The suite starts a temporary Next dev server and mocks Exa and GitHub HTTP responses; it does not make live provider calls.
