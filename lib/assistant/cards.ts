@@ -27,7 +27,14 @@ export type Card =
   | ChallengeCard
   | WeatherCard
   | DiffCard
-  | ResearchReportCard;
+  | ResearchReportCard
+  | ImageCard
+  | FileCard
+  | PreviewCard;
+
+export type ImageCard = { kind: "image"; fileId: string; name: string; prompt: string; url: string; downloadUrl: string };
+export type FileCard = { kind: "file"; fileId: string; name: string; mime: string; size: number; url: string };
+export type PreviewCard = { kind: "preview"; title: string; html: string };
 
 export type ConnectCard = {
   provider: "google" | "browser"; configured: boolean;

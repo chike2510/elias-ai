@@ -67,3 +67,24 @@
 .el-conn-chevron.open { transform: rotate(90deg); }
 .el-conn-detail { padding: 0 14px 12px 58px; display: grid; gap: 8px; justify-items: start; }
 .el-conn-detail p { margin: 0; font-size: 13px; line-height: 1.45; color: var(--muted, #6b6b6b); overflow-wrap: anywhere; }
+
+/* Make cards: generated images, files and live app previews. */
+.el-make-image { padding: 0; overflow: hidden; margin: 0; }
+.el-make-image img { display: block; width: 100%; height: auto; max-height: 520px; object-fit: cover; background: var(--surface-2); }
+.el-make-image figcaption { display: flex; align-items: center; gap: 10px; padding: 10px 12px; font-size: 13px; color: var(--muted, #6b6b6b); }
+.el-make-image figcaption span { flex: 1; min-width: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.el-make-file { display: flex; align-items: center; gap: 12px; padding: 12px; }
+.el-make-file-icon { flex: none; width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; background: var(--surface-2); }
+.el-make-file-text { flex: 1; min-width: 0; display: grid; }
+.el-make-file-text strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.el-make-file-text small { color: var(--muted, #6b6b6b); }
+.el-make-file .el-btn-sm, .el-make-image .el-btn-sm { display: inline-flex; align-items: center; gap: 6px; flex: none; }
+.el-make-preview { padding: 0; overflow: hidden; display: flex; flex-direction: column; }
+.el-make-preview header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px 8px 14px; border-bottom: 1px solid var(--line, rgba(0,0,0,.08)); }
+.el-make-preview-actions { display: flex; gap: 4px; }
+.el-make-preview-actions button { width: 34px; height: 34px; border: 0; border-radius: 8px; background: transparent; color: inherit; display: grid; place-items: center; cursor: pointer; }
+.el-make-preview-actions button:hover, .el-make-preview-actions button[aria-pressed="true"] { background: var(--surface-2); }
+.el-make-preview iframe { display: block; width: 100%; height: 460px; border: 0; background: #fff; }
+.el-make-preview-code { margin: 0; max-height: 460px; overflow: auto; padding: 12px; font-size: 12px; line-height: 1.5; white-space: pre; }
+.el-make-preview.full { position: fixed; inset: 0; z-index: 1000; border-radius: 0; margin: 0; }
+.el-make-preview.full iframe, .el-make-preview.full .el-make-preview-code { flex: 1; height: auto; max-height: none; }
