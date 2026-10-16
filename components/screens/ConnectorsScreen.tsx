@@ -33,26 +33,36 @@ function AssistantConnections() {
   if (!status) return <section className="el-section el-connections" aria-busy={!failed}><h2>Personal assistant</h2>{failed ? <div className="el-inline-error" role="alert"><span>Couldn't check your connections.</span><button type="button" onClick={load}>Retry</button></div> : <ListSkeleton rows={3} />}</section>;
   return <section className="el-section el-connections"><h2>Personal assistant</h2><GoogleReturnNotice /><ul className="el-list">
     <li><GoogleStatusRow google={status.google} returnTo="/connectors" icon={<Globe2 size={17} />} busy={busy} onDisconnect={() => void disconnect()} /></li>
-    <li><div className="el-list-row static"><span className="el-list-icon"><Server size={17} /></span><span className="el-list-text"><strong>Browser</strong><small>{status.browser.configured ? "Remote browser for forms, carts and bookings" : "Browser not configured: the server needs CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_BROWSER_TOKEN (or BROWSERBASE_API_KEY + BROWSERBASE_PROJECT_ID)."}</small></span><span className={`el-state ${status.browser.configured ? "on" : "na"}`}>{status.browser.configured ? "Ready" : "Not configured"}</span></div></li>
+    <ConnectorRow icon={<Server size={17} />} name="Browser" summary="Remote browser for forms, carts and bookings" state={status.browser.configured ? "on" : "na"} stateLabel={status.browser.configured ? "Ready" : "Not set up"} detail={status.browser.configured ? "Runs on Cloudflare Browser Run, with Browserbase as the fallback." : "The server needs CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_BROWSER_TOKEN (or BROWSERBASE_API_KEY + BROWSERBASE_PROJECT_ID)."} />
     {status.connectors ? <AgentConnectorRows connectors={status.connectors} /> : null}
   </ul>
   <p className="el-conn-note">Payments are read-only: Elias can read balances and transactions, never move money. Redeploys and new issues always ask first.</p></section>;
 }
 
+/**
+ * One connector row: a plain summary up front; setup notes (env vars, modes) only show when you tap it.
+ */
+function ConnectorRow({ icon, name, summary, detail, state, stateLabel, href, hrefLabel }: { icon: React.ReactNode; name: string; summary: string; detail?: string; state: "on" | "off" | "na"; stateLabel: string; href?: string; hrefLabel?: string }) {
+  const [open, setOpen] = useState(false);
+  const expandable = Boolean(detail || href);
+  const head = <><span className="el-list-icon">{icon}</span><span className="el-list-text"><strong>{name}</strong><small>{summary}</small></span><span className={`el-state ${state}`}>{stateLabel}</span>{expandable ? <ChevronRight size={16} className={`el-conn-chevron${open ? " open" : ""}`} aria-hidden /> : null}</>;
+  return <li className={`el-conn-row${open ? " open" : ""}`}>
+    {expandable ? <button type="button" className="el-list-row" aria-expanded={open} onClick={() => setOpen((value) => !value)}>{head}</button> : <div className="el-list-row static">{head}</div>}
+    {open ? <div className="el-conn-detail">{detail ? <p>{detail}</p> : null}{href ? <Link className="el-btn-sm" href={href}>{hrefLabel || "Open"}</Link> : null}</div> : null}
+  </li>;
+}
+
 /** Status of the env-gated agent connectors (GitHub, Vercel, Supabase, Telegram, Paystack, Flutterwave, memory search). */
 function AgentConnectorRows({ connectors }: { connectors: NonNullable<Status["connectors"]> }) {
-  const rows: Array<{ icon: React.ReactNode; name: string; on: boolean; detail: string; off: string; href?: string }> = [
-    { icon: <Github size={17} />, name: "GitHub tools", on: connectors.github.configured, detail: connectors.github.source === "oauth" ? "Issues, PRs and CI with your GitHub account" : "Issues, PRs and CI via the server token", off: "Connect GitHub, or the owner sets GITHUB_TOKEN.", href: "/connectors/github" },
-    { icon: <span className="vercel-glyph">▲</span>, name: "Vercel", on: connectors.vercel.configured, detail: "Projects, deployments, redeploy (asks first)", off: "Needs VERCEL_API_TOKEN on the server." },
-    { icon: <Database size={17} />, name: "Supabase health", on: connectors.supabase.configured, detail: connectors.supabase.mode === "management" ? "Service health and security advisors" : "Database check (add SUPABASE_ACCESS_TOKEN for service health)", off: "Needs POSTGRES_URL." },
-    { icon: <Send size={17} />, name: "Telegram", on: connectors.telegram.configured && connectors.telegram.linked, detail: connectors.telegram.linked ? `Linked${connectors.telegram.username ? ` · @${connectors.telegram.username}` : ""}` : "Ready: link your chat on the You page", off: "Needs TELEGRAM_BOT_TOKEN and TELEGRAM_WEBHOOK_SECRET (bot from @BotFather).", href: "/you" },
-    { icon: <CreditCard size={17} />, name: "Paystack", on: connectors.paystack.configured, detail: "Transactions and balance (read-only)", off: "Needs PAYSTACK_SECRET_KEY (read-only use)." },
-    { icon: <CreditCard size={17} />, name: "Flutterwave", on: connectors.flutterwave.configured, detail: "Transactions and balances (read-only)", off: "Needs FLUTTERWAVE_SECRET_KEY (read-only use)." },
-    { icon: <Brain size={17} />, name: "Memory search", on: connectors.embeddings.configured, detail: "Meaning-based recall (free gte-small embeddings)", off: "Keyword recall only: embeddings aren't configured." },
+  const telegramPending = connectors.telegram.configured && !connectors.telegram.linked;
+  const rows: Array<{ icon: React.ReactNode; name: string; on: boolean; pending?: boolean; summary: string; detail: string; href?: string; hrefLabel?: string }> = [
+    { icon: <Github size={17} />, name: "GitHub tools", on: connectors.github.configured, summary: "Issues, PRs and CI", detail: !connectors.github.configured ? "Connect GitHub, or the owner sets GITHUB_TOKEN." : connectors.github.source === "oauth" ? "Uses your connected GitHub account." : "Uses the server's GITHUB_TOKEN.", href: "/connectors/github", hrefLabel: "Manage" },
+    { icon: <span className="vercel-glyph">▲</span>, name: "Vercel", on: connectors.vercel.configured, summary: "Projects and deployments", detail: connectors.vercel.configured ? "Redeploys always ask first." : "Needs VERCEL_API_TOKEN on the server." },
+    { icon: <Database size={17} />, name: "Supabase health", on: connectors.supabase.configured, summary: "Database health checks", detail: !connectors.supabase.configured ? "Needs POSTGRES_URL." : connectors.supabase.mode === "management" ? "Service health and security advisors." : "Database check only. Add SUPABASE_ACCESS_TOKEN for service health and security advisors." },
+    { icon: <Send size={17} />, name: "Telegram", on: connectors.telegram.configured && connectors.telegram.linked, pending: telegramPending, summary: connectors.telegram.linked && connectors.telegram.username ? `Linked · @${connectors.telegram.username}` : "Chat with Elias on Telegram", detail: connectors.telegram.linked ? "Your Telegram chat is linked." : telegramPending ? "Ready: link your chat on the You page." : "Needs TELEGRAM_BOT_TOKEN and TELEGRAM_WEBHOOK_SECRET (bot from @BotFather).", href: telegramPending ? "/you" : undefined, hrefLabel: "Link chat" },
+    { icon: <CreditCard size={17} />, name: "Paystack", on: connectors.paystack.configured, summary: "Transactions and balance", detail: connectors.paystack.configured ? "Read-only: Elias never moves money." : "Needs PAYSTACK_SECRET_KEY (read-only use)." },
+    { icon: <CreditCard size={17} />, name: "Flutterwave", on: connectors.flutterwave.configured, summary: "Transactions and balances", detail: connectors.flutterwave.configured ? "Read-only: Elias never moves money." : "Needs FLUTTERWAVE_SECRET_KEY (read-only use)." },
+    { icon: <Brain size={17} />, name: "Memory search", on: connectors.embeddings.configured, summary: "Meaning-based recall", detail: connectors.embeddings.configured ? "Free gte-small embeddings." : "Keyword recall only: embeddings aren't configured." },
   ];
-  return <>{rows.map((row) => {
-    const pending = row.name === "Telegram" && connectors.telegram.configured && !connectors.telegram.linked;
-    const body = <><span className="el-list-icon">{row.icon}</span><span className="el-list-text"><strong>{row.name}</strong><small>{row.on || pending ? row.detail : row.off}</small></span><span className={`el-state ${row.on ? "on" : pending ? "off" : "na"}`}>{row.on ? "On" : pending ? "Link" : "Not set up"}</span></>;
-    return <li key={row.name}>{row.href ? <Link className="el-list-row" href={row.href}>{body}</Link> : <div className="el-list-row static">{body}</div>}</li>;
-  })}</>;
+  return <>{rows.map((row) => <ConnectorRow key={row.name} icon={row.icon} name={row.name} summary={row.summary} detail={row.detail} href={row.href} hrefLabel={row.hrefLabel} state={row.on ? "on" : row.pending ? "off" : "na"} stateLabel={row.on ? "On" : row.pending ? "Link" : "Not set up"} />)}</>;
 }

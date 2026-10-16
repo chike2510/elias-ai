@@ -58,3 +58,12 @@
 .screen .el-connections a.el-list-row:hover { background-color: var(--surface-2) !important; }
 .screen .el-connections .el-list { background: var(--surface); }
 .screen .el-connections .el-list-icon svg { border: 0 !important; background: none !important; box-shadow: none !important; }
+
+/* Connector rows: setup notes stay hidden until tapped. */
+.screen .el-connections button.el-list-row { width: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer; }
+.screen .el-connections button.el-list-row:hover { background-color: var(--surface-2) !important; }
+.el-connections .el-list-text small { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+.el-conn-chevron { flex: none; color: var(--muted, #8a8a8a); transition: transform .15s ease; }
+.el-conn-chevron.open { transform: rotate(90deg); }
+.el-conn-detail { padding: 0 14px 12px 58px; display: grid; gap: 8px; justify-items: start; }
+.el-conn-detail p { margin: 0; font-size: 13px; line-height: 1.45; color: var(--muted, #6b6b6b); overflow-wrap: anywhere; }
