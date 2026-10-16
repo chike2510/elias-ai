@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { complete, completeStream, type ContentPart, type LlmMessage } from "@/lib/assistant/llm";
 import { fileContext, parseChoice, resolveRoute, toStored, type ChatAttachment, type ModelTier, type StoredAttachment } from "@/lib/assistant/modelRouter";
 import { newId, ready } from "@/lib/assistant/db";
+import { FOOTBALL_BETTING_SKILL, footballBettingActive } from "@/lib/assistant/skills/footballBetting";
 import { extractMemories, memoryContext, saveMemory } from "@/lib/assistant/memory";
 import { approvalSummary, hasTool, runTool, toolSchemasFor, type ToolContext } from "@/lib/assistant/tools";
 import { browserConfigured, closeAll, type BrowserHandle } from "@/lib/assistant/browser";
@@ -262,10 +263,13 @@ export async function runTurn(options: RunOptions): Promise<TurnResult> {
   const userContent: string | ContentPart[] = images.length
     ? [{ type: "text", text: userText || "What's in this image?" }, ...images.map((image): ContentPart => ({ type: "image_url", image_url: { url: image.dataUrl } }))]
     : userText;
+  // Skills: the football betting analysis playbook rides along for betting turns (and short follow-ups to one).
+  const bettingActive = code.mode !== "code" && footballBettingActive(options.text, history.filter((item) => item.role === "user").map((item) => item.content));
+  const bettingSkill = bettingActive ? FOOTBALL_BETTING_SKILL : "";
   const lastUserIndexes = new Set(history.map((item, index) => item.role === "user" ? index : -1).filter((index) => index >= 0).slice(-3));
 
   const messages: LlmMessage[] = [
-    { role: "system", content: systemPrompt({ name: options.userName, timezone, memories, googleEmail: googleOk ? google?.email || null : null, googleStatus: google, googleConfigured: googleConfigured(), browser: browserConfigured(), origin, extra: [codeExtra, options.extraContext].filter(Boolean).join("\n\n") || undefined }) },
+    { role: "system", content: systemPrompt({ name: options.userName, timezone, memories, googleEmail: googleOk ? google?.email || null : null, googleStatus: google, googleConfigured: googleConfigured(), browser: browserConfigured(), origin, extra: [codeExtra, bettingSkill, options.extraContext].filter(Boolean).join("\n\n") || undefined }) },
     ...history.map((item, index) => ({ item, index })).filter(({ item }) => item.role !== "event" || item.meta.kind === "approval").map(({ item, index }): LlmMessage => item.role === "assistant" ? { role: "assistant", content: item.content } : { role: "user", content: item.role === "event" ? `[system note] ${item.content}` : historyUserContent(item, lastUserIndexes.has(index)) }),
     { role: "user", content: userContent },
   ];
@@ -297,7 +301,8 @@ export async function runTurn(options: RunOptions): Promise<TurnResult> {
   try {
     const maxSteps = Math.max(1, options.maxSteps ?? (code.mode === "code" ? CODE_MAX_STEPS : MAX_STEPS));
     let emptyRetried = false;
-    let forceStrong = false;
+    // Betting analysis is multi-step research: start it on the strong tier rather than the fast model.
+    let forceStrong = bettingActive;
     for (let step = 0; step < maxSteps; step += 1) {
       let streamed = false;
       const base = resolveRoute(choice, { text: options.text, images: images.length, files: files.length, step, usedTool: actions.length > 0 });
