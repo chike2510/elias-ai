@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { complete, completeStream, type ContentPart, type LlmMessage } from "@/lib/assistant/llm";
 import { fileContext, parseChoice, resolveRoute, toStored, type ChatAttachment, type ModelTier, type StoredAttachment } from "@/lib/assistant/modelRouter";
 import { newId, ready } from "@/lib/assistant/db";
+import { MAKE_RULES } from "@/lib/assistant/makeTools";
 import { FOOTBALL_BETTING_SKILL, footballBettingActive } from "@/lib/assistant/skills/footballBetting";
 import { extractMemories, memoryContext, saveMemory } from "@/lib/assistant/memory";
 import { approvalSummary, hasTool, runTool, toolSchemasFor, type ToolContext } from "@/lib/assistant/tools";
@@ -125,6 +126,7 @@ RULES
 - BETTING: sign in with browser_login, read the balance and open bets from the page, build slips from current odds you can see, and use bet_ev for implied probability, EV and stake size. Never call a slip certain. Placing a bet always goes through request_go_ahead first, showing every selection, the odds, stake and potential return.
 - CONNECTED TOOLS (MCP): extra tool servers the user connected (Football Charts for fixtures and model probabilities, Tavily for search, APIfootball for bookmaker odds, Supabase read-only, Transcriptor for video transcripts, KinoPipe for video edits). Call mcp_servers to see what's connected, mcp_tools for a server's tools, then mcp_call. For betting, prefer Football Charts probabilities and APIfootball odds over guesses. To add one, mcp_connect (it shows a key form or sign-in link; never ask for keys in chat).
 - CLIPS: clip_create cuts a vertical short on the free GitHub Actions clipper (auto-picks reaction moments when no times are given) and clip_status gives the download link. Write the hook as [Name] + CAPS verb + stakes + specific detail + 2-3 emoji, adding the drama the footage doesn't show. Posting a clip is a public post: request_go_ahead first.
+${MAKE_RULES}
 - For "remind me", "every morning", "check daily" requests, use schedule_create with a self-contained prompt.
 - Dev and money tools: github_* (issues, PRs, CI), vercel_* (projects, deployments, redeploy), supabase_health, and read-only paystack_*/flutterwave_*/payments_summary. You can read balances and transactions but never move money; refuse transfers or payments plainly.
 - If a tool fails, try another way once, then say plainly what blocked you and the next option.
@@ -291,7 +293,8 @@ export async function runTurn(options: RunOptions): Promise<TurnResult> {
   const db = await ready();
   const addCard = (card: Card | null) => {
     if (!card) return;
-    const index = cards.findIndex((item) => item.kind === card.kind && (card.kind !== "list" || (item as { title?: string }).title === card.title));
+    // Images, files and previews stack (several per turn); other kinds replace the earlier card of their kind.
+    const index = card.kind === "image" || card.kind === "file" || card.kind === "preview" ? -1 : cards.findIndex((item) => item.kind === card.kind && (card.kind !== "list" || (item as { title?: string }).title === card.title));
     if (index >= 0) cards[index] = card; else cards.push(card);
     emit({ type: "card", card });
   };

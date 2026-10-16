@@ -45,7 +45,7 @@ export function choiceId(choice: ModelChoice) {
   return choice.mode === "specific" ? `${choice.provider}/${choice.model}` : choice.mode;
 }
 
-const TOOL_HINTS = /\b(e-?mails?|inbox|gmail|calendar|meetings?|schedule|remind(er|ers)?|every (day|morning|evening|week|monday|tuesday|wednesday|thursday|friday|saturday|sunday)|search|look ?up|find|google|news|prices?|weather|book|order|buy|browse|website|github|repo|plan my day|brief me|remember|forget|send|draft|invite|latest|scores?|flights?|hotels?|directions)\b|https?:\/\/|www\./i;
+const TOOL_HINTS = /\b(e-?mails?|inbox|gmail|calendar|meetings?|schedule|remind(er|ers)?|every (day|morning|evening|week|monday|tuesday|wednesday|thursday|friday|saturday|sunday)|search|look ?up|find|google|news|prices?|weather|book|order|buy|browse|website|github|repo|plan my day|brief me|remember|forget|send|draft|invite|latest|scores?|flights?|hotels?|directions|generate|draw|image|photo|picture|logo|poster|pdf|docx|slides|presentation|preview|demo|calculator|app|game|landing page)\b|https?:\/\/|www\./i;
 
 export type RouteSignals = { text: string; images?: number; files?: number; step?: number; usedTool?: boolean };
 
