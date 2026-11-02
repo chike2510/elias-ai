@@ -143,7 +143,7 @@ export const COLLECT_ELEMENTS = `(() => {
   const nodes = Array.from(document.querySelectorAll("a[href], button, input:not([type=hidden]), select, textarea, summary, [role=button], [role=link], [role=checkbox], [role=radio], [role=tab], [role=menuitem], [role=option], [contenteditable=true]")).filter(visible).slice(0, 120);
   const elements = nodes.map((el, id) => {
     el.setAttribute("data-elias-id", String(id));
-    const labelFor = el.id ? (document.querySelector('label[for="' + CSS.escape(el.id) + '"]') || {}).textContent : "";
+    const labelFor = el.labels && el.labels.length ? el.labels[0].textContent : el.id ? (document.querySelector('label[for="' + CSS.escape(el.id) + '"]') || {}).textContent : "";
     const label = (el.getAttribute("aria-label") || labelFor || el.placeholder || el.innerText || (el.type === "password" ? "" : el.value) || el.getAttribute("title") || el.getAttribute("name") || "").trim().replace(/\\s+/g, " ").slice(0, 80);
     const r = el.getBoundingClientRect();
     const item = { id, tag: el.tagName.toLowerCase(), label, x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) };
