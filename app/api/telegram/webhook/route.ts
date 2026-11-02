@@ -3,7 +3,7 @@ import { handleTelegramUpdate, telegramConfigured, validWebhookSecret, type Tele
 import { captureError } from "@/lib/observability";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 /**
  * Telegram Bot API webhook. Gated on TELEGRAM_BOT_TOKEN + TELEGRAM_WEBHOOK_SECRET, and every request must carry
