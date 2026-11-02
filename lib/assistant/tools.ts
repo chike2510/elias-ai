@@ -11,6 +11,7 @@ import { CODE_TOOLS, isCodeTool } from "@/lib/assistant/code/github";
 import { VERIFY_TOOLS } from "@/lib/assistant/code/verify";
 import { PR_TOOLS } from "@/lib/assistant/code/pr";
 import { VAULT_TOOLS } from "@/lib/assistant/vaultTools";
+import { BROWSER_RUN_TOOLS } from "@/lib/browserRun/tools";
 import { MCP_TOOLS } from "@/lib/assistant/mcpTools";
 import { MAKE_TOOLS } from "@/lib/assistant/makeTools";
 import { applySavedSession, consumeGrant, restoreLocalStorage } from "@/lib/assistant/vault";
@@ -250,6 +251,7 @@ const TOOLS: Record<string, Tool> = {
   },
 
   ...VAULT_TOOLS,
+  ...BROWSER_RUN_TOOLS,
   ...MCP_TOOLS,
   ...MAKE_TOOLS,
   ...CONNECTOR_TOOLS,

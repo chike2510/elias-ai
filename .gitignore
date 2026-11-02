@@ -8,3 +8,4 @@ out
 .elias
 node_modules
 *.tsbuildinfo
+.wrangler

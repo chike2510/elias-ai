@@ -3,6 +3,7 @@ import { ready } from "@/lib/assistant/db";
 /** Tools that change something outside this conversation. Every call to one is written to elias_audit_log. */
 export const SIDE_EFFECT_TOOLS = new Set([
   "memory_save", "memory_update", "memory_forget",
+  "browser_task",
   "gmail_draft", "gmail_send", "calendar_create", "calendar_delete",
   "schedule_create", "schedule_update",
   "browser_click", "browser_type", "browser_select",

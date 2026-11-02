@@ -79,6 +79,16 @@ async function readSecret(userId: string, id: string) {
   return { site: String(row.site), username: decrypt(String(row.username_enc)), password: decrypt(String(row.password_enc)), totp: row.totp_enc ? decrypt(String(row.totp_enc)) : null, loginUrl: (row.login_url as string) || null };
 }
 
+/** Resolves a vault reference (id, label or site) to its login, for server-side filling. Never return this to a model. */
+export async function resolveSecretRef(userId: string, ref: string) {
+  const sql = await db();
+  const key = ref.trim();
+  const site = siteOf(key);
+  const row = (await sql`select id from public.elias_vault_secrets where user_id = ${userId} and (id = ${key} or lower(label) = lower(${key}) or site = ${site}) order by (id = ${key}) desc, (lower(label) = lower(${key})) desc limit 1`)[0];
+  if (!row) throw new Error(`No saved login matches "${key}". Ask the user to save it in the vault first.`);
+  return readSecret(userId, String(row.id));
+}
+
 /* ---------- saved browser sessions (Playwright storageState) ---------- */
 
 type StorageState = Awaited<ReturnType<BrowserContext["storageState"]>>;
