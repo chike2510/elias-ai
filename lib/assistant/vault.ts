@@ -159,6 +159,15 @@ const PASS_FIELD = 'input[type="password"]';
 const OTP_FIELD = 'input[autocomplete="one-time-code"], input[name*="otp" i], input[name*="code" i], input[id*="otp" i]';
 const SUBMIT = 'button[type="submit"], input[type="submit"], button:has-text("Log in"), button:has-text("Login"), button:has-text("Sign in"), button:has-text("Continue"), button:has-text("Next")';
 
+const CAPTCHA = 'iframe[src*="recaptcha"], iframe[src*="hcaptcha"], iframe[src*="turnstile"], iframe[src*="challenges.cloudflare"], .cf-turnstile, [class*="captcha" i]';
+const CAPTCHA_TOKEN = 'input[name="cf-turnstile-response"], textarea[name="g-recaptcha-response"], textarea[name="h-captcha-response"]';
+const LOGIN_ERROR = '[role="alert"], [aria-live="assertive"], [class*="error" i], [data-testid*="error" i]';
+
+async function loginError(page: Page) {
+  const el = await firstVisible(page, LOGIN_ERROR);
+  return el ? (await el.innerText().catch(() => "")).trim().slice(0, 200) : "";
+}
+
 async function firstVisible(page: Page, selector: string) {
   const all = page.locator(selector);
   const count = Math.min(await all.count().catch(() => 0), 10);
@@ -167,8 +176,10 @@ async function firstVisible(page: Page, selector: string) {
 }
 
 export async function detectBlocker(page: Page) {
-  const captcha = await page.locator('iframe[src*="recaptcha"], iframe[src*="hcaptcha"], iframe[src*="turnstile"], iframe[src*="challenges.cloudflare"], [class*="captcha" i]').first().isVisible().catch(() => false);
-  if (captcha) return "captcha";
+  if (await firstVisible(page, CAPTCHA)) return "captcha";
+  // Turnstile renders in a closed shadow root; its hidden token input stays empty until it's solved.
+  const tokens = await page.locator(CAPTCHA_TOKEN).evaluateAll((els) => els.map((el) => (el as HTMLInputElement).value)).catch(() => [] as string[]);
+  if (tokens.some((value) => !value)) return "captcha";
   if (await firstVisible(page, OTP_FIELD)) return "code";
   const text = (await page.locator("body").innerText().catch(() => "")).slice(0, 4000);
   if (/verification code|enter the code|one[- ]time|2-step|two[- ]factor|we sent a code|approve (this )?sign[- ]in/i.test(text)) return "code";
@@ -213,7 +224,10 @@ export async function fillLogin(userId: string, secretId: string, page: Page) {
     if (otp) { await otp.fill(await totpCode(secret.totp)); await otp.press("Enter"); await page.waitForTimeout(2500); blocker = await detectBlocker(page); }
   }
   if (blocker) return { status: "needs_user" as const, site: secret.site, blocker };
-  if (await looksLoggedOut(page)) return { status: "failed" as const, site: secret.site, note: "The password field is still showing: the site may have rejected the login. Ask the user to check the saved login on the Vault page." };
+  if (await looksLoggedOut(page)) {
+    const error = await loginError(page);
+    return { status: "failed" as const, site: secret.site, note: error ? `The site said: "${error}". Ask the user to check the saved login on the Vault page.` : "The password field is still showing and the site gave no error, so a hidden bot check may have blocked it. Offer the user browser_handoff to finish the sign-in in the live view." };
+  }
   return { status: "ok" as const, site: secret.site };
 }
 
