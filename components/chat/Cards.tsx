@@ -10,6 +10,7 @@ import { googleConnectCopy } from "@/lib/connectCopy";
 import VaultFormCard from "@/components/chat/VaultFormCard";
 import SecretFormCard from "@/components/chat/SecretFormCard";
 import ChallengeCard from "@/components/chat/ChallengeCard";
+import BrowserRunCard from "@/components/chat/BrowserRunCard";
 import { FileResultCard, ImageResultCard, PreviewResultCard } from "@/components/chat/MakeCards";
 
 function host(url: string) {
@@ -35,6 +36,7 @@ export function MessageCard({ card }: { card: Card }) {
   if (card.kind === "vault_form") return <VaultFormCard card={card} />;
   if (card.kind === "secret_form") return <SecretFormCard card={card} />;
   if (card.kind === "challenge") return <ChallengeCard key={`${card.id}-${card.number || ""}`} card={card} />;
+  if (card.kind === "browser_run") return <BrowserRunCard card={card} />;
   if (card.kind === "diff") return <DiffCard card={card} />;
   if (card.kind === "image") return <ImageResultCard card={card} />;
   if (card.kind === "file") return <FileResultCard card={card} />;

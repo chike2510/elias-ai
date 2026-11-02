@@ -1,0 +1,21 @@
+name = "elias-browser-run"
+main = "src/index.ts"
+compatibility_date = "2025-09-15"
+compatibility_flags = ["nodejs_compat"]
+
+# Cloudflare Browser Run (Browser Rendering) binding
+[browser]
+binding = "BROWSER"
+
+[[durable_objects.bindings]]
+name = "RUNS"
+class_name = "BrowserRun"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["BrowserRun"]
+
+[observability]
+enabled = true
+
+# Secret (set with `wrangler secret put ELIAS_WORKER_SECRET`): the same value as ELIAS_WORKER_SECRET on Vercel.

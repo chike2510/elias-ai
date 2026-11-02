@@ -30,7 +30,10 @@ export type Card =
   | ResearchReportCard
   | ImageCard
   | FileCard
-  | PreviewCard;
+  | PreviewCard
+  | BrowserRunCard;
+
+export type BrowserRunCard = { kind: "browser_run"; id: string; goal: string; startUrl: string };
 
 export type ImageCard = { kind: "image"; fileId: string; name: string; prompt: string; url: string; downloadUrl: string };
 export type FileCard = { kind: "file"; fileId: string; name: string; mime: string; size: number; url: string };
